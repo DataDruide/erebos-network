@@ -1,0 +1,26 @@
+[project]
+name = "erebos-network"
+version = "0.1.0"
+description = "Erebos Network - Anonymes Netzwerk mit adaptiven Sektoren"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MPL-2.0" }
+authors = [{ name = "Erebos Project" }]
+dependencies = [
+    "aiohttp>=3.9.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
