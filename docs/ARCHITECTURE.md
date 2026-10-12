@@ -92,6 +92,10 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | hygiene.py | Client-Hygiene |
 | hardening.py | Memory-Hardening |
 | path_selection.py | Pfad-Auswahl |
+| e2e.py | End-to-End Modus |
+| vrf_reputation.py | Verifizierbare Reputation |
+| hidden_service.py | Hidden Services |
+| obfuscation.py | App-Obfuskation |
 | crypto/pq_kem.py | ML-KEM-1024 |
 | crypto/pq_sig.py | SLH-DSA |
 | crypto/threefish.py | Threefish-512 |
@@ -99,4 +103,4 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | crypto/hybrid_kem.py | X25519 + ML-KEM-1024 |
 | crypto/pq_sphinx.py | PQ-Sphinx |
 
-164 Tests insgesamt.
+184 Tests insgesamt.

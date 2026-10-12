@@ -32,6 +32,10 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 | Client-Hygiene | Nein | Nein | Ja | Ja |
 | DoS-Hardening | Teilweise | Teilweise | Ja | Ja |
 | PQ-Sphinx | Nein | Nein | Nein | Ja |
+| End-to-End | Teilweise | Ja | Ja | Ja |
+| VRF-Reputation | Nein | Nein | Nein | Ja |
+| Hidden Services | Ja | Ja | Nein | Ja |
+| App-Obfuskation | Nein | Nein | Ja | Ja |
 
 Erebos ist das erste Darknet mit vollstaendiger Post-Quanten-Kryptographie
 auf NIST Level 5.
@@ -126,6 +130,17 @@ Client-Hygiene, DoS-Schutz, Pfad-Auswahl, PQ-Sphinx:
 
 ---
 
+### Phase 10: Final Security Layer
+
+End-to-End, VRF-Reputation, Hidden Services, Obfuskation:
+
+- End-to-End - kein Exit noetig, beide Seiten anonym
+- VRF-Reputation - Verifizierbare Ratings, Anti-Framing
+- Hidden Services - .erebos-Dienste mit Rendezvous-Punkten
+- Anwendungs-Obfuskation - Size-Noise, Protocol-Cover, Timing-Noise
+
+---
+
 ## Installation
 
     git clone https://github.com/DataDruide/erebos-network.git
@@ -156,7 +171,7 @@ Dann testen:
 
     pytest -v
 
-164 Tests, alle gruen.
+184 Tests, alle gruen.
 
 ---
 
@@ -186,6 +201,10 @@ Dann testen:
         hygiene.py       # Client-Hygiene
         hardening.py     # Memory-Hardening
         path_selection.py # Pfad-Auswahl
+        e2e.py           # End-to-End Modus
+        vrf_reputation.py # Verifizierbare Reputation
+        hidden_service.py # Hidden Services
+        obfuscation.py   # App-Obfuskation
         crypto/
             pq_kem.py    # ML-KEM-1024
             pq_sig.py    # SLH-DSA-SHA2-256s
@@ -216,6 +235,7 @@ Dann testen:
 - [x] Phase 7: Post-Quanten-Kryptographie
 - [x] Phase 8: Security Hardening (Hybrid, Poisson, Cover)
 - [x] Phase 9: Advanced Security (Hygiene, Hardening, Pfad, Sphinx)
+- [x] Phase 10: Final Security (E2E, VRF, Hidden Services, Obfuskation)
 - [ ] Phase 8: Paper schreiben (arXiv)
 - [ ] Phase 9: Community aufbauen
 - [ ] Phase 10: Netzwerk-Deployment

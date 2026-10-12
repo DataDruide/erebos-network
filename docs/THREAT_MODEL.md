@@ -81,6 +81,46 @@ Abwehr:
 - K/W (Reputation-gewichtet)
 - Reduziert Angreifer-Impact um bis zu 80%
 
+
+### 10. Exit-Gateway-Angreifer
+
+Faehigkeit: Sieht Traffic am Exit-Gateway.
+
+Abwehr:
+- End-to-End Modus (kein Exit noetig)
+- Hidden Services (beidseitig anonym)
+- Mixnet schuetzt auch Exit-Traffic
+
+### 11. Framing-Angreifer
+
+Faehigkeit: Low-Stake-Nodes beschaedigen High-Reputation-Nodes.
+
+Abwehr:
+- VRF-Reputation (Hash-Commitments)
+- Replay-Schutz
+- Konfidenz-Metrik
+- Min. verifizierte Ratings fuer Trust
+
+### 12. Hidden-Service-Angreifer
+
+Faehigkeit: Kompromittiert HSDir, deanonymisiert Service.
+
+Abwehr:
+- Rendezvous-Punkte (kein direkter Kontakt)
+- Introduction-Points (3+ pro Service)
+- PQ-Krypto fuer Descriptor
+- TTL-basierte Rotation
+
+### 13. Fingerprinting-Angreifer
+
+Faehigkeit: Erkennt Anwendung an Traffic-Mustern.
+
+Abwehr:
+- Size-Noise (zufaellige Payload-Groessen)
+- Protocol-Cover (HTTP/HTTPS/DNS/NTP/QUIC)
+- Timing-Noise (0-100ms)
+- Cover-Messages auf App-Ebene
+
 ### 6. Zensur-Angreifer
 
 Faehigkeit: Blockiert Netzwerk.

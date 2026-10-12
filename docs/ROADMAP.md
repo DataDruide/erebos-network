@@ -58,7 +58,14 @@ Status: 7 Phasen komplett
 - PQ-Sphinx
 - 17 Tests
 
-Gesamt: 164 Tests.
+### Phase 10: Final Security
+- End-to-End (kein Exit noetig)
+- VRF-Reputation (Anti-Framing)
+- Hidden Services (.erebos)
+- App-Obfuskation
+- 20 Tests
+
+Gesamt: 184 Tests.
 
 ## In Arbeit
 
