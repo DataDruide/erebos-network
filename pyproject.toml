@@ -9,6 +9,8 @@ authors = [{ name = "Erebos Project" }]
 dependencies = [
     "aiohttp>=3.9.0",
     "cryptography>=42.0.0",
+    "liboqs-python>=0.12.0",
+    "pyskein>=0.1.0",
 ]
 
 [project.optional-dependencies]
