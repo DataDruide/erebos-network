@@ -78,6 +78,28 @@ Ablauf:
 2. SHA-512 leitet Threefish-Key (64 Bytes) + Tweak (16 Bytes) ab
 3. Threefish-512 verschluesselt Daten
 
+
+## Hybrid-KEM (X25519 + ML-KEM-1024)
+
+Zusaetzlich zu purem ML-KEM-1024 bietet Erebos einen Hybrid-Modus:
+
+1. X25519 ephemeral Key Exchange (klassisch)
+2. ML-KEM-1024 Encapsulation (post-quantum)
+3. Shared Secret = SHA-256(X25519_secret || ML-KEM_secret)
+
+Vorteil: Sicher, selbst wenn einer der beiden Algorithmen gebrochen wird.
+
+## PQ-Sphinx (Forschungsprototyp)
+
+Klassisches Sphinx nutzt DH-Eigenschaften. PQ-KEMs teilen diese nicht.
+Erebos implementiert ein geschichtetes ML-KEM-1024-Format:
+
+- Pro Hop: ML-KEM-1024 Encapsulation
+- Layer = KEM-Ciphertext + XOR-verschluesselter Payload
+- MAC ueber alle Layer
+
+Dies ist ein Forschungsprototyp - das erste PQ-Mixnet-Format.
+
 ## Vergleich mit Tor/I2P
 
 | Komponente | Tor | I2P | Erebos |

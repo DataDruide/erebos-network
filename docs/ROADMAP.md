@@ -45,7 +45,20 @@ Status: 7 Phasen komplett
 - Threefish-512
 - 6 Tests
 
-Gesamt: 136 Tests.
+### Phase 8: Security Hardening
+- Hybrid-KEM (X25519 + ML-KEM-1024)
+- Poisson-Mixing
+- Konstanter Cover-Traffic
+- 11 Tests
+
+### Phase 9: Advanced Security
+- Client-Hygiene
+- Memory-Hardening
+- Pfad-Auswahl (4 Strategien)
+- PQ-Sphinx
+- 17 Tests
+
+Gesamt: 164 Tests.
 
 ## In Arbeit
 

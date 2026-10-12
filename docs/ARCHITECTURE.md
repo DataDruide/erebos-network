@@ -89,9 +89,14 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | payment.py | Payment |
 | swap.py | Atomic Swaps |
 | api.py | HTTP-API |
+| hygiene.py | Client-Hygiene |
+| hardening.py | Memory-Hardening |
+| path_selection.py | Pfad-Auswahl |
 | crypto/pq_kem.py | ML-KEM-1024 |
 | crypto/pq_sig.py | SLH-DSA |
 | crypto/threefish.py | Threefish-512 |
 | crypto/hybrid.py | Hybrid |
+| crypto/hybrid_kem.py | X25519 + ML-KEM-1024 |
+| crypto/pq_sphinx.py | PQ-Sphinx |
 
-136 Tests insgesamt.
+164 Tests insgesamt.

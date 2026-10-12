@@ -28,6 +28,10 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 | Eingebautes Payment | Nein | Nein | Ja | Ja |
 | Browser integriert | Ja | Nein | Nein | Ja |
 | Post-Quanten (NIST 5) | Nein | Nein | Nein | Ja |
+| Hybrid-KEM | Nein | Nein | Nein | Ja |
+| Client-Hygiene | Nein | Nein | Ja | Ja |
+| DoS-Hardening | Teilweise | Teilweise | Ja | Ja |
+| PQ-Sphinx | Nein | Nein | Nein | Ja |
 
 Erebos ist das erste Darknet mit vollstaendiger Post-Quanten-Kryptographie
 auf NIST Level 5.
@@ -103,6 +107,25 @@ NIST Level 5:
 
 ---
 
+### Phase 8: Security Hardening
+
+Hybrid-Krypto, Poisson-Mixnet, konstanter Cover-Traffic:
+
+- Hybrid-KEM - X25519 + ML-KEM-1024
+- Poisson-Mixing - Exponentialverteilung
+- Konstanter Cover-Traffic - Unobservability
+
+### Phase 9: Advanced Security
+
+Client-Hygiene, DoS-Schutz, Pfad-Auswahl, PQ-Sphinx:
+
+- Client-Hygiene - Timing-Jitter, Padding, Rate-Limits
+- Memory-Hardening - Descriptor-Limits, TTL-Cleanup
+- Pfad-Auswahl - alpha-SS, K-HF, K/W
+- PQ-Sphinx - Post-Quanten-Mixnet-Format
+
+---
+
 ## Installation
 
     git clone https://github.com/DataDruide/erebos-network.git
@@ -133,7 +156,7 @@ Dann testen:
 
     pytest -v
 
-136 Tests, alle gruen.
+164 Tests, alle gruen.
 
 ---
 
@@ -160,11 +183,16 @@ Dann testen:
         payment.py       # Payment-System
         swap.py          # Atomic Swaps
         api.py           # HTTP-API-Server
+        hygiene.py       # Client-Hygiene
+        hardening.py     # Memory-Hardening
+        path_selection.py # Pfad-Auswahl
         crypto/
             pq_kem.py    # ML-KEM-1024
             pq_sig.py    # SLH-DSA-SHA2-256s
             threefish.py # Threefish-512
             hybrid.py    # Hybrid-Krypto
+            hybrid_kem.py # X25519 + ML-KEM-1024
+            pq_sphinx.py # PQ-Sphinx Mixnet-Format
 
 ---
 
@@ -186,6 +214,8 @@ Dann testen:
 - [x] Phase 5: Monero-Payment
 - [x] Phase 6: HTTP-API + Browser-Integration
 - [x] Phase 7: Post-Quanten-Kryptographie
+- [x] Phase 8: Security Hardening (Hybrid, Poisson, Cover)
+- [x] Phase 9: Advanced Security (Hygiene, Hardening, Pfad, Sphinx)
 - [ ] Phase 8: Paper schreiben (arXiv)
 - [ ] Phase 9: Community aufbauen
 - [ ] Phase 10: Netzwerk-Deployment
