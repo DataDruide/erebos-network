@@ -2,6 +2,10 @@
 
 > **Ein neuartiges anonymes Netzwerk mit adaptiven Sektoren**
 
+[![Tests](https://github.com/DataDruide/erebos-network/actions/workflows/test.yml/badge.svg)](https://github.com/DataDruide/erebos-network/actions/workflows/test.yml)
+[![Lint](https://github.com/DataDruide/erebos-network/actions/workflows/lint.yml/badge.svg)](https://github.com/DataDruide/erebos-network/actions/workflows/lint.yml)
+[![Docs](https://github.com/DataDruide/erebos-network/actions/workflows/docs.yml/badge.svg)](https://github.com/DataDruide/erebos-network/actions/workflows/docs.yml)
+
 Erebos Network ist ein Forschungsprototyp für ein anonymes Netzwerk,
 das Tor und I2P als Grundlage nutzt und um adaptive Sektoren erweitert.
 

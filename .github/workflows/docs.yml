@@ -1,0 +1,40 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-docs:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check README exists
+        run: |
+          test -f README.md || (echo "❌ README.md fehlt" && exit 1)
+          test -f LICENSE || (echo "❌ LICENSE fehlt" && exit 1)
+          echo "✅ README und LICENSE vorhanden"
+
+      - name: Check Python docstrings
+        run: |
+          python3 -c "
+          import ast
+          import pathlib
+          missing = []
+          for p in pathlib.Path('src').rglob('*.py'):
+              tree = ast.parse(p.read_text())
+              if not ast.get_docstring(tree):
+                  missing.append(str(p))
+          if missing:
+              print(f'⚠️  {len(missing)} Dateien ohne Docstring:')
+              for m in missing[:5]:
+                  print(f'  - {m}')
+          else:
+              print('✅ Alle Module haben Docstrings')
+          "
