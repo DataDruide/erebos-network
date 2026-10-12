@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sys
 
+from .api import run_server
 from .proxy import ErebosProxy
 from .router import ErebosRouter
 from .sectors import SectorType, list_sectors
@@ -80,6 +81,17 @@ def main() -> int:
         help="Standard-Sektor",
     )
     parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Startet den HTTP-API-Server auf 127.0.0.1:9050",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=9050,
+        help="Port für den API-Server",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -88,6 +100,10 @@ def main() -> int:
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    if args.serve:
+        run_server(port=args.port)
+        return 0
 
     if args.demo:
         asyncio.run(demo())
