@@ -1,0 +1,53 @@
+/*
+ * Erebos-Mixnet: Tamarin diff-Equivalence fuer Unlinkability
+ *
+ * Nutzt Tamarin's diff-Operator fuer Observational Equivalence.
+ */
+
+theory ErebosUnlinkability
+begin
+
+builtins: hashing
+
+functions: senc/2, sdec/2
+
+equations: sdec(senc(m, k), k) = m
+
+rule RegisterSender:
+  [ Fr(~sid) ]
+  -->
+  [ !Sender($A, ~sid) ]
+
+rule RegisterReceiver:
+  [ Fr(~rid) ]
+  -->
+  [ !Receiver($B, ~rid) ]
+
+rule SessionKey:
+  [ Fr(~k) ]
+  -->
+  [ !SessionKey($A, $B, ~k) ]
+
+(* Zwei Varianten: Left und Right *)
+rule SendLeft:
+  let enc_msg = senc(diff(<'left', $A, $B>, <'right', $A, $B>), ~k) in
+  [ !Sender($A, ~sid), !SessionKey($A, $B, ~k) ]
+  --[ SenderSend($A, $B, enc_msg) ]->
+  [ Out(enc_msg) ]
+
+rule ReceiveLeft:
+  let dec_msg = sdec(enc_msg, ~k) in
+  [ !Receiver($B, ~rid), !SessionKey($A, $B, ~k), In(enc_msg) ]
+  --[ ReceiverRecv($B, $A, dec_msg) ]->
+  [ ]
+
+lemma unlinkability:
+  " All A B #i.
+    SenderSend(A, B) @ #i
+  ==> not (Ex #j. K(A) @ #j) "
+
+lemma executability:
+  exists-trace
+  " Ex A B msg #i. SenderSend(A, B, msg) @ #i "
+
+end
