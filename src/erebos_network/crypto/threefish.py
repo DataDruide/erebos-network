@@ -1,25 +1,42 @@
-"""Threefish-512 symmetrische Verschlüsselung.
+"""Threefish-512 symmetrische Verschluesselung.
 
-512-Bit Schlüssel = 256-Bit Post-Quanten nach Grover.
+512-Bit Schluessel = 256-Bit Post-Quanten nach Grover.
+
+Nutzt pyskein (Modul: skein) wenn importierbar.
+API: threefish(key, tweak).encrypt_block(data)
 """
 
 import logging
 import os
 from dataclasses import dataclass
 
+# pyskein installiert als "skein", nicht "pyskein"
+HAS_PYSKEIN = False
+_threefish_factory = None
+
 try:
-    from pyskein import threefish
+    from skein import threefish as _tf_factory
+    _threefish_factory = _tf_factory
     HAS_PYSKEIN = True
-except ImportError:
-    HAS_PYSKEIN = False
-    threefish = None
+except (ImportError, ModuleNotFoundError, AttributeError):
+    pass
+
 
 logger = logging.getLogger(__name__)
+
+if HAS_PYSKEIN:
+    logger.info("Threefish: pyskein backend")
+else:
+    logger.warning("Threefish: pyskein NICHT verfuegbar")
 
 
 @dataclass
 class ThreefishCipher:
-    """Threefish-512 Verschlüsselung."""
+    """Threefish-512 Verschluesselung.
+
+    API: threefish(key, tweak).encrypt_block(data)
+    Blockgroesse: 64 Bytes
+    """
 
     key: bytes
     tweak: bytes
@@ -36,37 +53,42 @@ class ThreefishCipher:
 
     @classmethod
     def generate(cls) -> "ThreefishCipher":
-        """Generiert einen zufälligen Schlüssel + Tweak."""
+        """Generiert einen zufaelligen Schluessel + Tweak."""
         return cls(
             key=os.urandom(64),
             tweak=os.urandom(16),
         )
 
-    def encrypt(self, plaintext: bytes) -> bytes:
-        """Verschlüsselt Daten (Blockgröße: 64 Bytes)."""
+    def _make_cipher(self):
+        """Erstellt ein pyskein-Cipher-Objekt."""
         if not HAS_PYSKEIN:
-            raise RuntimeError("pyskein nicht installiert: pip install pyskein")
+            raise RuntimeError(
+                "pyskein nicht verfuegbar. "
+                "Installiere: pip install pyskein"
+            )
+        return _threefish_factory(self.key, self.tweak)
 
+    def encrypt(self, plaintext: bytes) -> bytes:
+        """Verschluesselt Daten (Blockgroesse: 64 Bytes)."""
         if len(plaintext) % 64 != 0:
             raise ValueError(
                 f"Plaintext muss Vielfaches von 64 sein, nicht {len(plaintext)}"
             )
 
-        return threefish.encrypt(plaintext, self.key, self.tweak)
+        cipher = self._make_cipher()
+        return cipher.encrypt_block(plaintext)
 
     def decrypt(self, ciphertext: bytes) -> bytes:
-        """Entschlüsselt Daten."""
-        if not HAS_PYSKEIN:
-            raise RuntimeError("pyskein nicht installiert")
-
+        """Entschluesselt Daten."""
         if len(ciphertext) % 64 != 0:
             raise ValueError("Ciphertext muss Vielfaches von 64 sein")
 
-        return threefish.decrypt(ciphertext, self.key, self.tweak)
+        cipher = self._make_cipher()
+        return cipher.decrypt_block(ciphertext)
 
     @staticmethod
     def sizes() -> dict:
-        """Gibt Größen zurück."""
+        """Gibt Groessen zurueck."""
         return {
             "algorithm": "Threefish-512",
             "key": 64,
@@ -74,4 +96,5 @@ class ThreefishCipher:
             "tweak": 16,
             "rounds": 72,
             "post_quantum_security": 256,
+            "backend": "pyskein" if HAS_PYSKEIN else "unavailable",
         }
