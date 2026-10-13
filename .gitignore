@@ -11,3 +11,6 @@ htmlcov/
 .idea/
 *.swp
 .DS_Store
+states/
+*.st
+*.fp
