@@ -3,14 +3,13 @@
 512-Bit Schluessel = 256-Bit Post-Quanten nach Grover.
 
 Nutzt pyskein (Modul: skein) wenn importierbar.
-API: threefish(key, tweak).encrypt_block(data)
+Blockgroesse: 64 Bytes.
 """
 
 import logging
 import os
 from dataclasses import dataclass
 
-# pyskein installiert als "skein", nicht "pyskein"
 HAS_PYSKEIN = False
 _threefish_factory = None
 
@@ -69,22 +68,36 @@ class ThreefishCipher:
         return _threefish_factory(self.key, self.tweak)
 
     def encrypt(self, plaintext: bytes) -> bytes:
-        """Verschluesselt Daten (Blockgroesse: 64 Bytes)."""
+        """Verschluesselt Daten (Vielfaches von 64 Bytes)."""
+        if not HAS_PYSKEIN:
+            raise RuntimeError("pyskein nicht verfuegbar")
+
         if len(plaintext) % 64 != 0:
             raise ValueError(
                 f"Plaintext muss Vielfaches von 64 sein, nicht {len(plaintext)}"
             )
 
         cipher = self._make_cipher()
-        return cipher.encrypt_block(plaintext)
+        result = b""
+        for i in range(0, len(plaintext), 64):
+            block = plaintext[i:i+64]
+            result += cipher.encrypt_block(block)
+        return result
 
     def decrypt(self, ciphertext: bytes) -> bytes:
-        """Entschluesselt Daten."""
+        """Entschluesselt Daten (Vielfaches von 64 Bytes)."""
+        if not HAS_PYSKEIN:
+            raise RuntimeError("pyskein nicht verfuegbar")
+
         if len(ciphertext) % 64 != 0:
             raise ValueError("Ciphertext muss Vielfaches von 64 sein")
 
         cipher = self._make_cipher()
-        return cipher.decrypt_block(ciphertext)
+        result = b""
+        for i in range(0, len(ciphertext), 64):
+            block = ciphertext[i:i+64]
+            result += cipher.decrypt_block(block)
+        return result
 
     @staticmethod
     def sizes() -> dict:

@@ -1,0 +1,114 @@
+/*
+ * Erebos-Mixnet: Verfeinertes Tamarin-Modell (final)
+ */
+
+theory ErebosMixnetRefined
+begin
+
+builtins: hashing, signing
+
+functions: senc/2, sdec/2, hash/1
+equations: sdec(senc(m, k), k) = m
+
+rule RegisterSender:
+  [ Fr(~sid), Fr(~s_sig_sk) ]
+  -->
+  [ !Sender($A, ~sid, pk(~s_sig_sk)),
+    !SenderSig($A, ~s_sig_sk) ]
+
+rule RegisterReceiver:
+  [ Fr(~rid), Fr(~r_sig_sk) ]
+  -->
+  [ !Receiver($B, ~rid, pk(~r_sig_sk)),
+    !ReceiverSig($B, ~r_sig_sk) ]
+
+rule RegisterMixer:
+  [ Fr(~mid) ]
+  -->
+  [ !Mixer($M, ~mid) ]
+
+rule SessionKey:
+  [ Fr(~k) ]
+  --[ SessionKeyCreated($A, $B, ~k) ]->
+  [ SessionKeyForSender($A, $B, ~k),
+    SessionKeyForReceiver($A, $B, ~k) ]
+
+rule Send:
+  let
+    payload = <$A, $B, 'message'>
+    layer3 = senc(payload, ~k)
+    layer2 = senc(<'mixer2', layer3>, ~k)
+    onion = senc(<'mixer1', layer2>, ~k)
+    sig = sign(hash(onion), ~s_sig_sk)
+  in
+  [ !Sender($A, ~sid, pk_sig_A),
+    !SenderSig($A, ~s_sig_sk),
+    SessionKeyForSender($A, $B, ~k) ]
+  --[ SenderSend($A, $B, onion),
+      Out_Sender($A, $B, onion) ]->
+  [ Out(<onion, sig>) ]
+
+rule Mixer1:
+  let
+    layer2 = sdec(onion, ~k_mixer1)
+  in
+  [ !Mixer('mixer1', ~k_mixer1),
+    In(<onion, sig>) ]
+  --[ MixForward('mixer1', onion) ]->
+  [ Out(<layer2, sig>) ]
+
+rule Mixer2:
+  let
+    layer3 = sdec(layer2, ~k_mixer2)
+  in
+  [ !Mixer('mixer2', ~k_mixer2),
+    In(<layer2, sig>) ]
+  --[ MixForward('mixer2', layer2) ]->
+  [ Out(<layer3, sig>) ]
+
+rule Receive:
+  let
+    payload = sdec(layer3, ~k)
+  in
+  [ !Receiver($B, ~rid, pk_sig_B),
+    SessionKeyForReceiver($A, $B, ~k),
+    In(<layer3, sig>) ]
+  --[ ReceiverRecv($B, $A, payload) ]->
+  [ ]
+
+rule RevealSessionKeySender:
+  [ SessionKeyForSender($A, $B, ~k) ]
+  --[ SessionKeyReveal($A, $B) ]->
+  [ Out(~k) ]
+
+rule RevealSessionKeyReceiver:
+  [ SessionKeyForReceiver($A, $B, ~k) ]
+  --[ SessionKeyReveal($A, $B) ]->
+  [ Out(~k) ]
+
+lemma sender_unlinkability:
+  " All A1 A2 onion1 onion2 #i #j.
+    Out_Sender(A1, A2, onion1) @ #i
+    & Out_Sender(A1, A2, onion2) @ #j
+    & not (onion1 = onion2)
+  ==> not (Ex #k. K(<onion1, onion2>) @ #k) "
+
+lemma receiver_unlinkability:
+  " All A1 A2 B1 B2 payload1 payload2 #i #j.
+    ReceiverRecv(B1, A1, payload1) @ #i
+    & ReceiverRecv(B2, A2, payload2) @ #j
+    & not (B1 = B2)
+  ==> not (Ex #k. K(<B1, B2>) @ #k) "
+
+lemma message_unlinkability:
+  " All A1 A2 onion1 onion2 #i #j.
+    Out_Sender(A1, A2, onion1) @ #i
+    & Out_Sender(A1, A2, onion2) @ #j
+    & not (onion1 = onion2)
+  ==> not (Ex #k. K(<onion1, onion2>) @ #k) "
+
+lemma executability:
+  exists-trace
+  " Ex A B onion #i. Out_Sender(A, B, onion) @ #i "
+
+end

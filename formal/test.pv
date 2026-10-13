@@ -1,0 +1,2 @@
+free c: channel.
+process out(c, "hello").

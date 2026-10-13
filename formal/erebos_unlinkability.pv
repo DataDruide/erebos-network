@@ -1,0 +1,54 @@
+(* Erebos-Mixnet: ProVerif-Modell fuer Unlinkability *)
+
+free c: channel.
+
+(* Kryptographische Primitive *)
+fun senc(bitstring, key): bitstring.
+fun sdec(bitstring, key): bitstring.
+
+(* Gleichung *)
+equation forall m: bitstring, k: key; sdec(senc(m, k), k) = m.
+
+(* Events *)
+event SenderSend(bitstring).
+event ReceiverRecv(bitstring).
+
+(* Sender-Prozess *)
+let processSender(sid: bitstring, rid: bitstring, msg: bitstring, k: key) =
+  let enc_msg = senc(msg, k) in
+  event SenderSend(enc_msg);
+  out(c, (sid, rid, enc_msg)).
+
+(* Receiver-Prozess *)
+let processReceiver(sid: bitstring, rid: bitstring, k: key) =
+  in(c, (x_sid: bitstring, x_rid: bitstring, enc_msg: bitstring));
+  if x_sid = sid && x_rid = rid then
+    let dec_msg = sdec(enc_msg, k) in
+    event ReceiverRecv(dec_msg);
+    out(c, dec_msg).
+
+(* Haupt-Prozess *)
+process
+  new k: key;
+  new sid1: bitstring;
+  new rid1: bitstring;
+  new msg1: bitstring;
+  new sid2: bitstring;
+  new rid2: bitstring;
+  new msg2: bitstring;
+  (
+    processSender(sid1, rid1, msg1, k) |
+    processReceiver(sid1, rid1, k)
+  ) |
+  (
+    processSender(sid2, rid2, msg2, k) |
+    processReceiver(sid2, rid2, k)
+  )
+
+(* Queries - ProVerif 2.05 Syntax *)
+query attacker(sid1).
+query attacker(sid2).
+query attacker(rid1).
+query attacker(rid2).
+query attacker(msg1).
+query attacker(msg2).

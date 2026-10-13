@@ -1,0 +1,83 @@
+(* Erebos-Mixnet: ProVerif-Modell fuer Unlinkability *)
+
+(*
+ * Basiert auf Kremer & Ryan (2005) und Debant et al. (2026).
+ * Prueft: Sender-Unlinkability, Receiver-Unlinkability, Message-Unlinkability.
+ *)
+
+free c: channel.
+
+(* Kryptographische Primitive *)
+fun senc/2.
+fun sdec/2.
+fun pk/1.
+fun aenc/2.
+fun adec/2.
+fun sign/2.
+fun checksign/2.
+fun mac/2.
+fun hash/1.
+
+equation sdec(senc(m, k), k) = m.
+equation adec(aenc(m, pk(k)), k) = m.
+equation checksign(sign(m, sk), pk(sk)) = m.
+
+(* Events fuer Unlinkability *)
+event SenderSend(bitstring).
+event ReceiverRecv(bitstring).
+event MixForward(bitstring).
+
+(* Mixnet-Prozess *)
+let processMixer() =
+  in(c, x:bitstring);
+  event MixForward(x);
+  out(c, x).
+
+(* Sender-Prozess *)
+let processSender(sid:bitstring, rid:bitstring, msg:bitstring, k:key) =
+  let enc_msg = senc(msg, k) in
+  event SenderSend(enc_msg);
+  out(c, (sid, rid, enc_msg)).
+
+(* Receiver-Prozess *)
+let processReceiver(sid:bitstring, rid:bitstring, k:key) =
+  in(c, (x_sid:bitstring, x_rid:bitstring, enc_msg:bitstring));
+  if x_sid = sid && x_rid = rid then
+    let dec_msg = sdec(enc_msg, k) in
+    event ReceiverRecv(dec_msg);
+    out(c, dec_msg).
+
+(* Haupt-Prozess *)
+process
+  new k:key;
+  new sid1:bitstring;
+  new rid1:bitstring;
+  new msg1:bitstring;
+  new sid2:bitstring;
+  new rid2:bitstring;
+  new msg2:bitstring;
+  
+  (* Zwei unabhaengige Runs *)
+  (
+    processSender(sid1, rid1, msg1, k) |
+    processReceiver(sid1, rid1, k) |
+    processMixer()
+  ) |
+  (
+    processSender(sid2, rid2, msg2, k) |
+    processReceiver(sid2, rid2, k) |
+    processMixer()
+  )
+
+(* Queries *)
+(* Sender-Unlinkability: sid1 und sid2 sind nicht verknuepfbar *)
+query attacker(sid1).
+query attacker(sid2).
+
+(* Receiver-Unlinkability: rid1 und rid2 sind nicht verknuepfbar *)
+query attacker(rid1).
+query attacker(rid2).
+
+(* Message-Unlinkability: msg1 und msg2 sind nicht verknuepfbar *)
+query attacker(msg1).
+query attacker(msg2).

@@ -1,0 +1,81 @@
+/*
+ * Erebos-Packet: Tamarin-Modell (Keys als Prozess-Parameter)
+ *
+ * Wichtig: Session-Keys sind KEINE separaten Fakten.
+ * Sie werden direkt an die Send-Regel uebergeben.
+ */
+
+theory ErebosPacket
+begin
+
+builtins: hashing
+
+functions: layer_enc/2, layer_dec/2, mac/2
+
+equations: layer_dec(layer_enc(m, k), k) = m
+
+rule RegisterPeer:
+  [ Fr(~sk) ]
+  -->
+  [ !Peer($A, ~sk) ]
+
+rule RegisterMixer:
+  [ Fr(~mixer_sk) ]
+  -->
+  [ !Mixer($M, ~mixer_sk) ]
+
+/*
+ * SessionKey: Erzeugt einen frischen Key fuer eine Session.
+ * Der Key wird DIREKT an die naechste Regel uebergeben,
+ * NICHT als persistenter Fakt gespeichert.
+ */
+
+rule SessionKey:
+  [ Fr(~k) ]
+  --[ SessionKeyCreated($A, $B) ]->
+  [ SessionKeySender($A, $B, ~k) ]
+
+rule CreatePacket:
+  let
+    layer3 = layer_enc(<$A, $B, 'payload'>, ~k)
+    layer2 = layer_enc(<'mixer2', layer3>, ~k)
+    onion = layer_enc(<'mixer1', layer2>, ~k)
+    packet_mac = mac(onion, ~k)
+  in
+  [ !Peer($A, ~sk),
+    SessionKeySender($A, $B, ~k) ]
+  --[ SenderSend($A, $B, onion),
+      Out_Sender($A, $B, onion) ]->
+  [ Out(<onion, packet_mac>),
+    Out(~k) ]
+
+rule Mixer1:
+  let
+    layer2 = layer_dec(onion, ~mixer_sk)
+  in
+  [ !Mixer('mixer1', ~mixer_sk),
+    In(<onion, packet_mac>) ]
+  --[ MixForward('mixer1', onion) ]->
+  [ Out(<layer2, packet_mac>) ]
+
+rule Mixer2:
+  let
+    layer3 = layer_dec(layer2, ~mixer_sk)
+  in
+  [ !Mixer('mixer2', ~mixer_sk),
+    In(<layer2, packet_mac>) ]
+  --[ MixForward('mixer2', layer2) ]->
+  [ Out(<layer3, packet_mac>) ]
+
+lemma executability:
+  exists-trace
+  " Ex A B onion #i. Out_Sender(A, B, onion) @ #i "
+
+lemma sender_unlinkability:
+  " All A1 A2 B1 B2 onion1 onion2 #i #j.
+    Out_Sender(A1, B1, onion1) @ #i
+    & Out_Sender(A2, B2, onion2) @ #j
+    & not (onion1 = onion2)
+  ==> not (Ex #k. K(<onion1, onion2>) @ #k) "
+
+end

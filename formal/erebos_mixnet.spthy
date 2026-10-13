@@ -1,0 +1,72 @@
+theory ErebosMixnet
+begin
+builtins: hashing, signing
+functions: senc/2, sdec/2
+equations: sdec(senc(m, k), k) = m
+
+rule RegisterSender:
+  [ Fr(~sid) ]
+  -->
+  [ !Sender($A, ~sid) ]
+
+rule RegisterReceiver:
+  [ Fr(~rid) ]
+  -->
+  [ !Receiver($B, ~rid) ]
+
+rule SessionKey:
+  [ Fr(~k) ]
+  --[ SessionKeyCreated($A, $B, ~k) ]->
+  [ !SessionKey($A, $B, ~k) ]
+
+rule Send:
+  let
+    enc_msg = senc(<$A, $B, 'payload'>, ~k)
+  in
+  [ !Sender($A, ~sid),
+    !SessionKey($A, $B, ~k) ]
+  --[ SenderSend($A, $B, enc_msg) ]->
+  [ Out(enc_msg) ]
+
+rule Mix:
+  [ In(x) ]
+  --[ MixForward(x) ]->
+  [ Out(x) ]
+
+rule Receive:
+  let
+    dec_msg = sdec(enc_msg, ~k)
+  in
+  [ !Receiver($B, ~rid),
+    !SessionKey($A, $B, ~k),
+    In(enc_msg) ]
+  --[ ReceiverRecv($B, $A, dec_msg) ]->
+  [ ]
+
+lemma sender_unlinkability:
+  " All A1 A2 B1 B2 msg1 msg2 #i #j.
+    SenderSend(A1, B1, msg1) @ #i
+    & SenderSend(A2, B2, msg2) @ #j
+    & not (A1 = A2)
+    & not (B1 = B2)
+  ==> not (Ex #k. K(<A1, A2>) @ #k) "
+
+lemma receiver_unlinkability:
+  " All A1 A2 B1 B2 msg1 msg2 #i #j.
+    ReceiverRecv(B1, A1, msg1) @ #i
+    & ReceiverRecv(B2, A2, msg2) @ #j
+    & not (B1 = B2)
+    & not (A1 = A2)
+  ==> not (Ex #k. K(<B1, B2>) @ #k) "
+
+lemma message_unlinkability:
+  " All A1 A2 B1 B2 msg1 msg2 #i #j.
+    SenderSend(A1, B1, msg1) @ #i
+    & SenderSend(A2, B2, msg2) @ #j
+    & not (msg1 = msg2)
+  ==> not (Ex #k. K(<msg1, msg2>) @ #k) "
+
+lemma executability:
+  exists-trace
+  " Ex A B msg #i. SenderSend(A, B, msg) @ #i "
+end
