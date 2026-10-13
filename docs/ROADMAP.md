@@ -96,7 +96,23 @@ Status: 7 Phasen komplett
 - Difficulty skaliert + IP-Rate-Limits
 - 20 Tests
 
-Gesamt: 304 Tests.
+### Phase 18: TGTO
+- Template-Guided Traffic Obfuscation
+- 18 Tests
+
+### Phase 19: Dandelion++ Enhancement
+- Poisson-Embargo + OSPEAD + FCMP++
+- 23 Tests
+
+### Phase 20: HS-Obfuskation
+- BurstBreaker + Splash + Response-Padding
+- 16 Tests
+
+### Phase 21: TCP-Normalisierung
+- IP-ID + Timestamps + Window + TLS
+- 19 Tests
+
+Gesamt: 380 Tests.
 
 ## In Arbeit
 

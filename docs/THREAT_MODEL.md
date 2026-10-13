@@ -197,6 +197,50 @@ Abwehr:
 - Attack-Detection (>100/min)
 - Reputation-Bypass
 
+
+### 21. Website-Fingerprinting-Angreifer
+
+Faehigkeit: Erkennt Website an Traffic-Mustern (FMWF).
+
+Abwehr:
+- TGTO (Template-Guided Obfuscation)
+- TraceMorpher (Resampling + Scaling)
+- SplashInjector (kurze Perturbationen)
+- WF: 96% -> 36% (60% Reduktion)
+- FRUGAL: ASR 2.68% bei 30% Overhead
+
+### 22. Monero-Timing-Angreifer
+
+Faehigkeit: OSPEAD MAP-Decoder (1-in-4.2).
+
+Abwehr:
+- Poisson-Embargo (2% -> 0.37%)
+- OSPEAD-Decoys (1-in-4.2 -> ~1-in-16)
+- Peer-Fallback (keine stille Degradierung)
+- Cover-Txs (10-20%)
+- FCMP++-Ready (100M+ Anonymitaet)
+
+### 23. HS-Fingerprinting-Angreifer
+
+Faehigkeit: BurstToCell-Attn (98.1% Accuracy).
+
+Abwehr:
+- BurstBreaker (Threshold=5, Padding=3)
+- SplashHS (1-4 Bloecke, 64-128B)
+- ResponsePadding (128B)
+- Break-Pad: TPR 76.84% bei 29% Overhead
+
+### 24. TCP-Header-Tagging-Angreifer
+
+Faehigkeit: Versteckt Tags in TCP/IP-Headern.
+
+Abwehr:
+- IPIDNormalizer (Randomisierung)
+- TimestampScrubber (untere Bits)
+- WindowNormalizer (Standardwert)
+- OptionScrubber (Optionen entfernt)
+- TLSRecordPadder (TLS-Padding)
+
 ### 6. Zensur-Angreifer
 
 Faehigkeit: Blockiert Netzwerk.

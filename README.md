@@ -43,6 +43,10 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 | Flow-Splitting | Nein | Nein | Nein | Ja |
 | Intro-Point-Rotation | Ja | Nein | Nein | Ja |
 | Dynamic PoW | Nein | Nein | Nein | Ja |
+| WF-Schutz (TGTO) | Nein | Nein | Nein | Ja |
+| Dandelion++ | Nein | Nein | Nein | Ja |
+| HS-Obfuskation | Nein | Nein | Nein | Ja |
+| TCP-Normalisierung | Nein | Nein | Nein | Ja |
 
 Erebos ist das erste Darknet mit vollstaendiger Post-Quanten-Kryptographie
 auf NIST Level 5.
@@ -225,6 +229,49 @@ Schutz gegen IoT-Sybil-Angriffe (Kimwolf 2026):
 
 ---
 
+### Phase 18: TGTO (Website Fingerprinting Defense)
+
+Schutz gegen Website Fingerprinting (FMWF, TGTO, Splash, FRUGAL):
+
+- TemplateLibrary: 5 Templates (baseline/web/api/bulk/messaging)
+- TraceMorpher: Resampling + Scaling
+- SplashInjector: Kurze Perturbations-Bloecke
+- WF-Genauigkeit: 96% -> 36% (60% Reduktion)
+- FRUGAL: ASR 2.68% bei 30% Overhead
+
+### Phase 19: Dandelion++ Enhancement
+
+Schutz gegen Monero-Timing-Angriffe (OSPEAD):
+
+- Poisson-Embargo: 2% -> 0.37% vorzeitiges Fluffing
+- OSPEAD-Decoys: 1-in-4.2 -> ~1-in-16 MAP-Decoder
+- Peer-Fallback: Verhindert stille Degradierung
+- Cover-Txs: 10-20% Dummy-Transaktionen
+- FCMP++-Ready: 100M+ Anonymitaets-Set
+
+### Phase 20: HS-Obfuskation
+
+Schutz gegen Hidden-Service-Fingerprinting (BurstToCell):
+
+- BurstBreaker: Zerlegt lange Bursts (Threshold=5)
+- SplashHS: Kurze Perturbations-Bloecke
+- ResponsePadding: 128B Padding fuer HS-Antworten
+- BurstToCell-Attn: 98.1% -> blockiert
+- Break-Pad: TPR 76.84% bei 29% Overhead
+
+### Phase 21: TCP-Normalisierung
+
+Schutz gegen Header-Tagging (Rowland, Giffin, Patent):
+
+- IPIDNormalizer: Randomisiert IP-ID
+- TimestampScrubber: Untere Bits randomisiert
+- WindowNormalizer: Standardwert
+- OptionScrubber: Entfernt TCP-Optionen
+- TLSRecordPadder: TLS-Record-Padding
+- 12/12 kritische Luecken geschlossen
+
+---
+
 ## Installation
 
     git clone https://github.com/DataDruide/erebos-network.git
@@ -255,7 +302,7 @@ Dann testen:
 
     pytest -v
 
-304 Tests, alle gruen.
+380 Tests, alle gruen.
 
 ---
 
@@ -296,6 +343,10 @@ Dann testen:
         flow_splitting.py # Flow-Splitting
         hs_rotation.py   # HS-Introduction-Rotation
         dynamic_pow.py   # Dynamic Proof-of-Work
+        tgto_defense.py  # TGTO (WF-Schutz)
+        dandelion_plus.py # Dandelion++ Verstaerkung
+        hs_obfuscation.py # HS-Obfuskation
+        tcp_normalizer.py # TCP-Normalisierung
         crypto/
             pq_kem.py    # ML-KEM-1024
             pq_sig.py    # SLH-DSA-SHA2-256s
@@ -334,6 +385,10 @@ Dann testen:
 - [x] Phase 15: Flow-Splitting (Shape-Analyse)
 - [x] Phase 16: HS Introduction-Point Rotation (Intersection)
 - [x] Phase 17: Dynamic PoW (IoT-Sybil)
+- [x] Phase 18: TGTO (Website Fingerprinting)
+- [x] Phase 19: Dandelion++ Enhancement (Monero-Timing)
+- [x] Phase 20: HS-Obfuskation (HS-Fingerprinting)
+- [x] Phase 21: TCP-Normalisierung (Header-Tagging)
 - [ ] Phase 8: Paper schreiben (arXiv)
 - [ ] Phase 9: Community aufbauen
 - [ ] Phase 10: Netzwerk-Deployment
