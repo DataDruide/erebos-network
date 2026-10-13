@@ -1,6 +1,7 @@
-"""Peer-Discovery für Erebos Network.
+"""Peer-Discovery fuer Erebos Network.
 
 Findet Peers dezentral ohne zentralen Server.
+Erweitert um Eclipse-Schutz.
 """
 
 import asyncio
@@ -17,24 +18,27 @@ from .dht import (
     generate_peer_id,
     xor_distance,
 )
+from .eclipse_protection import EclipseProtection
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DiscoveryConfig:
-    """Konfiguration für Peer-Discovery."""
+    """Konfiguration fuer Peer-Discovery."""
 
     bootstrap_peers: list[str] = field(default_factory=list)
     max_peers: int = 1000
     refresh_interval_seconds: int = 300
     peer_timeout_seconds: int = 3600
+    eclipse_protection: bool = True
 
 
 class PeerDiscovery:
     """Peer-Discovery-Service.
 
-    Findet Peers über DHT, Bootstrap-Nodes und Peer-Exchange.
+    Findet Peers ueber DHT, Bootstrap-Nodes und Peer-Exchange.
+    Mit Eclipse-Schutz durch Subnetz-Diversity.
     """
 
     def __init__(
@@ -47,30 +51,32 @@ class PeerDiscovery:
         self.config = config or DiscoveryConfig()
         self.routing_table = RoutingTable(self.own_id)
         self._known_peers: dict[str, PeerInfo] = {}
+        self.eclipse = (
+            EclipseProtection()
+            if self.config.eclipse_protection
+            else None
+        )
         self.stats = {
             "peers_discovered": 0,
             "peers_added": 0,
             "peers_removed": 0,
+            "peers_rejected_eclipse": 0,
             "lookups": 0,
         }
 
     @property
     def peer_count(self) -> int:
-        """Anzahl bekannter Peers."""
         return self.routing_table.total_peers
 
     def add_peer(self, address: str, reputation: float = 0.5) -> bool:
-        """Fügt einen Peer hinzu.
-
-        Args:
-            address: IP:Port
-            reputation: Reputation (0.0-1.0)
-
-        Returns:
-            True wenn hinzugefügt
-        """
+        """Fuegt einen Peer hinzu (mit Eclipse-Schutz)."""
         peer_id = generate_peer_id(address)
         if peer_id == self.own_id:
+            return False
+
+        # Eclipse-Schutz
+        if self.eclipse and not self.eclipse.can_accept(address):
+            self.stats["peers_rejected_eclipse"] += 1
             return False
 
         peer = PeerInfo(
@@ -83,11 +89,15 @@ class PeerDiscovery:
             self._known_peers[peer_id] = peer
             self.stats["peers_added"] += 1
             return True
+
         return False
 
     def remove_peer(self, peer_id: str) -> bool:
         """Entfernt einen Peer."""
         if peer_id in self._known_peers:
+            peer = self._known_peers[peer_id]
+            if self.eclipse:
+                self.eclipse.remove(peer.address)
             del self._known_peers[peer_id]
             self.routing_table.remove_peer(peer_id)
             self.stats["peers_removed"] += 1
@@ -95,23 +105,12 @@ class PeerDiscovery:
         return False
 
     def lookup(self, target_id: str) -> list[PeerInfo]:
-        """Sucht Peers nahe einer Ziel-ID.
-
-        Args:
-            target_id: Ziel-Peer-ID
-
-        Returns:
-            Liste der nächsten Peers
-        """
+        """Sucht Peers nahe einer Ziel-ID."""
         self.stats["lookups"] += 1
         return self.routing_table.find_closest(target_id)
 
     def bootstrap(self) -> int:
-        """Bootstrappt über konfigurierte Peers.
-
-        Returns:
-            Anzahl hinzugefügter Peers
-        """
+        """Bootstrappt ueber konfigurierte Peers."""
         added = 0
         for address in self.config.bootstrap_peers:
             if self.add_peer(address):
@@ -120,11 +119,7 @@ class PeerDiscovery:
         return added
 
     def cleanup_stale(self, max_age: float = 3600) -> int:
-        """Entfernt veraltete Peers.
-
-        Returns:
-            Anzahl entfernter Peers
-        """
+        """Entfernt veraltete Peers."""
         removed = 0
         for bucket in self.routing_table.buckets.values():
             for peer in bucket.get_stale(max_age):
@@ -133,9 +128,12 @@ class PeerDiscovery:
         return removed
 
     def get_stats(self) -> dict:
-        """Gibt Statistiken zurück."""
-        return {
+        """Statistiken."""
+        result = {
             **self.stats,
             "peer_count": self.peer_count,
             "dht": self.routing_table.get_stats(),
         }
+        if self.eclipse:
+            result["eclipse"] = self.eclipse.get_stats()
+        return result
