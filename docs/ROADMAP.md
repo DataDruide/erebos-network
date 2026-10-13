@@ -80,7 +80,23 @@ Status: 7 Phasen komplett
 - 20/30 Bestaetigungen
 - 10 Tests
 
-Gesamt: 235 Tests.
+### Phase 14: Predictive Perturbation
+- TrafficPredictor + Perturbation
+- 14 Tests
+
+### Phase 15: Flow-Splitting
+- S=4 Gateways, I=2.0 Cover
+- 16 Tests
+
+### Phase 16: HS-Intro-Point-Rotation
+- 4 Rotations-Gruende + Intersection-Detection
+- 19 Tests
+
+### Phase 17: Dynamic PoW
+- Difficulty skaliert + IP-Rate-Limits
+- 20 Tests
+
+Gesamt: 304 Tests.
 
 ## In Arbeit
 

@@ -99,6 +99,10 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | eclipse_protection.py | Eclipse-Schutz |
 | hs_hardening.py | HS-Descriptor-Hardening |
 | reorg_protection.py | Monero-Reorg-Schutz |
+| augur_defense.py | Predictive Perturbation |
+| flow_splitting.py | Flow-Splitting |
+| hs_rotation.py | HS-Intro-Point-Rotation |
+| dynamic_pow.py | Dynamic Proof-of-Work |
 | crypto/pq_kem.py | ML-KEM-1024 |
 | crypto/pq_sig.py | SLH-DSA |
 | crypto/threefish.py | Threefish-512 |
@@ -106,4 +110,4 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | crypto/hybrid_kem.py | X25519 + ML-KEM-1024 |
 | crypto/pq_sphinx.py | PQ-Sphinx |
 
-235 Tests insgesamt.
+304 Tests insgesamt.

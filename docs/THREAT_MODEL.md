@@ -154,6 +154,49 @@ Abwehr:
 - Payment-Invalidierung
 - 20/30 Bestätigungen
 
+
+### 17. ML-Correlation-Angreifer
+
+Faehigkeit: ML-basierte Traffic-Correlation (RECTor).
+
+Abwehr:
+- Predictive Perturbation (Augur)
+- TrafficPredictor (Markov/Transformer)
+- RateShaper (Token-Bucket)
+- F1: 0.9756 -> 0.0114
+
+### 18. Shape-Analyse-Angreifer
+
+Faehigkeit: Shape-basierte Flow-Correlation (Nym).
+
+Abwehr:
+- Flow-Splitting (S=4)
+- Cover-Injection (I=2.0)
+- Markov-Paket-Allocation (p=0.9)
+- PR-AUC: 0.9998 -> 0.0699
+
+### 19. Intersection-Angreifer
+
+Faehigkeit: Deanonymisiert Hidden Service durch Intersection.
+
+Abwehr:
+- Intro-Point-Rotation (18-24h)
+- Health-Rotation (>=3 Fehler)
+- Age-Rotation (>24h)
+- Intersection-Detection (gleicher Peer in N Sessions)
+- Exponential Backoff
+
+### 20. IoT-Sybil-Angreifer
+
+Faehigkeit: Botnetz aus 100k IoT-Geraeten (Kimwolf).
+
+Abwehr:
+- Dynamic PoW (Difficulty skaliert)
+- IP-Rate-Limit (5/Stunde)
+- Subnetz-Rate-Limit (20/Stunde)
+- Attack-Detection (>100/min)
+- Reputation-Bypass
+
 ### 6. Zensur-Angreifer
 
 Faehigkeit: Blockiert Netzwerk.

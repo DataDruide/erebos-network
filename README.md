@@ -39,6 +39,10 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 | Eclipse-Schutz | Teilweise | Teilweise | Teilweise | Ja |
 | HS-Hardening | Teilweise | Nein | Nein | Ja |
 | Reorg-Schutz | Nein | Nein | Nein | Ja |
+| ML-Correlation-Schutz | Nein | Nein | Nein | Ja |
+| Flow-Splitting | Nein | Nein | Nein | Ja |
+| Intro-Point-Rotation | Ja | Nein | Nein | Ja |
+| Dynamic PoW | Nein | Nein | Nein | Ja |
 
 Erebos ist das erste Darknet mit vollstaendiger Post-Quanten-Kryptographie
 auf NIST Level 5.
@@ -178,6 +182,49 @@ Schutz gegen Chain-Reorganization (Monero 2025):
 
 ---
 
+### Phase 14: Predictive Perturbation
+
+Schutz gegen ML-basierte Traffic-Correlation (RECTor):
+
+- TrafficPredictor (Markov-Prototyp für Transformer)
+- PredictivePerturbation (kontextbewusste Dummy-Injection)
+- RateShaper (Token-Bucket)
+- F1-Score: 0.9756 -> 0.0114 (98.8% Reduktion)
+- Overhead: 0.07%
+
+### Phase 15: Flow-Splitting
+
+Schutz gegen Shape-basierte Flow-Correlation (Nym-Angriff):
+
+- FlowSplitter: S=4 Gateways, Markov p=0.9
+- CoverInjector: I=2.0 Multiplier
+- FlowSplittingDefense (kombiniert)
+- PR-AUC: 0.9998 -> 0.0699 (93% Reduktion)
+
+### Phase 16: HS Introduction-Point Rotation
+
+Schutz gegen Intersection-Angriffe (arXiv 2026):
+
+- IntroPointManager mit 4 Rotations-Gründen
+- Scheduled: 18-24h (randomisiert)
+- Health: >=3 aufeinanderfolgende Fehler
+- Age: >24h
+- Intersection: gleicher Peer in N Sessions
+- Exponential Backoff (2s -> 30s)
+- Verhindert 52-Trial-Deanonymisierung
+
+### Phase 17: Dynamic PoW
+
+Schutz gegen IoT-Sybil-Angriffe (Kimwolf 2026):
+
+- DynamicPoW: Difficulty skaliert mit Netzwerkgröße
+- IPRateLimiter: 5/IP/Stunde, 20/Subnetz/Stunde
+- Attack-Detection: >100 Versuche/Minute
+- Reputation-Bypass: -1 Difficulty
+- 100k IoT-Geräte werden blockiert
+
+---
+
 ## Installation
 
     git clone https://github.com/DataDruide/erebos-network.git
@@ -208,7 +255,7 @@ Dann testen:
 
     pytest -v
 
-235 Tests, alle gruen.
+304 Tests, alle gruen.
 
 ---
 
@@ -245,6 +292,10 @@ Dann testen:
         eclipse_protection.py # Eclipse-Schutz
         hs_hardening.py  # HS-Descriptor-Hardening
         reorg_protection.py # Monero-Reorg-Schutz
+        augur_defense.py # Predictive Perturbation
+        flow_splitting.py # Flow-Splitting
+        hs_rotation.py   # HS-Introduction-Rotation
+        dynamic_pow.py   # Dynamic Proof-of-Work
         crypto/
             pq_kem.py    # ML-KEM-1024
             pq_sig.py    # SLH-DSA-SHA2-256s
@@ -279,6 +330,10 @@ Dann testen:
 - [x] Phase 11: Eclipse Protection (Subnetz-Diversity)
 - [x] Phase 12: HS Descriptor Hardening (Anti-Flood)
 - [x] Phase 13: Monero Reorg Protection (Anti-Reorg)
+- [x] Phase 14: Predictive Perturbation (ML-Correlation)
+- [x] Phase 15: Flow-Splitting (Shape-Analyse)
+- [x] Phase 16: HS Introduction-Point Rotation (Intersection)
+- [x] Phase 17: Dynamic PoW (IoT-Sybil)
 - [ ] Phase 8: Paper schreiben (arXiv)
 - [ ] Phase 9: Community aufbauen
 - [ ] Phase 10: Netzwerk-Deployment
