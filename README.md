@@ -36,6 +36,9 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 | VRF-Reputation | Nein | Nein | Nein | Ja |
 | Hidden Services | Ja | Ja | Nein | Ja |
 | App-Obfuskation | Nein | Nein | Ja | Ja |
+| Eclipse-Schutz | Teilweise | Teilweise | Teilweise | Ja |
+| HS-Hardening | Teilweise | Nein | Nein | Ja |
+| Reorg-Schutz | Nein | Nein | Nein | Ja |
 
 Erebos ist das erste Darknet mit vollstaendiger Post-Quanten-Kryptographie
 auf NIST Level 5.
@@ -141,6 +144,40 @@ End-to-End, VRF-Reputation, Hidden Services, Obfuskation:
 
 ---
 
+### Phase 11: Eclipse Protection
+
+Schutz gegen Eclipse-Angriffe durch IP/Subnetz-Diversity:
+
+- Max. 2 Peers pro /24-Subnetz (IPv4)
+- Max. 2 Peers pro /48-Subnetz (IPv6)
+- Loopback und Link-Local ausgenommen
+- Angreifer braucht 50+ VPS statt 1
+
+### Phase 12: HS Descriptor Hardening
+
+Schutz gegen Descriptor-Flood (Tor 2026):
+
+- Max. 64 KB pro Descriptor
+- Max. 10 Descriptors pro Service
+- Max. 10.000 Descriptors global
+- Rate-Limit: 5 Publish/Minute
+- Proof-of-Work (3 führende Nullen)
+- TTL-basierte Cleanup
+
+### Phase 13: Monero Reorg Protection
+
+Schutz gegen Chain-Reorganization (Monero 2025):
+
+- Chain-Height-Tracking
+- Reorg-Detection (Height-Abnahme)
+- Block-Hash-Mismatch-Detection
+- Payment-Invalidierung bei Reorg
+- Dynamische Bestätigungen:
+  - < 10 XMR: 20 Bestätigungen
+  - ≥ 10 XMR: 30 Bestätigungen
+
+---
+
 ## Installation
 
     git clone https://github.com/DataDruide/erebos-network.git
@@ -171,7 +208,7 @@ Dann testen:
 
     pytest -v
 
-184 Tests, alle gruen.
+235 Tests, alle gruen.
 
 ---
 
@@ -205,6 +242,9 @@ Dann testen:
         vrf_reputation.py # Verifizierbare Reputation
         hidden_service.py # Hidden Services
         obfuscation.py   # App-Obfuskation
+        eclipse_protection.py # Eclipse-Schutz
+        hs_hardening.py  # HS-Descriptor-Hardening
+        reorg_protection.py # Monero-Reorg-Schutz
         crypto/
             pq_kem.py    # ML-KEM-1024
             pq_sig.py    # SLH-DSA-SHA2-256s
@@ -236,6 +276,9 @@ Dann testen:
 - [x] Phase 8: Security Hardening (Hybrid, Poisson, Cover)
 - [x] Phase 9: Advanced Security (Hygiene, Hardening, Pfad, Sphinx)
 - [x] Phase 10: Final Security (E2E, VRF, Hidden Services, Obfuskation)
+- [x] Phase 11: Eclipse Protection (Subnetz-Diversity)
+- [x] Phase 12: HS Descriptor Hardening (Anti-Flood)
+- [x] Phase 13: Monero Reorg Protection (Anti-Reorg)
 - [ ] Phase 8: Paper schreiben (arXiv)
 - [ ] Phase 9: Community aufbauen
 - [ ] Phase 10: Netzwerk-Deployment

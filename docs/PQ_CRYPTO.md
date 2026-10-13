@@ -117,6 +117,16 @@ Dies ist ein Forschungsprototyp - das erste PQ-Mixnet-Format.
 | Signatur | 64 B | ~30 KB | 470x |
 | Symmetrisch | 32 B | 64 B | 2x |
 
+## Krypto-Integration-Tests
+
+18 Integration-Tests pruefen, dass der GESAMTE Datenpfad
+verschluesselt ist - basierend auf dem Radicle-Bug (2026).
+
+- Jedes E2E-Paket verschluesselt
+- Kein Klartext-Marker in irgendeiner Schicht
+- Nicht-etablierte Sessions lehnen ab
+- Threefish/Hybrid-Crypto Round-Trips
+
 ## Bibliotheken
 
 - liboqs-python - Open Quantum Safe (ML-KEM, SLH-DSA)

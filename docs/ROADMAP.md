@@ -65,7 +65,22 @@ Status: 7 Phasen komplett
 - App-Obfuskation
 - 20 Tests
 
-Gesamt: 184 Tests.
+### Phase 11: Eclipse Protection
+- Subnetz-Diversity (max. 2 Peers pro /24)
+- 11 Tests
+
+### Phase 12: HS Descriptor Hardening
+- Groessen/Service/Global/Rate-Limits
+- Proof-of-Work + TTL-Cleanup
+- 12 Tests
+
+### Phase 13: Monero Reorg Protection
+- Chain-Height-Tracking
+- Reorg-Detection + Payment-Invalidierung
+- 20/30 Bestaetigungen
+- 10 Tests
+
+Gesamt: 235 Tests.
 
 ## In Arbeit
 

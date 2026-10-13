@@ -121,6 +121,39 @@ Abwehr:
 - Timing-Noise (0-100ms)
 - Cover-Messages auf App-Ebene
 
+
+### 14. Eclipse-Angreifer
+
+Faehigkeit: Flutet Routing-Tabelle mit bösartigen Peers.
+
+Abwehr:
+- Subnetz-Diversity (max. 2 Peers pro /24)
+- Loopback/Link-Local exempt
+- Angreifer braucht 50+ VPS
+
+### 15. Descriptor-Flood-Angreifer
+
+Faehigkeit: Flutet HSDirs mit Fake-Descriptors.
+
+Abwehr:
+- Größen-Limit (64 KB)
+- Pro-Service-Limit (10)
+- Global-Limit (10.000)
+- Rate-Limit (5/min)
+- Proof-of-Work
+- TTL-Cleanup
+
+### 16. Chain-Reorg-Angreifer
+
+Faehigkeit: Rollt Monero-Chain zurück (18-Block-Reorg 2025).
+
+Abwehr:
+- Chain-Height-Tracking
+- Reorg-Detection
+- Block-Hash-Mismatch-Check
+- Payment-Invalidierung
+- 20/30 Bestätigungen
+
 ### 6. Zensur-Angreifer
 
 Faehigkeit: Blockiert Netzwerk.
