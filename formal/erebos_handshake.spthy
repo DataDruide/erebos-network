@@ -1,0 +1,102 @@
+/*
+ * Erebos-Handshake: Formale Verifikation in Tamarin
+ *
+ * Hybrid-Handshake: X25519 + ML-KEM-1024 + Threefish-512
+ * Basiert auf PQ-IKEv2 Tamarin-Modell (Heid 2019).
+ */
+
+theory ErebosHandshake
+begin
+
+builtins: diffie-hellman, hashing
+
+functions: kem_encaps/1, kem_decaps/2, senc/2, sdec/2
+
+equations: sdec(senc(m, k), k) = m
+
+rule GenerateKeyPair:
+  [ Fr(~x25519_sk), Fr(~mlkem_sk) ]
+  -->
+  [ !LongTermKey($A, ~x25519_sk, ~mlkem_sk),
+    PubKey($A, ~x25519_sk, ~mlkem_sk) ]
+
+rule PublishKey:
+  [ PubKey($A, x25519_sk, mlkem_sk) ]
+  --[ PubKeyRegistered($A) ]->
+  [ !PublicKey($A, x25519_sk, mlkem_sk) ]
+
+rule Init_1:
+  let
+    x25519_pub = 'g'^~x25519_sk
+    mlkem_ct = kem_encaps(~mlkem_sk_B)
+  in
+  [ Fr(~x25519_sk),
+    !PublicKey($B, ~x25519_sk_B, ~mlkem_sk_B) ]
+  --[ Init($A, $B) ]->
+  [ Out(<$A, x25519_pub, mlkem_ct>),
+    State_Init($A, $B, ~x25519_sk, ~mlkem_sk_B) ]
+
+rule Resp_1:
+  let
+    x25519_pub_B = 'g'^~x25519_sk_B
+    x25519_pub_A = x25519_pub_A_in
+  in
+  [ !LongTermKey($B, ~x25519_sk_B, ~mlkem_sk_B),
+    In(<$A, x25519_pub_A_in, mlkem_ct_A>) ]
+  --[ Resp($B, $A) ]->
+  [ Out(<$B, x25519_pub_B>),
+    State_Resp($B, $A, ~x25519_sk_B, ~mlkem_sk_B, x25519_pub_A_in, mlkem_ct_A) ]
+
+rule Init_2:
+  let
+    x25519_shared = x25519_pub_B^~x25519_sk
+    mlkem_shared = kem_decaps(mlkem_ct_B, ~mlkem_sk_B)
+    session_key = h(<x25519_shared, mlkem_shared>)
+  in
+  [ State_Init($A, $B, ~x25519_sk, ~mlkem_sk_B),
+    In(<$B, x25519_pub_B, mlkem_ct_B>) ]
+  --[ Accept_Init($A, $B, session_key),
+      KeySecrecy($A, $B, session_key) ]->
+  [ SessionKey($A, $B, session_key) ]
+
+rule Resp_2:
+  let
+    x25519_shared = x25519_pub_A^~x25519_sk_B
+    mlkem_shared = kem_decaps(mlkem_ct_A, ~mlkem_sk_B)
+    session_key = h(<x25519_shared, mlkem_shared>)
+  in
+  [ State_Resp($B, $A, ~x25519_sk_B, ~mlkem_sk_B, x25519_pub_A, mlkem_ct_A) ]
+  --[ Accept_Resp($B, $A, session_key),
+      KeySecrecy($B, $A, session_key) ]->
+  [ SessionKey($B, $A, session_key) ]
+
+rule Reveal_Ltk:
+  [ !LongTermKey($A, x25519_sk, mlkem_sk) ]
+  --[ LtkReveal($A) ]->
+  [ Out(x25519_sk), Out(mlkem_sk) ]
+
+rule Reveal_SessionKey:
+  [ SessionKey($A, $B, key) ]
+  --[ SessionKeyReveal($A, $B) ]->
+  [ Out(key) ]
+
+lemma key_secrecy:
+  " All A B key #i.
+    KeySecrecy(A, B, key) @ #i
+    & not (Ex #j. LtkReveal(A) @ #j)
+    & not (Ex #j. LtkReveal(B) @ #j)
+    & not (Ex #j. SessionKeyReveal(A, B) @ #j)
+  ==> not (Ex #j. K(key) @ #j) "
+
+lemma agreement:
+  " All A B key1 key2 #i #j.
+    Accept_Init(A, B, key1) @ #i
+    & Accept_Resp(B, A, key2) @ #j
+  ==> key1 = key2 "
+
+lemma executability:
+  exists-trace
+  " Ex A B key #i.
+    Accept_Init(A, B, key) @ #i "
+
+end

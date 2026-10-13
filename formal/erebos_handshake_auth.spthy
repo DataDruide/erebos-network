@@ -1,0 +1,121 @@
+/*
+ * Erebos-Handshake mit Authentifizierung (final)
+ *
+ * Hybrid: X25519 + ML-KEM-1024 + SLH-DSA-Signaturen
+ */
+
+theory ErebosHandshakeAuth
+begin
+
+builtins: diffie-hellman, hashing, signing
+
+functions: kem_encaps/1, kem_decaps/2, senc/2, sdec/2, mac/2
+
+equations: sdec(senc(m, k), k) = m
+
+rule GenerateKeyPair:
+  [ Fr(~x25519_sk), Fr(~mlkem_sk), Fr(~sig_sk) ]
+  -->
+  [ !LongTermKey($A, ~x25519_sk, ~mlkem_sk, ~sig_sk),
+    !PublicKey($A, 'g'^~x25519_sk, ~mlkem_sk, pk(~sig_sk)) ]
+
+rule Init_1:
+  let
+    x25519_pub_A = 'g'^~x25519_sk
+    mlkem_ct = kem_encaps(~mlkem_sk_B)
+    sig = sign(<$A, $B, x25519_pub_A, mlkem_ct>, ~sig_sk)
+  in
+  [ Fr(~x25519_sk), Fr(~sig_sk),
+    !LongTermKey($A, ~x25519_sk, ~mlkem_sk_A, ~sig_sk),
+    !PublicKey($B, x25519_pub_B_pub, ~mlkem_sk_B, pk_sig_B) ]
+  --[ Init($A, $B) ]->
+  [ Out(<$A, x25519_pub_A, mlkem_ct, sig>),
+    State_Init($A, $B, ~x25519_sk, ~mlkem_sk_A, ~sig_sk, ~mlkem_sk_B) ]
+
+rule Resp_1:
+  let
+    x25519_pub_B = 'g'^~x25519_sk_B
+    mlkem_ct_B = kem_encaps(~mlkem_sk_A)
+    x25519_shared = x25519_pub_A^~x25519_sk_B
+    mlkem_shared = kem_decaps(mlkem_ct_A, ~mlkem_sk_B)
+    session_key = h(<x25519_shared, mlkem_shared, $A, $B>)
+    mac_B = mac(<$A, $B, 'resp'>, session_key)
+    sig = sign(<$B, $A, x25519_pub_B, mlkem_ct_B, mac_B>, ~sig_sk_B)
+  in
+  [ !LongTermKey($B, ~x25519_sk_B, ~mlkem_sk_B, ~sig_sk_B),
+    In(<$A, x25519_pub_A, mlkem_ct_A, sig_A>),
+    !PublicKey($A, x25519_pub_A_pub, ~mlkem_sk_A, pk_sig_A) ]
+  --[ Resp($B, $A),
+      Eq(x25519_pub_A, x25519_pub_A_pub),
+      Verify(sig_A, <$A, $B, x25519_pub_A, mlkem_ct_A>, pk_sig_A) ]->
+  [ Out(<$B, x25519_pub_B, mlkem_ct_B, mac_B, sig>),
+    State_Resp($B, $A, ~x25519_sk_B, ~mlkem_sk_B, ~sig_sk_B,
+               x25519_pub_A, mlkem_ct_A, session_key) ]
+
+rule Init_2:
+  let
+    x25519_shared = x25519_pub_B^~x25519_sk
+    mlkem_shared = kem_decaps(mlkem_ct_B, ~mlkem_sk_B)
+    session_key = h(<x25519_shared, mlkem_shared, $A, $B>)
+    mac_A = mac(<$A, $B, 'init'>, session_key)
+  in
+  [ State_Init($A, $B, ~x25519_sk, ~mlkem_sk_A, ~sig_sk, ~mlkem_sk_B),
+    In(<$B, x25519_pub_B, mlkem_ct_B, mac_B, sig_B>),
+    !PublicKey($B, x25519_pub_B_pub, ~mlkem_sk_B_2, pk_sig_B) ]
+  --[ Accept_Init($A, $B, session_key),
+      Eq(x25519_pub_B, x25519_pub_B_pub),
+      Eq(~mlkem_sk_B, ~mlkem_sk_B_2),
+      Verify(sig_B, <$B, $A, x25519_pub_B, mlkem_ct_B, mac_B>, pk_sig_B),
+      KeySecrecy($A, $B, session_key) ]->
+  [ Out(mac_A),
+    SessionKey($A, $B, session_key) ]
+
+rule Resp_2:
+  let
+    mac_A_expected = mac(<$A, $B, 'init'>, session_key)
+  in
+  [ State_Resp($B, $A, ~x25519_sk_B, ~mlkem_sk_B, ~sig_sk_B,
+               x25519_pub_A, mlkem_ct_A, session_key),
+    In(mac_A) ]
+  --[ Accept_Resp($B, $A, session_key),
+      Eq(mac_A, mac_A_expected),
+      KeySecrecy($B, $A, session_key) ]->
+  [ SessionKey($B, $A, session_key) ]
+
+rule Reveal_Ltk:
+  [ !LongTermKey($A, x25519_sk, mlkem_sk, sig_sk) ]
+  --[ LtkReveal($A) ]->
+  [ Out(x25519_sk), Out(mlkem_sk), Out(sig_sk) ]
+
+rule Reveal_SessionKey:
+  [ SessionKey($A, $B, key) ]
+  --[ SessionKeyReveal($A, $B) ]->
+  [ Out(key) ]
+
+lemma key_secrecy:
+  " All A B key #i.
+    KeySecrecy(A, B, key) @ #i
+    & not (Ex #j. LtkReveal(A) @ #j)
+    & not (Ex #j. LtkReveal(B) @ #j)
+    & not (Ex #j. SessionKeyReveal(A, B) @ #j)
+  ==> not (Ex #j. K(key) @ #j) "
+
+lemma agreement:
+  " All A B key1 key2 #i #j.
+    Accept_Init(A, B, key1) @ #i
+    & Accept_Resp(B, A, key2) @ #j
+  ==> key1 = key2 "
+
+lemma injective_agreement:
+  " All A B key #i #j.
+    Accept_Init(A, B, key) @ #i
+    & Accept_Resp(B, A, key) @ #j
+  ==> #i = #j "
+
+lemma executability:
+  exists-trace
+  " Ex A B key #i #j.
+    Accept_Init(A, B, key) @ #i
+    & Accept_Resp(B, A, key) @ #j "
+
+end

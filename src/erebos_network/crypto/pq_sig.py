@@ -1,10 +1,15 @@
-"""SLH-DSA-SHA2-256s Signaturen (FIPS 205).
+"""SLH-DSA Signaturen (FIPS 205).
 
 Konservativ, hash-basiert, NIST Level 5.
+Nutzt liboqs mit SLH_DSA_PURE_SHA2_256S.
+
+Wichtig: liboqs's oqs.Signature braucht den Private Key
+beim Konstruktor, um sign() aufzurufen.
 """
 
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 try:
     import oqs
@@ -18,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SignatureKeyPair:
-    """Ein SLH-DSA Schlüsselpaar."""
+    """Ein SLH-DSA Schluesselpaar."""
 
     public_key: bytes
     private_key: bytes
@@ -32,10 +37,14 @@ class PostQuantumSignature:
     """SLH-DSA-SHA2-256s Signaturen.
 
     NIST FIPS 205, Security Level 5.
-    Stateless hash-based signatures.
+    liboqs-Name: SLH_DSA_PURE_SHA2_256S
+
+    Wichtig: liboqs ist zustandsbehaftet pro Signatur-Operation.
+    Wir erstellen fuer jede Operation einen neuen Wrapper.
     """
 
-    ALGORITHM = "SLH-DSA-SHA2-256s"
+    ALGORITHM = "SLH_DSA_PURE_SHA2_256S"
+    DISPLAY_NAME = "SLH-DSA-SHA2-256s"
 
     def __init__(self):
         if not HAS_LIBOQS:
@@ -43,12 +52,12 @@ class PostQuantumSignature:
                 "liboqs-python nicht installiert. "
                 "Installiere: pip install liboqs-python"
             )
-        self._sig = oqs.Signature(self.ALGORITHM)
 
     def generate_keypair(self) -> SignatureKeyPair:
-        """Generiert ein SLH-DSA Schlüsselpaar."""
-        public_key = self._sig.generate_keypair()
-        private_key = self._sig.export_secret_key()
+        """Generiert ein SLH-DSA Schluesselpaar."""
+        sig = oqs.Signature(self.ALGORITHM)
+        public_key = sig.generate_keypair()
+        private_key = sig.export_secret_key()
 
         logger.info(
             f"SLH-DSA KeyPair generiert: "
@@ -65,24 +74,27 @@ class PostQuantumSignature:
 
         Args:
             message: Zu signierende Nachricht
-            private_key: Privater Schlüssel
+            private_key: Privater Schluessel
 
         Returns:
-            Signatur (bis zu 50 KB)
+            Signatur
         """
-        return self._sig.sign(message)
+        sig = oqs.Signature(self.ALGORITHM, private_key)
+        return sig.sign(message)
 
     def verify(
         self, message: bytes, signature: bytes, public_key: bytes
     ) -> bool:
         """Verifiziert eine Signatur."""
-        return self._sig.verify(message, signature, public_key)
+        sig = oqs.Signature(self.ALGORITHM)
+        return sig.verify(message, signature, public_key)
 
     @staticmethod
     def sizes() -> dict:
-        """Gibt Größen zurück."""
+        """Gibt Groessen zurueck."""
         return {
             "algorithm": "SLH-DSA-SHA2-256s",
+            "liboqs_name": "SLH_DSA_PURE_SHA2_256S",
             "public_key": 64,
             "signature": 29792,
             "nist_level": 5,
