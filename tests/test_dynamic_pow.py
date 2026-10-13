@@ -1,4 +1,8 @@
-"""Tests fuer Dynamic PoW."""
+"""Tests fuer Dynamic PoW.
+
+Hinweis: Test-Difficulty ist reduziert (1-2 statt 3-8),
+damit die CI/CD-Pipeline schnell bleibt.
+"""
 
 import time
 
@@ -10,6 +14,20 @@ from erebos_network.dynamic_pow import (
     IPRateLimiter,
     PeerAttempt,
 )
+
+
+# Test-Config mit niedriger Difficulty
+def fast_config(**kwargs) -> DynamicPoWConfig:
+    """Config mit niedriger Difficulty fuer schnelle Tests."""
+    defaults = {
+        "base_difficulty": 1,
+        "min_difficulty": 1,
+        "max_difficulty": 3,
+        "scale_per_1000_peers": 0.1,
+        "attack_multiplier": 1.5,
+    }
+    defaults.update(kwargs)
+    return DynamicPoWConfig(**defaults)
 
 
 # --- IPRateLimiter ---
@@ -41,7 +59,7 @@ def test_rate_limiter_allows():
 
 def test_rate_limiter_rejects_many_from_same_ip():
     """Rate-Limiter lehnt zu viele von derselben IP ab."""
-    config = DynamicPoWConfig(max_new_peers_per_ip_per_hour=3)
+    config = fast_config(max_new_peers_per_ip_per_hour=3)
     rl = IPRateLimiter(config)
     for i in range(3):
         rl.allow(f"192.168.1.1:{8000+i}")
@@ -51,7 +69,7 @@ def test_rate_limiter_rejects_many_from_same_ip():
 
 def test_rate_limiter_rejects_many_from_subnet():
     """Rate-Limiter lehnt zu viele aus demselben Subnetz ab."""
-    config = DynamicPoWConfig(
+    config = fast_config(
         max_new_peers_per_ip_per_hour=100,
         max_new_peers_per_subnet_per_hour=5,
     )
@@ -65,66 +83,65 @@ def test_rate_limiter_rejects_many_from_subnet():
 
 def test_pow_init():
     """DynamicPoW initialisiert."""
-    p = DynamicPoW()
-    assert p.current_difficulty == 3
+    p = DynamicPoW(fast_config())
+    assert p.current_difficulty == 1
 
 
 def test_pow_compute():
     """PoW wird berechnet."""
-    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=2)
-    assert h.startswith("00")
+    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=1)
+    assert h.startswith("0")
     assert nonce >= 0
 
 
 def test_pow_verify():
     """PoW wird verifiziert."""
-    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=2)
-    assert DynamicPoW.verify_pow("test-seed", nonce, 2, h) is True
+    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=1)
+    assert DynamicPoW.verify_pow("test-seed", nonce, 1, h) is True
 
 
 def test_pow_verify_wrong_seed():
     """Falscher Seed schlaegt fehl."""
-    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=2)
-    assert DynamicPoW.verify_pow("wrong-seed", nonce, 2, h) is False
+    h, nonce = DynamicPoW.compute_pow("test-seed", difficulty=1)
+    assert DynamicPoW.verify_pow("wrong-seed", nonce, 1, h) is False
 
 
 def test_difficulty_base():
     """Basis-Difficulty."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     diff = p.compute_difficulty()
-    assert diff == 3
+    assert diff == 1
 
 
 def test_difficulty_scales_with_peers():
     """Difficulty skaliert mit Netzwerkgroesse."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     p.update_peer_count(10000)
     diff = p.compute_difficulty()
-    assert diff > 3
+    assert diff > 1
 
 
 def test_difficulty_reputation_bypass():
     """Reputation senkt Difficulty."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     diff_low = p.compute_difficulty(reputation=0.5)
-    p._current_difficulty = 5  # reset
+    p._current_difficulty = 3
     diff_high = p.compute_difficulty(reputation=0.9)
-    # Hohe Reputation sollte niedrigere Difficulty haben
     assert diff_high <= diff_low
 
 
 def test_difficulty_bounds():
     """Difficulty bleibt in Grenzen."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config(max_difficulty=3))
     p.update_peer_count(1000000)
     diff = p.compute_difficulty()
-    assert diff <= p.config.max_difficulty
-    assert diff >= p.config.min_difficulty
+    assert diff <= 3
+    assert diff >= 1
 
 
 def test_register_peer():
     """Peer wird registriert."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     result = p.register_peer("192.168.1.1:8000")
     assert result["status"] == "accepted"
     assert "nonce" in result
@@ -133,7 +150,7 @@ def test_register_peer():
 
 def test_register_peer_rate_limit():
     """Rate-Limit blockiert Registrierung."""
-    config = DynamicPoWConfig(max_new_peers_per_ip_per_hour=1)
+    config = fast_config(max_new_peers_per_ip_per_hour=1)
     p = DynamicPoW(config)
     p.register_peer("192.168.1.1:8000")
     result = p.register_peer("192.168.1.1:8001")
@@ -143,7 +160,7 @@ def test_register_peer_rate_limit():
 
 def test_verify_peer():
     """Peer wird verifiziert."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     result = p.register_peer("192.168.1.1:8000")
     verified = p.verify_peer(
         "192.168.1.1:8000",
@@ -157,18 +174,16 @@ def test_verify_peer():
 
 def test_attack_detection():
     """Angriff wird erkannt."""
-    config = DynamicPoWConfig(attack_threshold_per_minute=5)
+    config = fast_config(attack_threshold_per_minute=5)
     p = DynamicPoW(config)
-    # Simuliere viele Versuche
     for i in range(10):
         p.register_peer(f"10.0.0.{i}:8000")
-    # Nach 10 Versuchen sollte der Angriff erkannt sein
     assert p.stats["attacks_detected"] >= 1
 
 
 def test_attack_increases_difficulty():
     """Angriff erhoeht Difficulty."""
-    config = DynamicPoWConfig(attack_threshold_per_minute=5)
+    config = fast_config(attack_threshold_per_minute=5)
     p = DynamicPoW(config)
     initial = p.compute_difficulty()
     for i in range(10):
@@ -179,7 +194,7 @@ def test_attack_increases_difficulty():
 
 def test_pow_stats():
     """PoW-Statistiken."""
-    p = DynamicPoW()
+    p = DynamicPoW(fast_config())
     p.register_peer("192.168.1.1:8000")
     stats = p.get_stats()
     assert stats["pow_computed"] >= 1
