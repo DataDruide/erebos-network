@@ -12,6 +12,7 @@ from .router import ErebosRouter, RouteType
 from .sectors import SectorType
 from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY
 from .onion import seal_for
+from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +29,29 @@ class ErebosProxy:
         router: Optional[ErebosRouter] = None,
         host: str = "127.0.0.1",
         port: int = 9050,
+        traffic_shaping: bool = False,
+        target_rate: float = 10.0,
+        jitter_ratio: float = 0.3,
     ):
         self.router = router or ErebosRouter()
         self.host = host
         self.port = port
         self._running = False
+        # Traffic-Shaping ist Opt-In (Default: aus, um Tests nicht zu brechen).
+        self.shaper = (
+            RateShaper(
+                target_rate_per_second=target_rate,
+                jitter_enabled=True,
+                jitter_ratio=jitter_ratio,
+            )
+            if traffic_shaping
+            else None
+        )
         self._stats = {
             "requests_total": 0,
             "requests_routed": 0,
             "requests_failed": 0,
+            "shaped_requests": 0,
         }
 
     async def start(self) -> None:
@@ -63,6 +78,14 @@ class ErebosProxy:
             Antwort-Dict
         """
         self._stats["requests_total"] += 1
+
+        # Traffic-Shaping (nur wenn aktiviert)
+        if self.shaper is not None:
+            if not self.shaper.allow():
+                delay = self.shaper.delay_for_next()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                    self._stats["shaped_requests"] += 1
 
         try:
             route = await self.router.route_async(target, sector)
@@ -95,6 +118,8 @@ class ErebosProxy:
         return {
             **self._stats,
             "running": self._running,
+            "traffic_shaping": self.shaper is not None,
+            "shaper": self.shaper.get_stats() if self.shaper else None,
             "router": self.router.get_stats(),
         }
 

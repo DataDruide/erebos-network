@@ -146,3 +146,69 @@ class TestAugurStatsShape:
         for _ in range(20):
             augur.process_outgoing(b"\x00" * 128)
         assert isinstance(augur.get_traffic_shape(), dict)
+
+
+# ---------------------------------------------------------------------------
+# Integration: ErebosProxy + Traffic-Shaping
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+class TestProxyTrafficShapingIntegration:
+    """Prüft Opt-In-Anbindung des Traffic-Shaping im Proxy."""
+
+    @pytest.mark.asyncio
+    async def test_proxy_default_no_shaper(self):
+        """Default: kein Shaper aktiv, Verhalten unverändert."""
+        from erebos_network.proxy import ErebosProxy
+
+        proxy = ErebosProxy()
+        assert proxy.shaper is None
+        stats = proxy.get_stats()
+        assert stats["traffic_shaping"] is False
+        assert stats["shaper"] is None
+
+    @pytest.mark.asyncio
+    async def test_proxy_traffic_shaping_enabled(self):
+        """Opt-In: Shaper aktiv mit Jitter."""
+        from erebos_network.proxy import ErebosProxy
+
+        proxy = ErebosProxy(
+            traffic_shaping=True,
+            target_rate=10.0,
+            jitter_ratio=0.3,
+        )
+        assert proxy.shaper is not None
+        assert proxy.shaper.jitter_enabled is True
+        assert abs(proxy.shaper.jitter_ratio - 0.3) < 1e-6
+        stats = proxy.get_stats()
+        assert stats["traffic_shaping"] is True
+        assert stats["shaper"]["jitter_enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_proxy_shaped_request_still_routes(self):
+        """Auch mit Shaper bleibt Routing funktional."""
+        from erebos_network.proxy import ErebosProxy
+        from erebos_network.router import ErebosRouter
+
+        proxy = ErebosProxy(router=ErebosRouter(), traffic_shaping=True)
+        await proxy.start()
+        result = await proxy.handle_request("https://example.com")
+        assert result["success"] is True
+        assert result["route_type"] == "clearnet"
+        await proxy.stop()
+
+    @pytest.mark.asyncio
+    async def test_proxy_default_behavior_unchanged(self):
+        """Default-Verhalten exakt wie vor der Erweiterung."""
+        from erebos_network.proxy import ErebosProxy
+
+        proxy = ErebosProxy()
+        await proxy.start()
+        result = await proxy.handle_request("https://example.com")
+        assert result["success"] is True
+        assert result["route_type"] == "clearnet"
+        assert result["sector"] == "standard"
+        assert result["hops"] == result["hops"]  # unverändert
+        await proxy.stop()

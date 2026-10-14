@@ -114,6 +114,11 @@ def main() -> int:
         help="Port für den API-Server",
     )
     parser.add_argument(
+        "--traffic-shaping",
+        action="store_true",
+        help="Aktiviert RateShaper + Jitter (Opt-In)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -133,7 +138,7 @@ def main() -> int:
 
     if args.proxy:
         async def run_proxy():
-            proxy = ErebosProxy()
+            proxy = ErebosProxy(traffic_shaping=args.traffic_shaping)
             server = ErebosSocks5Server(proxy, port=args.proxy_port)
             await server.start()
             try:
