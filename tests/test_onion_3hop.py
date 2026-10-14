@@ -1,10 +1,8 @@
-"""Unit-Test fuer 3-Hop-Onion-Routing (kein Netzwerk)."""
+"""Tests fuer 3-Hop-Onion-Routing (Layer-Kette, kein Netzwerk)."""
 
-import sys
+import pytest
+
 from pathlib import Path
-
-ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "src"))
 
 from erebos_network.onion import (
     seal_for,
@@ -14,9 +12,8 @@ from erebos_network.onion import (
     pack_relay_header,
     unpack_relay_header,
 )
-from erebos_network.tunnel import FRAME_OPEN, FRAME_RELAY
 
-KEYS = ROOT / "erebos_keys"
+KEYS = Path(__file__).parent.parent / "erebos_keys"
 
 
 def load_pub(name):
@@ -27,112 +24,124 @@ def load_priv(name):
     return (KEYS / f"{name}_x25519").read_bytes()
 
 
-def test_relay_header_roundtrip():
-    frame_type = FRAME_OPEN
-    next_port = 9997
-    blob = pack_relay_header(frame_type, next_port)
-    assert len(blob) == 3, f"Header sollte 3 Byte sein, ist {len(blob)}"
-    ft, port = unpack_relay_header(blob)
-    assert ft == frame_type
-    assert port == next_port
-    print("  relay-header roundtrip OK")
-
-
-def test_wire_marker_constants():
-    assert isinstance(FRAME_OPEN_WIRE, int)
-    assert isinstance(FRAME_RELAY_WIRE, int)
-    assert FRAME_OPEN_WIRE != FRAME_RELAY_WIRE
-    print(f"  FRAME_OPEN_WIRE={FRAME_OPEN_WIRE:#x} FRAME_RELAY_WIRE={FRAME_RELAY_WIRE:#x}")
-
-
-def _build_3hop_chain(target: bytes):
-    peer1_pub = load_pub("peer1")
-    peer2_pub = load_pub("peer2")
-    peer3_pub = load_pub("peer3")
-
-    l3_plain = bytes([FRAME_OPEN]) + target
-    l3 = seal_for(peer3_pub, l3_plain)
+def build_3hop_chain(target: bytes):
+    """Baut L1 (Peer-1), L2 (Peer-2), L3 (Peer-3) mit Padding."""
+    l3 = seal_for(load_pub("peer3"), target)
 
     hdr2 = pack_relay_header(FRAME_OPEN_WIRE, 9997)
-    l2_plain = bytes([FRAME_RELAY]) + hdr2 + l3
-    l2 = seal_for(peer2_pub, l2_plain)
+    l2 = seal_for(load_pub("peer2"), hdr2 + l3)
 
     hdr1 = pack_relay_header(FRAME_RELAY_WIRE, 9998)
-    l1_plain = bytes([FRAME_RELAY]) + hdr1 + l2
-    l1 = seal_for(peer1_pub, l1_plain)
+    l1 = seal_for(load_pub("peer1"), hdr1 + l2)
 
     return l1, l2, l3
 
 
+# ---- Relay-Header ----
+
+def test_relay_header_roundtrip():
+    """Pack/unpack eines Relay-Headers."""
+    blob = pack_relay_header(FRAME_OPEN_WIRE, 9997)
+    assert len(blob) == 3
+    ft, port = unpack_relay_header(blob)
+    assert ft == FRAME_OPEN_WIRE
+    assert port == 9997
+
+
+@pytest.mark.parametrize("port", [0, 1, 80, 9997, 9998, 9999, 65535])
+def test_relay_header_all_ports(port):
+    """Ports im uint16-Bereich funktionieren."""
+    blob = pack_relay_header(FRAME_RELAY_WIRE, port)
+    ft, decoded_port = unpack_relay_header(blob)
+    assert ft == FRAME_RELAY_WIRE
+    assert decoded_port == port
+
+
+def test_relay_header_invalid_type():
+    """Unbekannter Frame-Typ wirft Fehler."""
+    with pytest.raises(ValueError):
+        pack_relay_header(0x99, 9999)
+
+
+@pytest.mark.parametrize("port", [-1, 65536, 100000])
+def test_relay_header_invalid_port(port):
+    """Port ausserhalb uint16 wirft Fehler."""
+    with pytest.raises(ValueError):
+        pack_relay_header(FRAME_RELAY_WIRE, port)
+
+
+def test_relay_header_too_short():
+    """Zu kurzer Header wirft Fehler."""
+    with pytest.raises(ValueError):
+        unpack_relay_header(b"\x01\x00")
+
+
+# ---- Wire-Marker-Konsistenz ----
+
+def test_wire_marker_distinct():
+    """FRAME_OPEN_WIRE und FRAME_RELAY_WIRE sind unterscheidbar."""
+    assert FRAME_OPEN_WIRE != FRAME_RELAY_WIRE
+    assert FRAME_OPEN_WIRE == 0x02
+    assert FRAME_RELAY_WIRE == 0x01
+
+
+# ---- 3-Hop-Layer-Kette ----
+
 def test_3hop_layer_chain():
+    """3 verschachtelte Layer, jeder Peer oeffnet genau seine."""
     target = b"example.com:80"
-    l1, l2, l3 = _build_3hop_chain(target)
+    l1, l2, l3 = build_3hop_chain(target)
 
-    print(f"  L1 len={len(l1)}  L2 len={len(l2)}  L3 len={len(l3)}")
-    assert len(l1) > len(l2) > len(l3)
-    assert (len(l3) - 60) % 256 == 0
-    assert (len(l2) - 60) % 256 == 0
-    assert (len(l1) - 60) % 256 == 0
-
-    peer1_priv = load_priv("peer1")
-    peer2_priv = load_priv("peer2")
-    peer3_priv = load_priv("peer3")
-
-    d1 = open_layer(peer1_priv, l1)
-    assert d1[0] == FRAME_RELAY
-    ft1, port1 = unpack_relay_header(d1[1:4])
+    # Peer-1 oeffnet l1
+    d1 = open_layer(load_priv("peer1"), l1)
+    ft1, port1 = unpack_relay_header(d1[:3])
     assert ft1 == FRAME_RELAY_WIRE
     assert port1 == 9998
-    inner_l2 = d1[4:]
+    inner_l2 = d1[3:]
     assert inner_l2 == l2
-    print("  Peer-1 oeffnet L1, sieht nur Relay-Auftrag nach :9998")
 
-    d2 = open_layer(peer2_priv, inner_l2)
-    assert d2[0] == FRAME_RELAY
-    ft2, port2 = unpack_relay_header(d2[1:4])
+    # Peer-2 oeffnet l2
+    d2 = open_layer(load_priv("peer2"), inner_l2)
+    ft2, port2 = unpack_relay_header(d2[:3])
     assert ft2 == FRAME_OPEN_WIRE
     assert port2 == 9997
-    inner_l3 = d2[4:]
+    inner_l3 = d2[3:]
     assert inner_l3 == l3
-    print("  Peer-2 oeffnet L2, sieht nur Relay-Auftrag nach :9997 (als OPEN)")
 
-    d3 = open_layer(peer3_priv, inner_l3)
-    assert d3[0] == FRAME_OPEN
-    assert d3[1:] == target
-    print("  Peer-3 oeffnet L3, sieht Ziel example.com:80")
-
-    print("  3-HOP-LAYER-CHAIN OK")
+    # Peer-3 oeffnet l3 -> direkt "host:port"
+    d3 = open_layer(load_priv("peer3"), inner_l3)
+    assert d3 == target
 
 
-def test_padding_makes_layers_deterministic():
-    targets = [
-        b"a.com:80",
-        b"example.com:80",
-        b"foo.bar.example.com:443",
-        b"x" * 100 + b".com:80",
-    ]
-    seen = set()
-    for t in targets:
-        l1, l2, l3 = _build_3hop_chain(t)
-        seen.add((len(l1), len(l2), len(l3)))
-        print(f"  target-len={len(t):4d}B -> L1={len(l1)} L2={len(l2)} L3={len(l3)}")
-
-    assert len(seen) == 1, f"Layer-Laengen variieren: {seen}"
-    print("  alle Ziele innerhalb 252B -> identische Layer-Laengen")
-    print("  PADDING-DETERMINISMUS OK")
+def test_3hop_layer_lengths_grow():
+    """Layer wachsen von innen nach aussen (Verschachtelung)."""
+    l1, l2, l3 = build_3hop_chain(b"example.com:80")
+    assert len(l1) > len(l2) > len(l3)
 
 
-if __name__ == "__main__":
-    print("=== test_relay_header_roundtrip ===")
-    test_relay_header_roundtrip()
-    print()
-    print("=== test_wire_marker_constants ===")
-    test_wire_marker_constants()
-    print()
-    print("=== test_3hop_layer_chain ===")
-    test_3hop_layer_chain()
-    print()
-    print("=== test_padding_makes_layers_deterministic ===")
-    test_padding_makes_layers_deterministic()
-    print()
-    print("ALLE 3-HOP-TESTS OK")
+# ---- Padding-Determinismus ueber die Kette ----
+
+@pytest.mark.parametrize("target", [
+    b"a.com:80",
+    b"example.com:80",
+    b"foo.bar.example.com:443",
+    b"x" * 100 + b".com:80",
+])
+def test_padding_deterministic(target):
+    """Layer-Laengen sind identisch fuer alle Ziele bis 252B."""
+    l1, l2, l3 = build_3hop_chain(target)
+    assert (len(l3), len(l2), len(l1)) == (316, 572, 828)
+
+
+def test_3hop_wrong_order_fails():
+    """Peer-3 kann l2 nicht oeffnen."""
+    _, l2, _ = build_3hop_chain(b"example.com:80")
+    with pytest.raises(Exception):
+        open_layer(load_priv("peer3"), l2)
+
+
+def test_3hop_wrong_peer_fails():
+    """Peer-1 kann l3 nicht oeffnen."""
+    _, _, l3 = build_3hop_chain(b"example.com:80")
+    with pytest.raises(Exception):
+        open_layer(load_priv("peer1"), l3)
