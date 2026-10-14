@@ -83,7 +83,13 @@ def main() -> int:
     parser.add_argument(
         "--peer",
         action="store_true",
-        help="Startet den Peer-Server auf 127.0.0.1:9999",
+        help="Startet den Peer-Server",
+    )
+    parser.add_argument(
+        "--peer-port",
+        type=int,
+        default=9999,
+        help="Port fuer den Peer-Server (default: 9999)",
     )
     parser.add_argument(
         "--proxy",
@@ -120,7 +126,7 @@ def main() -> int:
     if args.peer:
         from .tunnel import run_peer_server
         try:
-            asyncio.run(run_peer_server())
+            asyncio.run(run_peer_server(port=args.peer_port))
         except KeyboardInterrupt:
             print("\nPeer beendet.")
         return 0

@@ -2,6 +2,11 @@
 
 Nutzt Ed25519 fuer Authentifizierung, X25519 fuer Schluesselaustausch
 und ChaCha20-Poly1305 fuer Verschluesselung.
+
+Frame-Typen:
+  FRAME_RELAY (0x01): payload ist eine Onion-Layer, an Peer-2 weiterleiten
+  FRAME_OPEN  (0x02): payload ist "host:port", Ziel oeffnen
+  FRAME_DATA  (0x03): payload ist Stream-Nutzdaten
 """
 
 import asyncio
@@ -16,6 +21,8 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from .onion import open_layer
+
 logger = logging.getLogger(__name__)
 
 KEYS_DIR = Path(__file__).parent.parent.parent / "erebos_keys"
@@ -23,6 +30,11 @@ PEER_HOST = "127.0.0.1"
 PEER_PORT = 9999
 
 MAX_FRAME = 65536
+
+# Frame-Typen (erstes Byte im entschluesselten Frame einer Tunnel-Session)
+FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
+FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
+FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
 
 
 def _load_or_create_keypair(name: str):
@@ -117,6 +129,10 @@ class ErebosTunnelClient:
         ct = self.cipher.encrypt(nonce, data, None)
         await _send_frame(self.writer, nonce + ct)
 
+    async def send_typed(self, frame_type: int, payload: bytes):
+        """Sendet einen typisierten Frame innerhalb der Tunnel-Session."""
+        await self.send(bytes([frame_type]) + payload)
+
     async def receive(self) -> bytes:
         frame = await _recv_frame(self.reader)
         nonce, ct = frame[:12], frame[12:]
@@ -131,7 +147,105 @@ class ErebosTunnelClient:
                 pass
 
 
-async def run_peer_server():
+async def _handle_exit(reader, writer, cipher, host, port):
+    """Exit-Modus: Ziel oeffnen und Klartext-Strom durchleiten.
+
+    Wird von Peer-2 aufgerufen. `host:port` kommt hier NICHT mehr aus
+    dem ersten Frame, sondern wurde vom Aufrufer bereits aus der
+    entschluesselten Onion-Layer gelesen.
+    """
+    remote_reader, remote_writer = await asyncio.open_connection(host, port)
+
+    async def peer_to_target():
+        while True:
+            frame = await _recv_frame(reader)
+            data = cipher.decrypt(frame[:12], frame[12:], None)
+            if not data:
+                break
+            logger.debug(f"Peer -> Ziel: {len(data)}B")
+            remote_writer.write(data)
+            await remote_writer.drain()
+
+    async def target_to_peer():
+        while True:
+            data = await remote_reader.read(MAX_FRAME)
+            if not data:
+                break
+            logger.debug(f"Ziel -> Peer: {len(data)}B")
+            nonce = os.urandom(12)
+            ct = cipher.encrypt(nonce, data, None)
+            await _send_frame(writer, nonce + ct)
+
+    try:
+        await asyncio.gather(
+            peer_to_target(), target_to_peer(), return_exceptions=True
+        )
+    finally:
+        remote_writer.close()
+        try:
+            await remote_writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _handle_relay(reader, writer, cipher, first_payload: bytes):
+    """Relay-Modus: baut einen zweiten Tunnel zu Peer-2 auf und
+    reicht die Onion-Layer (first_payload) dort weiter.
+
+    Peer-1 entschluesselt die Layer NICHT. Es sieht nur:
+    "Hier ist eine Onion-Layer, bitte an Peer-2 schicken."
+    Das Ziel (host:port) ist in first_payload verschluesselt.
+    """
+    PEER2_HOST = "127.0.0.1"
+    PEER2_PORT = 9998
+
+    tunnel2 = ErebosTunnelClient(host=PEER2_HOST, port=PEER2_PORT)
+    try:
+        await tunnel2.connect()
+    except Exception as e:
+        logger.error(f"Relay: Tunnel zu Peer-2 fehlgeschlagen: {e}")
+        return
+
+    try:
+        # First Payload ist die Onion-Layer, adressiert an Peer-2.
+        # Wir schicken sie typisiert als FRAME_OPEN: Peer-2 oeffnet
+        # damit die innere Layer und verbindet zum Ziel.
+        await tunnel2.send_typed(FRAME_OPEN, first_payload)
+
+        async def client_to_peer2():
+            try:
+                while True:
+                    frame = await _recv_frame(reader)
+                    data = cipher.decrypt(frame[:12], frame[12:], None)
+                    if not data:
+                        break
+                    await tunnel2.send(data)
+            except Exception:
+                pass
+
+        async def peer2_to_client():
+            try:
+                while True:
+                    data = await tunnel2.receive()
+                    if not data:
+                        break
+                    nonce = os.urandom(12)
+                    ct = cipher.encrypt(nonce, data, None)
+                    await _send_frame(writer, nonce + ct)
+            except Exception:
+                pass
+
+        await asyncio.gather(
+            client_to_peer2(), peer2_to_client(), return_exceptions=True
+        )
+    finally:
+        try:
+            await tunnel2.close()
+        except Exception:
+            pass
+
+
+async def run_peer_server(port: int = PEER_PORT):
     """Startet den Peer-Server, der Tunnel-Verbindungen annimmt."""
 
     async def handle(reader, writer):
@@ -169,44 +283,45 @@ async def run_peer_server():
             key = _derive_key(shared)
             cipher = ChaCha20Poly1305(key)
 
-            # Ziel-Info empfangen
+            # Ersten typisierten Frame empfangen
             frame = await _recv_frame(reader)
-            target = cipher.decrypt(frame[:12], frame[12:], None).decode()
-            host, port = target.rsplit(":", 1)
-            port = int(port)
-            logger.info(f"Ziel: {host}:{port}")
+            first = cipher.decrypt(frame[:12], frame[12:], None)
+            if not first:
+                logger.warning("Leerer erster Frame")
+                return
 
-            remote_reader, remote_writer = await asyncio.open_connection(host, port)
+            frame_type = first[0]
+            payload = first[1:]
 
-            async def peer_to_target():
-                while True:
-                    frame = await _recv_frame(reader)
-                    data = cipher.decrypt(frame[:12], frame[12:], None)
-                    if not data:
-                        break
-                    logger.debug(f"Peer -> Ziel: {len(data)}B")
-                    remote_writer.write(data)
-                    await remote_writer.drain()
-
-            async def target_to_peer():
-                while True:
-                    data = await remote_reader.read(MAX_FRAME)
-                    if not data:
-                        break
-                    logger.debug(f"Ziel -> Peer: {len(data)}B")
-                    nonce = os.urandom(12)
-                    ct = cipher.encrypt(nonce, data, None)
-                    await _send_frame(writer, nonce + ct)
-
-            await asyncio.gather(
-                peer_to_target(), target_to_peer(), return_exceptions=True
-            )
+            if frame_type == FRAME_RELAY:
+                logger.info("Relay-Modus aktiv (kein Ziel sichtbar)")
+                await _handle_relay(reader, writer, cipher, payload)
+            elif frame_type == FRAME_OPEN:
+                # payload ist die verschluesselte innere Onion-Layer.
+                # Peer-2 oeffnet sie mit seinem eigenen x25519-Privkey
+                # (rohe 32 Bytes aus KEYS_DIR, wie open_layer es erwartet).
+                peer2_x_priv = (KEYS_DIR / "peer2_x25519").read_bytes()
+                try:
+                    decrypted = open_layer(peer2_x_priv, payload)
+                except Exception as e:
+                    logger.error(f"Peer-2: Onion-Layer oeffnen fehlgeschlagen: {e}")
+                    return
+                if not decrypted or decrypted[0] != FRAME_OPEN:
+                    logger.error("Peer-2: innere Layer hat falschen Typ")
+                    return
+                target = decrypted[1:].decode()
+                host, port = target.rsplit(":", 1)
+                port = int(port)
+                logger.info(f"Ziel: {host}:{port}")
+                await _handle_exit(reader, writer, cipher, host, port)
+            else:
+                logger.error(f"Unbekannter Frame-Typ: {frame_type:#x}")
         except Exception as e:
             logger.error(f"Peer-Fehler: {type(e).__name__}: {e!r}")
         finally:
             writer.close()
 
-    server = await asyncio.start_server(handle, PEER_HOST, PEER_PORT)
-    logger.info(f"Peer-Server laeuft auf {PEER_HOST}:{PEER_PORT}")
+    server = await asyncio.start_server(handle, PEER_HOST, port)
+    logger.info(f"Peer-Server laeuft auf {PEER_HOST}:{port}")
     async with server:
         await server.serve_forever()

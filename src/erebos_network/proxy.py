@@ -5,11 +5,13 @@ Nimmt Anfragen entgegen und leitet sie über den Erebos-Router.
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 
 from .router import ErebosRouter, RouteType
 from .sectors import SectorType
-from .tunnel import ErebosTunnelClient
+from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY
+from .onion import seal_for
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,12 @@ class ErebosSocks5Server:
         self._server = None
         self._connections = 0
 
+        KEYS = Path(__file__).parent.parent.parent / "erebos_keys"
+        self.peer1_pub = (KEYS / "peer1_x25519.pub").read_bytes()
+        self.peer2_pub = (KEYS / "peer2_x25519.pub").read_bytes()
+        self.peer1_host = "127.0.0.1"
+        self.peer1_port = 9999
+
     async def start(self):
         self._server = await asyncio.start_server(
             self._handle_client, self.host, self.port
@@ -200,8 +208,18 @@ class ErebosSocks5Server:
                 f"({result.get('hops')} Hops)"
             )
 
-            # Statt direkter Verbindung: verschluesselter Tunnel zum Peer
-            tunnel = ErebosTunnelClient()
+            # Onion-Layer bauen:
+            #   inner_plain = FRAME_OPEN + "host:port"
+            #   inner       = seal_for(peer2_pub, inner_plain)
+            # Transport-Typ FRAME_RELAY liegt UNVERSCHLUESSELT auf
+            # Transport-Ebene, damit Peer-1 weiss: "bitte weiterleiten".
+            # Der Transport-Tunnel zu Peer-1 verschluesselt das Ganze
+            # nochmal (ErebosTunnelClient.cipher).
+            target_bytes = f"{host}:{port}".encode()
+            inner_plain = bytes([FRAME_OPEN]) + target_bytes
+            inner = seal_for(self.peer2_pub, inner_plain)
+
+            tunnel = ErebosTunnelClient(host=self.peer1_host, port=self.peer1_port)
             try:
                 await asyncio.wait_for(tunnel.connect(), timeout=10.0)
             except Exception as e:
@@ -210,7 +228,7 @@ class ErebosSocks5Server:
                 writer.close()
                 return
 
-            await tunnel.send(f"{host}:{port}".encode())
+            await tunnel.send_typed(FRAME_RELAY, inner)
             await self._send_reply(writer, SOCKS5_REP_SUCCESS)
             logger.info(f"[{conn_id}] Tunnel steht, leite Traffic weiter")
 
