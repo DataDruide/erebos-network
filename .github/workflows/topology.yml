@@ -33,6 +33,8 @@ jobs:
             --fail-above 0.9
 
       - name: Run topology analysis (simulated, random rotation)
+        env:
+          PYTHONPATH: src
         run: |
           python scripts/analyze_topology.py \
             --simulate \
@@ -43,10 +45,9 @@ jobs:
             --fail-above 0.5
 
       - name: Run topology analysis (simulated, first - SPOF detector)
-        # Erwartet: 'first' hat SPOF -> Exit-Code 1.
-        # Dieser Step schlägt absichtlich fehl? Nein — wir wollen prüfen, dass
-        # 'first' als SPOF erkannt wird. Daher fail-above=0.9 (sehr streng):
-        # 'first' hat 100% entry, soll also fehlschlagen.
+        # Erwartet: 'first' hat SPOF -> Exit-Code 1 (continue-on-error).
+        env:
+          PYTHONPATH: src
         run: |
           python scripts/analyze_topology.py \
             --simulate \
