@@ -160,6 +160,10 @@ class Socks5Config:
     peer3_name: str = "peer3"
     connect_timeout: float = 10.0
     max_chunk: int = 65536
+    # Timing-Obfuskation auf dem Byte-Stream (opt-in)
+    traffic_shaping: bool = False
+    target_rate: float = 10.0
+    jitter_ratio: float = 0.3
 
     def peer_pub_path(self, peer_name: str) -> Path:
         """Pfad zum X25519-Public-Key eines Peers."""
@@ -187,6 +191,16 @@ class ErebosSocks5Server:
         self.config = config or Socks5Config()
         self._server = None
         self._connections = 0
+        # RateShaper für Timing-Obfuskation (opt-in via traffic_shaping=True)
+        self.shaper = (
+            RateShaper(
+                target_rate_per_second=self.config.target_rate,
+                jitter_enabled=True,
+                jitter_ratio=self.config.jitter_ratio,
+            )
+            if self.config.traffic_shaping
+            else None
+        )
         self._load_peer_keys()
 
     def _load_peer_keys(self) -> None:
@@ -324,9 +338,14 @@ class ErebosSocks5Server:
 
             async def client_to_tunnel():
                 while True:
-                    data = await reader.read(65536)
+                    data = await reader.read(self.config.max_chunk)
                     if not data:
                         break
+                    # Timing-Obfuskation (opt-in): verzoegert Send bei Burst
+                    if self.shaper is not None and not self.shaper.allow():
+                        delay = self.shaper.delay_for_next()
+                        if delay > 0:
+                            await asyncio.sleep(delay)
                     await tunnel.send(data)
 
             await asyncio.gather(

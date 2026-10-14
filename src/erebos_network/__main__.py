@@ -150,7 +150,7 @@ def main() -> int:
             server = ErebosSocks5Server(
                 proxy,
                 port=args.proxy_port,
-                config=Socks5Config(),
+                config=Socks5Config(traffic_shaping=args.traffic_shaping),
             )
             await server.start()
             try:

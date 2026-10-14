@@ -169,3 +169,105 @@ def test_socks5_server_custom_ports():
         assert server.peer1_port == 7777
         assert server.peer2_port == 7778
         assert server.peer3_port == 7779
+
+
+# ---------------------------------------------------------------------------
+# Byte-Stream Timing-Hardening
+# ---------------------------------------------------------------------------
+
+import asyncio
+from erebos_network.augur_defense import RateShaper
+
+
+def test_socks5_config_traffic_shaping_default_off():
+    """Default: traffic_shaping ist aus (Backward-Compat)."""
+    cfg = Socks5Config()
+    assert cfg.traffic_shaping is False
+    assert cfg.target_rate == 10.0
+    assert cfg.jitter_ratio == 0.3
+
+
+def test_socks5_server_no_shaper_by_default():
+    """Ohne traffic_shaping: kein RateShaper."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("peer1", "peer2", "peer3"):
+            priv = X25519PrivateKey.generate()
+            pub = priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            (tmp / f"{name}_x25519.pub").write_bytes(pub)
+
+        proxy = ErebosProxy()
+        server = ErebosSocks5Server(proxy, config=Socks5Config(keys_dir=tmp))
+        assert server.shaper is None
+
+
+def test_socks5_server_shaper_when_enabled():
+    """Mit traffic_shaping=True: RateShaper mit Jitter aktiv."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("peer1", "peer2", "peer3"):
+            priv = X25519PrivateKey.generate()
+            pub = priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            (tmp / f"{name}_x25519.pub").write_bytes(pub)
+
+        cfg = Socks5Config(
+            keys_dir=tmp,
+            traffic_shaping=True,
+            target_rate=20.0,
+            jitter_ratio=0.4,
+        )
+        proxy = ErebosProxy()
+        server = ErebosSocks5Server(proxy, config=cfg)
+        assert server.shaper is not None
+        assert server.shaper.jitter_enabled is True
+        assert abs(server.shaper.jitter_ratio - 0.4) < 1e-6
+        assert server.shaper.target_rate == 20.0
+
+
+def test_socks5_shaper_stats_reflect_config():
+    """Shaper-Stats zeigen Konfiguration."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("peer1", "peer2", "peer3"):
+            priv = X25519PrivateKey.generate()
+            pub = priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            (tmp / f"{name}_x25519.pub").write_bytes(pub)
+
+        cfg = Socks5Config(keys_dir=tmp, traffic_shaping=True)
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        stats = server.shaper.get_stats()
+        assert stats["jitter_enabled"] is True
+        assert "target_rate" in stats
+
+
+def test_socks5_config_max_chunk_default():
+    """max_chunk default ist 65536."""
+    cfg = Socks5Config()
+    assert cfg.max_chunk == 65536
+
+
+def test_socks5_config_custom_max_chunk():
+    """max_chunk ist konfigurierbar."""
+    cfg = Socks5Config(max_chunk=32768)
+    assert cfg.max_chunk == 32768
