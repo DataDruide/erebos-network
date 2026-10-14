@@ -39,7 +39,7 @@ def build_3hop_chain(target: bytes):
 
 # ---- Relay-Header ----
 
-def test_relay_header_roundtrip():
+def test_relay_header_roundtrip(generate_test_keys):
     """Pack/unpack eines Relay-Headers."""
     blob = pack_relay_header(FRAME_OPEN_WIRE, 9997)
     assert len(blob) == 3
@@ -49,7 +49,7 @@ def test_relay_header_roundtrip():
 
 
 @pytest.mark.parametrize("port", [0, 1, 80, 9997, 9998, 9999, 65535])
-def test_relay_header_all_ports(port):
+def test_relay_header_all_ports(port, generate_test_keys):
     """Ports im uint16-Bereich funktionieren."""
     blob = pack_relay_header(FRAME_RELAY_WIRE, port)
     ft, decoded_port = unpack_relay_header(blob)
@@ -57,20 +57,20 @@ def test_relay_header_all_ports(port):
     assert decoded_port == port
 
 
-def test_relay_header_invalid_type():
+def test_relay_header_invalid_type(generate_test_keys):
     """Unbekannter Frame-Typ wirft Fehler."""
     with pytest.raises(ValueError):
         pack_relay_header(0x99, 9999)
 
 
 @pytest.mark.parametrize("port", [-1, 65536, 100000])
-def test_relay_header_invalid_port(port):
+def test_relay_header_invalid_port(port, generate_test_keys):
     """Port ausserhalb uint16 wirft Fehler."""
     with pytest.raises(ValueError):
         pack_relay_header(FRAME_RELAY_WIRE, port)
 
 
-def test_relay_header_too_short():
+def test_relay_header_too_short(generate_test_keys):
     """Zu kurzer Header wirft Fehler."""
     with pytest.raises(ValueError):
         unpack_relay_header(b"\x01\x00")
@@ -78,7 +78,7 @@ def test_relay_header_too_short():
 
 # ---- Wire-Marker-Konsistenz ----
 
-def test_wire_marker_distinct():
+def test_wire_marker_distinct(generate_test_keys):
     """FRAME_OPEN_WIRE und FRAME_RELAY_WIRE sind unterscheidbar."""
     assert FRAME_OPEN_WIRE != FRAME_RELAY_WIRE
     assert FRAME_OPEN_WIRE == 0x02
@@ -87,7 +87,7 @@ def test_wire_marker_distinct():
 
 # ---- 3-Hop-Layer-Kette ----
 
-def test_3hop_layer_chain():
+def test_3hop_layer_chain(generate_test_keys):
     """3 verschachtelte Layer, jeder Peer oeffnet genau seine."""
     target = b"example.com:80"
     l1, l2, l3 = build_3hop_chain(target)
@@ -113,7 +113,7 @@ def test_3hop_layer_chain():
     assert d3 == target
 
 
-def test_3hop_layer_lengths_grow():
+def test_3hop_layer_lengths_grow(generate_test_keys):
     """Layer wachsen von innen nach aussen (Verschachtelung)."""
     l1, l2, l3 = build_3hop_chain(b"example.com:80")
     assert len(l1) > len(l2) > len(l3)
@@ -127,20 +127,20 @@ def test_3hop_layer_lengths_grow():
     b"foo.bar.example.com:443",
     b"x" * 100 + b".com:80",
 ])
-def test_padding_deterministic(target):
+def test_padding_deterministic(target, generate_test_keys):
     """Layer-Laengen sind identisch fuer alle Ziele bis 252B."""
     l1, l2, l3 = build_3hop_chain(target)
     assert (len(l3), len(l2), len(l1)) == (316, 572, 828)
 
 
-def test_3hop_wrong_order_fails():
+def test_3hop_wrong_order_fails(generate_test_keys):
     """Peer-3 kann l2 nicht oeffnen."""
     _, l2, _ = build_3hop_chain(b"example.com:80")
     with pytest.raises(Exception):
         open_layer(load_priv("peer3"), l2)
 
 
-def test_3hop_wrong_peer_fails():
+def test_3hop_wrong_peer_fails(generate_test_keys):
     """Peer-1 kann l3 nicht oeffnen."""
     _, _, l3 = build_3hop_chain(b"example.com:80")
     with pytest.raises(Exception):
