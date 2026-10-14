@@ -6,7 +6,7 @@ import logging
 import sys
 
 from .api import run_server
-from .proxy import ErebosProxy
+from .proxy import ErebosProxy, ErebosSocks5Server
 from .router import ErebosRouter
 from .sectors import SectorType, list_sectors
 
@@ -81,6 +81,22 @@ def main() -> int:
         help="Standard-Sektor",
     )
     parser.add_argument(
+        "--peer",
+        action="store_true",
+        help="Startet den Peer-Server auf 127.0.0.1:9999",
+    )
+    parser.add_argument(
+        "--proxy",
+        action="store_true",
+        help="Startet den SOCKS5-Proxy auf 127.0.0.1:4447",
+    )
+    parser.add_argument(
+        "--proxy-port",
+        type=int,
+        default=4447,
+        help="Port fuer den SOCKS5-Proxy",
+    )
+    parser.add_argument(
         "--serve",
         action="store_true",
         help="Startet den HTTP-API-Server auf 127.0.0.1:9050",
@@ -100,6 +116,30 @@ def main() -> int:
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    if args.peer:
+        from .tunnel import run_peer_server
+        try:
+            asyncio.run(run_peer_server())
+        except KeyboardInterrupt:
+            print("\nPeer beendet.")
+        return 0
+
+    if args.proxy:
+        async def run_proxy():
+            proxy = ErebosProxy()
+            server = ErebosSocks5Server(proxy, port=args.proxy_port)
+            await server.start()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await server.stop()
+
+        try:
+            asyncio.run(run_proxy())
+        except KeyboardInterrupt:
+            print("\nProxy beendet.")
+        return 0
 
     if args.serve:
         run_server(port=args.port)

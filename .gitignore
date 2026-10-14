@@ -14,3 +14,22 @@ htmlcov/
 states/
 *.st
 *.fp
+
+# ===== Erebos Security =====
+# Private keys - NEVER commit these
+erebos_keys/
+*.key
+*.pem
+*.priv
+*_ed25519
+*_x25519
+*.secret
+
+# ===== Erebos Security =====
+erebos_keys/
+*.key
+*.pem
+*.priv
+*_ed25519
+*_x25519
+*.secret
