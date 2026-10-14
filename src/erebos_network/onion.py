@@ -1,14 +1,24 @@
-"""Onion-Layer für Erebos Network.
+"""Onion-Layer fuer Erebos Network.
 
-Kleine, kurzlebige Verschlüsselungsschichten zum Verpacken von
+Kleine, kurzlebige Verschluesselungsschichten zum Verpacken von
 Ziel-Informationen (Hop-by-Hop). Nutzt X25519 ephemer + HKDF +
 ChaCha20-Poly1305.
 
+Zusaetzlich: Padding auf feste Blockgroesse, damit Layer-Laengen
+keine Information ueber den Zielnamen leaken.
+
 Wire-Format einer Layer:
-  ephemeral_x25519_pub (32) || nonce (12) || ciphertext+tag
+  ephemeral_x25519_pub (32)
+  || nonce (12)
+  || ciphertext+tag (4 + padded_plaintext + 16)
+
+Der Klartext hat ein 4-Byte Praefix (big endian), das die echte
+Laenge des Original-Plaintexts enthaelt. Danach folgt das Padding
+mit Zufallsbytes.
 """
 
 import os
+import struct
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
@@ -20,6 +30,10 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 EPHEMERAL_PUB_LEN = 32
 NONCE_LEN = 12
+LENGTH_PREFIX_LEN = 4
+TAG_LEN = 16
+BLOCK_SIZE = 256
+
 HKDF_INFO = b"erebos-onion-v1"
 
 
@@ -32,8 +46,38 @@ def _derive_layer_key(shared: bytes) -> bytes:
     ).derive(shared)
 
 
+def _pad_plaintext(plaintext: bytes) -> bytes:
+    """Fuegt 4-Byte-Laengen-Praefix hinzu und padet auf BLOCK_SIZE."""
+    original_len = len(plaintext)
+    body = struct.pack("!I", original_len) + plaintext
+    # Auf naechstes Vielfaches von BLOCK_SIZE auffuellen
+    remainder = len(body) % BLOCK_SIZE
+    if remainder == 0:
+        pad_len = 0
+    else:
+        pad_len = BLOCK_SIZE - remainder
+    padding = os.urandom(pad_len)
+    return body + padding
+
+
+def _unpad_plaintext(padded: bytes) -> bytes:
+    """Liest 4-Byte-Laengen-Praefix und schneidet Padding weg."""
+    if len(padded) < LENGTH_PREFIX_LEN:
+        raise ValueError("Gepolsterter Klartext zu kurz")
+    original_len = struct.unpack("!I", padded[:LENGTH_PREFIX_LEN])[0]
+    if LENGTH_PREFIX_LEN + original_len > len(padded):
+        raise ValueError(
+            f"Laengen-Praefix inkonsistent: {original_len} > {len(padded) - LENGTH_PREFIX_LEN}"
+        )
+    return padded[LENGTH_PREFIX_LEN:LENGTH_PREFIX_LEN + original_len]
+
+
 def seal_for(recipient_x25519_pub: bytes, plaintext: bytes) -> bytes:
-    """Verschlüsselt plaintext für recipient_x25519_pub."""
+    """Verschluesselt plaintext fuer recipient_x25519_pub.
+
+    Nutzt ephemere X25519 und padet auf BLOCK_SIZE, damit die
+    Layer-Laenge unabhaengig von der Klartext-Laenge ist.
+    """
     if len(recipient_x25519_pub) != 32:
         raise ValueError(
             f"recipient_x25519_pub muss 32 Byte sein, ist {len(recipient_x25519_pub)}"
@@ -49,15 +93,17 @@ def seal_for(recipient_x25519_pub: bytes, plaintext: bytes) -> bytes:
     shared = eph_priv.exchange(recipient)
     key = _derive_layer_key(shared)
 
+    padded = _pad_plaintext(plaintext)
     nonce = os.urandom(NONCE_LEN)
-    ct = ChaCha20Poly1305(key).encrypt(nonce, plaintext, None)
+    ct = ChaCha20Poly1305(key).encrypt(nonce, padded, None)
 
     return eph_pub + nonce + ct
 
 
 def open_layer(recipient_x25519_priv: bytes, layer: bytes) -> bytes:
-    """Öffnet eine Layer, adressiert an recipient_x25519_priv."""
-    if len(layer) < EPHEMERAL_PUB_LEN + NONCE_LEN + 16:
+    """Oeffnet eine Layer, adressiert an recipient_x25519_priv."""
+    min_len = EPHEMERAL_PUB_LEN + NONCE_LEN + LENGTH_PREFIX_LEN + TAG_LEN
+    if len(layer) < min_len:
         raise ValueError(f"Layer zu kurz: {len(layer)} Byte")
 
     eph_pub = layer[:EPHEMERAL_PUB_LEN]
@@ -68,4 +114,5 @@ def open_layer(recipient_x25519_priv: bytes, layer: bytes) -> bytes:
     shared = priv.exchange(X25519PublicKey.from_public_bytes(eph_pub))
     key = _derive_layer_key(shared)
 
-    return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+    padded = ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+    return _unpad_plaintext(padded)
