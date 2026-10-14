@@ -295,10 +295,10 @@ def _make_pool_keys(tmp: Path, names: tuple) -> None:
 
 
 def test_socks5_config_peer_pool_default():
-    """Default-Pool = ['peer1', 'peer2', 'peer3']."""
+    """Default-Pool = ['peer1', 'peer2', 'peer3'], strategy = 'random'."""
     cfg = Socks5Config()
     assert cfg.peer_pool == ["peer1", "peer2", "peer3"]
-    assert cfg.entry_strategy == "first"
+    assert cfg.entry_strategy == "random"
 
 
 def test_socks5_config_custom_pool():
@@ -322,12 +322,20 @@ def test_socks5_config_peer_pool_too_small():
 
 
 def test_select_three_hops_first():
-    """'first' liefert deterministisch die ersten 3 Pool-Einträge."""
+    """'first' liefert deterministisch die ersten 3 Pool-Einträge.
+
+    Hinweis: entry_strategy muss explizit auf 'first' gesetzt werden,
+    weil der Default jetzt 'random' ist (SPOF-Vermeidung).
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         names = ("a", "b", "c", "d", "e")
         _make_pool_keys(tmp, names)
-        cfg = Socks5Config(keys_dir=tmp, peer_pool=list(names))
+        cfg = Socks5Config(
+            keys_dir=tmp,
+            peer_pool=list(names),
+            entry_strategy="first",
+        )
         server = ErebosSocks5Server(ErebosProxy(), config=cfg)
         for _ in range(10):
             assert server._select_three_hops() == ["a", "b", "c"]
@@ -409,3 +417,35 @@ def test_5peer_pool_rotation_reduces_bc():
             assert 0.10 < ratio < 0.30, (
                 f"Peer {name} als Entry: {ratio:.2%} (erwartet 15-25%)"
             )
+
+
+def test_socks5_config_default_is_random():
+    """Default entry_strategy ist 'random' (SPOF-Vermeidung)."""
+    cfg = Socks5Config()
+    assert cfg.entry_strategy == "random"
+
+
+def test_socks5_config_first_still_available():
+    """'first' ist explizit verfügbar (Backward-Compat)."""
+    cfg = Socks5Config(entry_strategy="first")
+    assert cfg.entry_strategy == "first"
+    # Und der Server nutzt es korrekt
+    import tempfile
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("a", "b", "c"):
+            priv = X25519PrivateKey.generate()
+            pub = priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            (tmp / f"{name}_x25519.pub").write_bytes(pub)
+        cfg = Socks5Config(
+            keys_dir=tmp, peer_pool=["a", "b", "c"], entry_strategy="first"
+        )
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        for _ in range(10):
+            assert server._select_three_hops() == ["a", "b", "c"]

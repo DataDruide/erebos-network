@@ -136,8 +136,8 @@ def main() -> int:
     parser.add_argument(
         "--entry-strategy",
         choices=["first", "random", "round_robin"],
-        default="first",
-        help="Strategie für 3-Hop-Auswahl (Default: first = Backward-Compat)",
+        default="random",
+        help="Strategie für 3-Hop-Auswahl (Default: random = SPOF-Vermeidung)",
     )
     parser.add_argument(
         "-v",

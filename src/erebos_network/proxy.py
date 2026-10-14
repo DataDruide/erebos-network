@@ -162,10 +162,14 @@ class Socks5Config:
         default_factory=lambda: ["peer1", "peer2", "peer3"]
     )
     # Wie werden die 3 Hops aus dem Pool gewählt?
-    #   "first"       -> pool[0], pool[1], pool[2]  (Backward-Compat)
-    #   "random"      -> random.sample(pool, 3)
+    #   "random"      -> random.sample(pool, 3)  (DEFAULT, SPOF-Vermeidung)
+    #   "first"       -> pool[0], pool[1], pool[2]  (deterministisch, SPOF)
     #   "round_robin" -> rotierend bei jeder Verbindung
-    entry_strategy: str = "first"
+    #
+    # Hinweis: Default ist "random", um Single-Point-of-Failure zu vermeiden.
+    # Wer deterministisches Verhalten braucht, setzt entry_strategy="first"
+    # explizit.
+    entry_strategy: str = "random"
     connect_timeout: float = 10.0
     max_chunk: int = 65536
     # Timing-Obfuskation auf dem Byte-Stream (opt-in)
