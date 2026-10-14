@@ -11,6 +11,9 @@ Sicherheitseigenschaften:
 
 import hashlib
 import hmac
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 import logging
 import secrets
 import struct
@@ -83,12 +86,44 @@ class ErebosPacketFormat:
         }
 
     def _derive_threefish_key(self, shared_secret: bytes, context: bytes) -> bytes:
-        """Leitet einen Threefish-512-Key (64 Bytes) ab."""
-        return hashlib.sha512(shared_secret + context).digest()
+        """Leitet einen Threefish-512-Key (64 Bytes) per HKDF ab.
+
+        RFC 5869: HKDF-SHA256, mit Domain Separation via info.
+        Der context wird als info-Suffix verwendet, damit verschiedene
+        Zwecke unterschiedliche Keys liefern.
+        """
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=64,
+            salt=None,
+            info=b"erebos-packet-threefish-v1:" + context,
+        ).derive(shared_secret)
+
+    def _derive_mac_key(self, shared_secret: bytes) -> bytes:
+        """Leitet einen HMAC-Key (32 Bytes) per HKDF ab.
+
+        Vermeidet, dass rohe Shared Secrets direkt als HMAC-Key
+        verwendet werden. RFC 5869.
+        """
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"erebos-packet-mac-v1",
+        ).derive(shared_secret)
 
     def _derive_tweak(self, shared_secret: bytes) -> bytes:
-        """Leitet einen Tweak (16 Bytes) ab."""
-        return hashlib.sha256(shared_secret + b"tweak").digest()[:16]
+        """Leitet einen Tweak (16 Bytes) per HKDF ab.
+
+        RFC 5869: HKDF-SHA256, mit Domain Separation via info.
+        Keine Truncation mehr (length=16 direkt).
+        """
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=16,
+            salt=None,
+            info=b"erebos-packet-tweak-v1",
+        ).derive(shared_secret)
 
     def create_packet(
         self,
@@ -125,8 +160,9 @@ class ErebosPacketFormat:
             padded = self._pad(current)
             encrypted = cipher.encrypt(padded)
 
+            mac_key = self._derive_mac_key(shared_secret)
             layer_mac = hmac.new(
-                shared_secret,
+                mac_key,
                 ciphertext + encrypted + hop.routing_info,
                 hashlib.sha256,
             ).digest()
@@ -198,8 +234,9 @@ class ErebosPacketFormat:
             self._make_ciphertext(kem_ct), keypair
         )
 
+        mac_key = self._derive_mac_key(shared_secret)
         expected_mac = hmac.new(
-            shared_secret,
+            mac_key,
             kem_ct + encrypted + routing_info,
             hashlib.sha256,
         ).digest()
