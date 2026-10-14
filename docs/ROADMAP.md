@@ -1,6 +1,6 @@
 # Erebos Network - Roadmap
 
-Status: 7 Phasen komplett
+Status: 23 Phasen komplett, 479 Tests
 
 ## Abgeschlossen
 
@@ -112,11 +112,29 @@ Status: 7 Phasen komplett
 - IP-ID + Timestamps + Window + TLS
 - 19 Tests
 
-Gesamt: 380 Tests.
+### Phase 22: 2-Hop Onion-Routing
+- onion.py: X25519 + HKDF + ChaCha20-Poly1305 Layered Encryption
+- tunnel.py: Frame-Typen FRAME_RELAY/FRAME_OPEN/FRAME_DATA
+- _handle_relay baut zweiten Transport-Tunnel
+- _handle_exit entschluesselt Onion-Layer
+- proxy.py baut Doppel-Layer (Peer-2 innen, Peer-1 aussen)
+- __main__.py: --peer-port fuer Multi-Peer-Setup
+- scripts/generate_keys.py: Peer-Key-Generator
+
+### Phase 23: 3-Hop Onion-Routing + Padding
+- onion.py: Padding auf 256-Byte-Bloecke
+- pack_relay_header/unpack_relay_header mit dynamischem Ziel-Port
+- tunnel.py: PORT_TO_PEER_NAME Map (Port -> Peer-Identitaet)
+- _handle_relay entschluesselt eigene Schicht vor Weiterleitung
+- proxy.py baut 3 verschachtelte Schichten
+- 80 neue Unit-Tests (Onion-Basic + 3-Hop + Framing + Handshake)
+- 0 Tests gebrochen
+
+Gesamt: 479 Tests.
 
 ## In Arbeit
 
-### Phase 8: Paper schreiben
+### Paper schreiben
 - [ ] Abstract
 - [ ] Introduction
 - [ ] Related Work
@@ -125,32 +143,32 @@ Gesamt: 380 Tests.
 - [ ] Conclusion
 - [ ] arXiv-Submission
 
-### Phase 9: Community aufbauen
+### Community aufbauen
 - [ ] GitHub Discussions
 - [ ] Reddit-Post
 - [ ] Hacker News
 - [ ] I2P-Forum
 
-### Phase 10: Netzwerk-Deployment
+### Netzwerk-Deployment
 - [ ] Bootstrap-Nodes
 - [ ] Monitoring
 - [ ] Erste Peers
 
 ## Zukuenftige Phasen
 
-### Phase 11: Erster Build
+### Erster Build
 - [ ] mach bootstrap
 - [ ] mach build
 - [ ] Release v0.1
 
-### Phase 12: Echte Monero-Integration
+### Echte Monero-Integration
 - [ ] monero-wallet-rpc
 - [ ] Echte Transaktionen
 
-### Phase 13: Bridges
+### Bridges
 - [ ] Tor-Bridges
 - [ ] Obfs4, meek, snowflake
 
-### Phase 14: Mobile Apps
+### Mobile Apps
 - [ ] Android
 - [ ] iOS

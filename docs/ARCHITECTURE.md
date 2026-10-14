@@ -12,8 +12,9 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
     API-Schicht (api.py)
     Routing-Schicht (router.py)
     Mixnet-Schicht (mixnet.py)
+    Onion-Schicht (onion.py)
     Krypto-Schicht (crypto/)
-    Transport-Schicht (Tor/I2P/Peer)
+    Transport-Schicht (Tor/I2P/Peer-Tunnel)
 
 ## Schichten
 
@@ -21,9 +22,22 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 
 - Tor (SOCKS5 auf 127.0.0.1:9050) fuer Clearnet
 - I2P (HTTP-Proxy auf 127.0.0.1:4444) fuer eepSites
-- Erebos-Peer (direkt) fuer Peer-zu-Peer
+- Erebos-Peer-Tunnel (X25519 + Ed25519 + ChaCha20-Poly1305)
+  - Framing: FRAME_RELAY / FRAME_OPEN / FRAME_DATA
+  - Multi-Peer-Setup: --peer-port
 
-### 2. Krypto-Schicht
+### 2. Onion-Routing-Schicht
+
+Dreischichtiges Onion-Routing mit dynamischen Relay-Headern und
+Padding auf feste Blockgroessen. X25519 + HKDF + ChaCha20-Poly1305
+pro Schicht.
+
+- Schichtlaenge: 60 + N * 256 Byte (Padding, keine Laengen-Leaks)
+- Relay-Header: 1 Byte Frame-Typ + 2 Byte Port
+- Topologie-agnostisch: Erweiterung auf N Hops ohne Codeaenderung
+- Siehe: docs/ONION_ROUTING.md
+
+### 3. Krypto-Schicht
 
 | Algorithmus | Zweck | Sicherheit |
 |-------------|-------|------------|
@@ -31,14 +45,14 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | SLH-DSA-SHA2-256s | Signaturen | NIST Level 5 |
 | Threefish-512 | Symmetrisch | 256-Bit PQ |
 
-### 3. Mixnet-Schicht
+### 4. Mixnet-Schicht
 
 - Padding - alle Nachrichten auf 1024B
 - Delay - zufaellige Verzoegerungen (0-500ms)
 - Batching - Gruppen von 10 Nachrichten
 - Cover - Dummy-Traffic (0.5-2.0/s)
 
-### 4. Routing-Schicht
+### 5. Routing-Schicht
 
 | Sektor | Hops | Anonymitaet | Latenz |
 |--------|------|-------------|--------|
@@ -47,7 +61,7 @@ Erebos ist ein mehrschichtiges anonymes Netzwerk.
 | high | 5 | 9/10 | 2s |
 | mixnet | 7 | 10/10 | 5s |
 
-### 5. API-Schicht
+### 6. API-Schicht
 
 - GET /status
 - GET /route?target=X&sector=Y

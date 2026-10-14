@@ -53,7 +53,7 @@ auf NIST Level 5.
 
 ---
 
-## Die 7 Phasen
+## Die Phasen
 
 ### Phase 1: Router + Adaptive Sektoren
 
@@ -270,6 +270,28 @@ Schutz gegen Header-Tagging (Rowland, Giffin, Patent):
 - TLSRecordPadder: TLS-Record-Padding
 - 12/12 kritische Luecken geschlossen
 
+### Phase 22: 2-Hop Onion-Routing
+
+Verschluesselter Tunnel mit doppelter Onion-Schicht:
+
+- onion.py: X25519 + HKDF + ChaCha20-Poly1305 Layered Encryption
+- tunnel.py: Frame-Typen FRAME_RELAY / FRAME_OPEN / FRAME_DATA
+- _handle_relay baut zweiten Transport-Tunnel zum Nachbar-Peer
+- _handle_exit entschluesselt Onion-Layer und verbindet zum Ziel
+- proxy.py baut Doppel-Layer (Peer-2 innen, Peer-1 aussen)
+
+### Phase 23: 3-Hop Onion-Routing + Padding
+
+Dynamische Relay-Header und konstante Layer-Laengen:
+
+- Padding auf 256-Byte-Bloecke (keine Ziel-Laengen-Leaks)
+- pack_relay_header / unpack_relay_header mit dynamischem Ziel-Port
+- PORT_TO_PEER_NAME Map fuer Multi-Peer-Identitaet
+- proxy.py baut 3 verschachtelte Schichten
+- 80 neue Unit-Tests (Onion-Basic, 3-Hop, Framing, Handshake)
+
+Siehe [docs/ONION_ROUTING.md](docs/ONION_ROUTING.md) fuer Details.
+
 ---
 
 ## Installation
@@ -312,6 +334,8 @@ Dann testen:
         router.py        # Routing-Entscheidungen
         sectors.py       # Adaptive Sektoren
         proxy.py         # Lokaler Proxy
+        onion.py         # Onion-Routing-Schichten
+        tunnel.py        # Erebos-Peer-Tunnel + Peer-Server
         mixnet.py        # Mixnet-Layer
         padding.py       # Padding
         delay.py         # Verzoegerungen
@@ -360,6 +384,7 @@ Dann testen:
 ## Dokumentation
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technische Architektur
+- [ONION_ROUTING.md](docs/ONION_ROUTING.md) - 3-Hop Onion-Routing
 - [THREAT_MODEL.md](docs/THREAT_MODEL.md) - Bedrohungsmodell
 - [PQ_CRYPTO.md](docs/PQ_CRYPTO.md) - Post-Quanten-Kryptographie
 - [ROADMAP.md](docs/ROADMAP.md) - Roadmap

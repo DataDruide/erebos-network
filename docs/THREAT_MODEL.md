@@ -250,6 +250,70 @@ Abwehr:
 - Tor mit Bridges (geplant)
 - Cover-Traffic als HTTP/HTTPS
 
+### 25. Onion-Relay-Peer
+
+Faehigkeit: Betreibt einen Relay-Knoten und sieht den Verkehr, der
+durch ihn laeuft.
+
+Abwehr:
+- Onion-Layer: Ziel verschluesselt mit dem Public-Key des Exit-Knotens
+- Relay oeffnet nur seine eigene X25519-Schicht
+- Relay sieht ausschliesslich die Adresse des naechsten Knotens
+- Relay sieht NICHT das Ziel, NICHT den Ursprung, NICHT die Hop-Anzahl
+- Transport-Tunnel-Rekonstruktion: Relay baut einen frischen
+  X25519-Handshake zum Nachbarn (kein gemeinsamer Key mit Client)
+- Padding auf 256-Byte-Bloecke verhindert Ziel-Laengen-Leak
+
+Grenzen:
+- Relay kennt die Adresse des naechsten Hops (Topologie-Leak lokal)
+- Zwei kollaborierende Relays koennen Verbindung rekonstruieren
+- Timing-Korrelation bleibt moeglich (siehe 3. Globaler Beobachter)
+
+### 26. Ende-zu-Ende-Beobachter auf einem Hop
+
+Faehigkeit: Schneidet einen einzelnen Transport-Tunnel zwischen
+zwei Peers mit, ohne die Endpunkte zu kontrollieren.
+
+Abwehr:
+- ChaCha20-Poly1305 pro Transport-Tunnel
+- Ephemere X25519-Keys pro Handshake -> Forward Secrecy
+- HKDF-SHA256 Schluesselableitung mit festem Info-Label
+- Ed25519-Signatur des X25519-Pubkeys (Authentizitaet)
+
+Was der Beobachter sieht:
+- Frame-Typen (FRAME_RELAY/FRAME_OPEN/FRAME_DATA) im Klartext
+- Frame-Groessen (aber Layer sind gepolstert)
+- Timing und Frequenz der Frames
+
+Was er NICHT sieht:
+- Ziel
+- Ursprungs-Client
+- Anzahl Hops
+- Inhalt der Nutzdaten
+
+### 27. Layer-Laengen-Analyse
+
+Faehigkeit: Analysiert die Groesse verschluesselter Onion-Layer, um
+auf die Laenge des Zielnamens zu schliessen.
+
+Abwehr:
+- Padding auf 256-Byte-Bloecke (BLOCK_SIZE = 256)
+- 4-Byte-Laengenpraefix im Klartext verhindert Fehlinterpretation
+- Schichtlaenge = 60 + N * 256 Byte, N >= 1
+- Alle Ziele bis 252 Byte Zielname -> identische Layer-Laenge
+
+Beispiel:
+
+| Zielname-Laenge | Layer-Laenge |
+|-----------------|--------------|
+| 1-252 Byte      | 316 Byte     |
+| 253-508 Byte    | 572 Byte     |
+| 509-764 Byte    | 828 Byte     |
+
+Grenzen:
+- Sehr lange Zielnamen (>252 Byte) haben eine unterscheidbare Klasse
+- Padding macht nur die LAENGE konstant, nicht das Timing
+
 ## Was Erebos NICHT schuetzt
 
 - Endpunkt-Kompromittierung
@@ -269,3 +333,5 @@ Abwehr:
 | Sybil | Teilweise | Teilweise | Ja |
 | Quanten-Computer | Nein | Nein | Ja |
 | Zensur | Ja | Ja | Ja |
+| Onion-Relay-Peer | Ja | Nein | Ja |
+| Layer-Laengen-Analyse | Ja | Nein | Ja |
