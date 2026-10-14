@@ -7,11 +7,16 @@ Loesung: Layered Encryption mit ML-KEM-1024.
 """
 
 import hashlib
+import hmac
 import logging
 import os
 import secrets
 from dataclasses import dataclass, field
 from typing import Optional
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .pq_kem import PostQuantumKEM, KEMKeyPair
 
@@ -68,6 +73,26 @@ class PQSphinx:
             "total_layers": 0,
         }
 
+    @staticmethod
+    def _derive_payload_key(shared_secret: bytes) -> bytes:
+        """HKDF-SHA256 fuer den Payload-Key (32 Byte, RFC 5869)."""
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"erebos-pq-sphinx-key-v1",
+        ).derive(shared_secret)
+
+    @staticmethod
+    def _derive_mac_key(shared_secret: bytes) -> bytes:
+        """HKDF-SHA256 fuer den MAC-Key (32 Byte, RFC 5869)."""
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"erebos-pq-sphinx-mac-v1",
+        ).derive(shared_secret)
+
     def create_packet(
         self,
         hops: list[PQHop],
@@ -90,10 +115,8 @@ class PQSphinx:
             # Encapsulate fuer diesen Hop
             ciphertext, shared_secret = self.kem.encapsulate(hop.public_key)
 
-            # Payload mit abgeleitetem Schluessel verschluesseln
-            key = hashlib.sha256(
-                shared_secret + b"erebos-pq-sphinx"
-            ).digest()
+            # Payload-Key per HKDF (RFC 5869)
+            key = self._derive_payload_key(shared_secret)
             encrypted = self._xor_encrypt(current_payload, key)
 
             # Layer = KEM-Ciphertext + Encrypted Payload + Routing-Info
@@ -105,8 +128,14 @@ class PQSphinx:
         self.stats["packets_created"] += 1
         self.stats["total_layers"] += len(layers)
 
-        # MAC ueber alles
-        mac = hashlib.sha256(current_payload).digest()
+        # MAC ueber alles (HMAC-SHA256 mit abgeleitetem Key)
+        mac_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"erebos-pq-sphinx-packet-mac-v1",
+        ).derive(current_payload)
+        mac = hmac.new(mac_key, current_payload, hashlib.sha256).digest()
 
         return PQSphinxPacket(
             layers=layers,
@@ -115,14 +144,28 @@ class PQSphinx:
         )
 
     def _xor_encrypt(self, data: bytes, key: bytes) -> bytes:
-        """XOR-Verschluesselung (keystream aus SHA-256)."""
-        result = bytearray(len(data))
-        for i in range(0, len(data), 32):
-            block = key + i.to_bytes(8, "big")
-            keystream = hashlib.sha256(block).digest()
-            for j in range(min(32, len(data) - i)):
-                result[i + j] = data[i + j] ^ keystream[j]
-        return bytes(result)
+        """ChaCha20-Poly1305 AEAD-Verschluesselung (RFC 8439).
+
+        Nicht mehr XOR-basiert: liefert (nonce || ciphertext || tag).
+        Fuer Decryption siehe _xor_decrypt.
+
+        Hinweis: Der Name ist historisch (XOR), die Implementierung
+        ist jetzt AEAD.
+        """
+        nonce = os.urandom(12)
+        ct = ChaCha20Poly1305(key).encrypt(nonce, data, None)
+        return nonce + ct
+
+    def _xor_decrypt(self, data: bytes, key: bytes) -> bytes:
+        """ChaCha20-Poly1305 AEAD-Entschluesselung.
+
+        Erwartet das Format (nonce || ciphertext || tag) von _xor_encrypt.
+        Raises cryptography.exceptions.InvalidTag bei Manipulation.
+        """
+        if len(data) < 12 + 16:
+            raise ValueError(f"Zu kurz fuer AEAD: {len(data)} Byte")
+        nonce, ct = data[:12], data[12:]
+        return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
 
     @staticmethod
     def sizes(num_hops: int) -> dict:

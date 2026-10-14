@@ -179,11 +179,46 @@ def test_pq_sphinx_create_packet():
 
 
 def test_pq_sphinx_xor_encrypt():
-    """XOR-Verschluesselung funktioniert."""
+    """ChaCha20-Poly1305 Encrypt/Decrypt Roundtrip.
+
+    Hinweis: _xor_encrypt ist jetzt AEAD (nicht mehr XOR). Der Test
+    nutzt daher _xor_decrypt fuer den Roundtrip.
+    """
     sphinx = PQSphinx()
     key = b"x" * 32
     data = b"test data"
     encrypted = sphinx._xor_encrypt(data, key)
     assert encrypted != data
-    decrypted = sphinx._xor_encrypt(encrypted, key)
+    # AEAD: 12 Byte Nonce + len(data) + 16 Byte Poly1305-Tag
+    assert len(encrypted) == 12 + len(data) + 16
+    decrypted = sphinx._xor_decrypt(encrypted, key)
     assert decrypted == data
+
+
+def test_pq_sphinx_aead_tamper_detection():
+    """ChaCha20-Poly1305 erkennt manipulierte Ciphertexte."""
+    import pytest
+    from cryptography.exceptions import InvalidTag
+
+    sphinx = PQSphinx()
+    key = b"y" * 32
+    data = b"payload"
+    encrypted = bytearray(sphinx._xor_encrypt(data, key))
+    # Letztes Byte manipulieren (Poly1305-Tag)
+    encrypted[-1] ^= 0x01
+
+    with pytest.raises(InvalidTag):
+        sphinx._xor_decrypt(bytes(encrypted), key)
+
+
+def test_pq_sphinx_aead_unique_ciphertexts():
+    """Zwei Encrypts mit demselben Key liefern unterschiedliche Ciphertexte.
+
+    (Nonce ist zufaellig.)
+    """
+    sphinx = PQSphinx()
+    key = b"z" * 32
+    data = b"same data"
+    ct1 = sphinx._xor_encrypt(data, key)
+    ct2 = sphinx._xor_encrypt(data, key)
+    assert ct1 != ct2, "Nonce muss zufaellig sein"
