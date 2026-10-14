@@ -133,8 +133,11 @@ class ErebosSocks5Server:
         KEYS = Path(__file__).parent.parent.parent / "erebos_keys"
         self.peer1_pub = (KEYS / "peer1_x25519.pub").read_bytes()
         self.peer2_pub = (KEYS / "peer2_x25519.pub").read_bytes()
+        self.peer3_pub = (KEYS / "peer3_x25519.pub").read_bytes()
         self.peer1_host = "127.0.0.1"
         self.peer1_port = 9999
+        self.peer2_port = 9998
+        self.peer3_port = 9997
 
     async def start(self):
         self._server = await asyncio.start_server(
@@ -208,16 +211,34 @@ class ErebosSocks5Server:
                 f"({result.get('hops')} Hops)"
             )
 
-            # Onion-Layer bauen:
-            #   inner_plain = FRAME_OPEN + "host:port"
-            #   inner       = seal_for(peer2_pub, inner_plain)
-            # Transport-Typ FRAME_RELAY liegt UNVERSCHLUESSELT auf
-            # Transport-Ebene, damit Peer-1 weiss: "bitte weiterleiten".
-            # Der Transport-Tunnel zu Peer-1 verschluesselt das Ganze
-            # nochmal (ErebosTunnelClient.cipher).
+            # 3-Hop-Onion bauen:
+            #   L3 (an Peer-3):  FRAME_OPEN + "host:port"
+            #   L2 (an Peer-2):  FRAME_RELAY + hdr(OPEN, :9997) + L3
+            #   L1 (an Peer-1):  FRAME_RELAY + hdr(RELAY, :9998) + L2
+            # Der Transport-Tunnel zu Peer-1 (Port 9999) verschluesselt
+            # L1 nochmal (ErebosTunnelClient.cipher).
+            from .onion import (
+                pack_relay_header,
+                FRAME_OPEN_WIRE,
+                FRAME_RELAY_WIRE,
+            )
+
             target_bytes = f"{host}:{port}".encode()
-            inner_plain = bytes([FRAME_OPEN]) + target_bytes
-            inner = seal_for(self.peer2_pub, inner_plain)
+
+            # l3-Klartext = "host:port" (kein Frame-Marker; der kommt per
+            # send_typed(FRAME_OPEN, ...) auf Transport-Ebene durch Peer-2).
+            l3_plain = target_bytes
+            l3 = seal_for(self.peer3_pub, l3_plain)
+
+            # l2-Klartext = hdr2 (3B) + l3-Sealed
+            hdr2 = pack_relay_header(FRAME_OPEN_WIRE, self.peer3_port)
+            l2_plain = hdr2 + l3
+            l2 = seal_for(self.peer2_pub, l2_plain)
+
+            # l1-Klartext = hdr1 (3B) + l2-Sealed
+            hdr1 = pack_relay_header(FRAME_RELAY_WIRE, self.peer2_port)
+            l1_plain = hdr1 + l2
+            l1 = seal_for(self.peer1_pub, l1_plain)
 
             tunnel = ErebosTunnelClient(host=self.peer1_host, port=self.peer1_port)
             try:
@@ -228,7 +249,7 @@ class ErebosSocks5Server:
                 writer.close()
                 return
 
-            await tunnel.send_typed(FRAME_RELAY, inner)
+            await tunnel.send_typed(FRAME_RELAY, l1)
             await self._send_reply(writer, SOCKS5_REP_SUCCESS)
             logger.info(f"[{conn_id}] Tunnel steht, leite Traffic weiter")
 

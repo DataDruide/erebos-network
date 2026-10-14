@@ -36,6 +36,14 @@ FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
 FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
 FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
 
+# Port → Peer-Identitaet. Jeder Peer weiss anhand seines Listen-Ports,
+# welcher Private-Key ihm gehoert.
+PORT_TO_PEER_NAME = {
+    9997: "peer3",
+    9998: "peer2",
+    9999: "peer1",
+}
+
 
 def _load_or_create_keypair(name: str):
     """Laedt ein Ed25519+X25519 Schluesselpaar (erstellt es NICHT)."""
@@ -188,31 +196,58 @@ async def _handle_exit(reader, writer, cipher, host, port):
             pass
 
 
-async def _handle_relay(reader, writer, cipher, first_payload: bytes):
-    """Relay-Modus: baut einen zweiten Tunnel zu Peer-2 auf und
-    reicht die Onion-Layer (first_payload) dort weiter.
+async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: bytes):
+    """Relay-Modus: entschluesselt die eingehende Onion-Layer, liest
+    naechsten Hop aus dem Relay-Header und baut einen verschluesselten
+    Transport-Tunnel dorthin.
 
-    Peer-1 entschluesselt die Layer NICHT. Es sieht nur:
-    "Hier ist eine Onion-Layer, bitte an Peer-2 schicken."
-    Das Ziel (host:port) ist in first_payload verschluesselt.
+    first_payload ist die GESEALTE Layer, adressiert an diesen Peer.
+    Nach open_layer():
+      [0]     = next_frame_type (RELAY oder OPEN)
+      [1:3]   = next_port (uint16, big endian)
+      [3:]    = naechste Onion-Layer (bereits gesealt fuer den Nachbar-Peer)
+
+    Der Peer oeffnet NUR seine eigene Schicht. Die naechste Onion-Layer
+    wird unveraendert weitergegeben — kein weiteres Verpacken.
     """
-    PEER2_HOST = "127.0.0.1"
-    PEER2_PORT = 9998
+    from .onion import unpack_relay_header, open_layer
 
-    tunnel2 = ErebosTunnelClient(host=PEER2_HOST, port=PEER2_PORT)
+    NEXT_HOST = "127.0.0.1"
+
+    self_priv = (KEYS_DIR / f"{peer_name}_x25519").read_bytes()
     try:
-        await tunnel2.connect()
+        decrypted = open_layer(self_priv, first_payload)
     except Exception as e:
-        logger.error(f"Relay: Tunnel zu Peer-2 fehlgeschlagen: {e}")
+        logger.error(f"Relay: Onion-Layer oeffnen fehlgeschlagen: {e}")
+        return
+
+    if len(decrypted) < 3:
+        logger.error("Relay: entschluesselte Layer zu kurz fuer Relay-Header")
         return
 
     try:
-        # First Payload ist die Onion-Layer, adressiert an Peer-2.
-        # Wir schicken sie typisiert als FRAME_OPEN: Peer-2 oeffnet
-        # damit die innere Layer und verbindet zum Ziel.
-        await tunnel2.send_typed(FRAME_OPEN, first_payload)
+        next_frame_type, next_port = unpack_relay_header(decrypted[:3])
+    except Exception as e:
+        logger.error(f"Relay: Header-Fehler: {e}")
+        return
 
-        async def client_to_peer2():
+    next_layer = decrypted[3:]
+    logger.info(
+        f"Relay: leite weiter an {NEXT_HOST}:{next_port} "
+        f"(frame_type={next_frame_type:#x}, layer_len={len(next_layer)})"
+    )
+
+    tunnel2 = ErebosTunnelClient(host=NEXT_HOST, port=next_port)
+    try:
+        await tunnel2.connect()
+    except Exception as e:
+        logger.error(f"Relay: Tunnel zu {NEXT_HOST}:{next_port} fehlgeschlagen: {e}")
+        return
+
+    try:
+        await tunnel2.send_typed(next_frame_type, next_layer)
+
+        async def client_to_next():
             try:
                 while True:
                     frame = await _recv_frame(reader)
@@ -223,7 +258,7 @@ async def _handle_relay(reader, writer, cipher, first_payload: bytes):
             except Exception:
                 pass
 
-        async def peer2_to_client():
+        async def next_to_client():
             try:
                 while True:
                     data = await tunnel2.receive()
@@ -236,7 +271,7 @@ async def _handle_relay(reader, writer, cipher, first_payload: bytes):
                 pass
 
         await asyncio.gather(
-            client_to_peer2(), peer2_to_client(), return_exceptions=True
+            client_to_next(), next_to_client(), return_exceptions=True
         )
     finally:
         try:
@@ -247,6 +282,14 @@ async def _handle_relay(reader, writer, cipher, first_payload: bytes):
 
 async def run_peer_server(port: int = PEER_PORT):
     """Startet den Peer-Server, der Tunnel-Verbindungen annimmt."""
+
+    peer_name = PORT_TO_PEER_NAME.get(port)
+    if peer_name is None:
+        raise ValueError(
+            f"Port {port} ist keinem Peer-Namen zugeordnet. "
+            f"Bekannte Ports: {sorted(PORT_TO_PEER_NAME.keys())}"
+        )
+    logger.info(f"Peer-Identitaet: {peer_name} (Port {port})")
 
     async def handle(reader, writer):
         logger.info("Eingehende Tunnel-Verbindung")
@@ -295,21 +338,21 @@ async def run_peer_server(port: int = PEER_PORT):
 
             if frame_type == FRAME_RELAY:
                 logger.info("Relay-Modus aktiv (kein Ziel sichtbar)")
-                await _handle_relay(reader, writer, cipher, payload)
+                await _handle_relay(reader, writer, cipher, peer_name, payload)
             elif frame_type == FRAME_OPEN:
-                # payload ist die verschluesselte innere Onion-Layer.
-                # Peer-2 oeffnet sie mit seinem eigenen x25519-Privkey
-                # (rohe 32 Bytes aus KEYS_DIR, wie open_layer es erwartet).
-                peer2_x_priv = (KEYS_DIR / "peer2_x25519").read_bytes()
+                # payload ist die gesealte l3, adressiert an DIESEN Peer.
+                # Der Klartext ist direkt "host:port" (kein Frame-Marker
+                # in der Layer; der Marker kommt aus dem Transport-Frame).
+                self_priv = (KEYS_DIR / f"{peer_name}_x25519").read_bytes()
                 try:
-                    decrypted = open_layer(peer2_x_priv, payload)
+                    decrypted = open_layer(self_priv, payload)
                 except Exception as e:
-                    logger.error(f"Peer-2: Onion-Layer oeffnen fehlgeschlagen: {e}")
+                    logger.error(f"{peer_name}: Onion-Layer oeffnen fehlgeschlagen: {e}")
                     return
-                if not decrypted or decrypted[0] != FRAME_OPEN:
-                    logger.error("Peer-2: innere Layer hat falschen Typ")
+                if not decrypted:
+                    logger.error(f"{peer_name}: leere innere Layer")
                     return
-                target = decrypted[1:].decode()
+                target = decrypted.decode()
                 host, port = target.rsplit(":", 1)
                 port = int(port)
                 logger.info(f"Ziel: {host}:{port}")

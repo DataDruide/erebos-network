@@ -116,3 +116,35 @@ def open_layer(recipient_x25519_priv: bytes, layer: bytes) -> bytes:
 
     padded = ChaCha20Poly1305(key).decrypt(nonce, ct, None)
     return _unpad_plaintext(padded)
+
+
+# ---------------------------------------------------------------------------
+# Relay-Header fuer Multi-Hop
+# ---------------------------------------------------------------------------
+#
+# Wire-Format innerhalb einer Relay-Layer:
+#   byte[0]   = 0x01 (FRAME_RELAY) oder 0x02 (FRAME_OPEN)
+#   byte[1]   = next_frame_type (0x01=RELAY, 0x02=OPEN)
+#   byte[2:4] = next_port (uint16, big endian)
+#   byte[4:]  = next_layer (an den naechsten Peer adressiert)
+
+FRAME_RELAY_WIRE = 0x01
+FRAME_OPEN_WIRE = 0x02
+
+
+def pack_relay_header(next_frame_type: int, next_port: int) -> bytes:
+    """Packt einen Relay-Header: 1 Byte Frame-Typ + 2 Byte Port."""
+    if next_frame_type not in (FRAME_RELAY_WIRE, FRAME_OPEN_WIRE):
+        raise ValueError(f"Unbekannter Frame-Typ: {next_frame_type:#x}")
+    if not (0 <= next_port <= 0xFFFF):
+        raise ValueError(f"Port ausserhalb uint16: {next_port}")
+    return bytes([next_frame_type]) + struct.pack("!H", next_port)
+
+
+def unpack_relay_header(blob: bytes) -> tuple:
+    """Liest Relay-Header aus den ersten 3 Bytes."""
+    if len(blob) < 3:
+        raise ValueError(f"Relay-Header zu kurz: {len(blob)} Byte")
+    next_frame_type = blob[0]
+    next_port = struct.unpack("!H", blob[1:3])[0]
+    return next_frame_type, next_port
