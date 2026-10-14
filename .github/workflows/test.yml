@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     name: Run Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -32,11 +32,11 @@ jobs:
             build-essential git
 
       - name: Cache liboqs build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: liboqs-cache
         with:
           path: /tmp/liboqs-install
-          key: liboqs-0.16.0-${{ runner.os }}-${{ runner.arch }}-v1
+          key: liboqs-0.16.0-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}-v2
 
       - name: Build and install liboqs
         if: steps.liboqs-cache.outputs.cache-hit != 'true'
