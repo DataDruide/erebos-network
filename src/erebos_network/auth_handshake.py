@@ -17,7 +17,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from .crypto.hybrid_kem import HybridKEM, HybridKeyPair, HybridCiphertext
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+from .crypto.hybrid_kem import (
+    HybridKEM,
+    HybridKeyPair,
+    HybridCiphertext,
+    derive_hybrid_key,
+)
+from .crypto.pq_kem import PostQuantumKEM
 from .crypto.pq_sig import PostQuantumSignature, SignatureKeyPair
 from .crypto.threefish import ThreefishCipher
 
@@ -117,7 +126,7 @@ class AuthenticatedHandshake:
 
     def __init__(self, config: Optional[HandshakeConfig] = None):
         self.config = config or HandshakeConfig()
-        self.kem = HybridKEM()
+        self.pq_kem = PostQuantumKEM()
         self.sig = PostQuantumSignature()
         self._sessions: dict[str, AuthenticatedSession] = {}
         self._pending: dict[str, dict] = {}
@@ -136,15 +145,19 @@ class AuthenticatedHandshake:
         initiator_id: str,
         responder_id: str,
     ) -> bytes:
-        """Leitet den Session-Key ab (mit Session-Bindung)."""
-        if self.config.session_binding:
-            binding = f"{initiator_id}:{responder_id}".encode()
-        else:
-            binding = b""
+        """Leitet den Session-Key ab (HKDF mit Domain Separation).
 
-        return hashlib.sha256(
-            x25519_shared + mlkem_shared + binding + b"erebos-auth-handshake"
-        ).digest()
+        Nutzt die zentrale KDF aus crypto/hybrid_kem.py:
+          HKDF-SHA256(x25519_shared || mlkem_shared, info=context)
+
+        Die info-String enthält (optional) initiator_id und responder_id,
+        damit verschiedene Session-Paare unterschiedliche Keys ableiten.
+        """
+        if self.config.session_binding:
+            info = f"erebos-auth-v1:{initiator_id}:{responder_id}".encode()
+        else:
+            info = b"erebos-auth-v1"
+        return derive_hybrid_key(x25519_shared, mlkem_shared, info=info)
 
     def _compute_mac(
         self, session_key: bytes, role: str, initiator: str, responder: str
@@ -163,6 +176,7 @@ class AuthenticatedHandshake:
         """Startet den Handshake (Initiator-Seite)."""
         from cryptography.hazmat.primitives.asymmetric.x25519 import (
             X25519PrivateKey,
+            X25519PublicKey,
         )
         from cryptography.hazmat.primitives import serialization
 
@@ -172,11 +186,16 @@ class AuthenticatedHandshake:
             format=serialization.PublicFormat.Raw,
         )
 
-        # ML-KEM encapsulate
-        mlkem_ct_obj, mlkem_shared = self.kem.encapsulate(responder_pubkey)
+        # X25519 ephemeral exchange (ROHES Shared Secret)
+        responder_x_pub = X25519PublicKey.from_public_bytes(
+            responder_pubkey.x25519_public
+        )
+        x25519_shared = ephemeral_priv.exchange(responder_x_pub)
 
-        # Konvertiere HybridCiphertext zu bytes
-        mlkem_ct_bytes = mlkem_ct_obj.mlkem_ciphertext
+        # ML-KEM encapsulate (ROHES Shared Secret)
+        mlkem_ct_bytes, mlkem_shared = self.pq_kem.encapsulate(
+            responder_pubkey.mlkem_public
+        )
 
         # Nachricht bauen
         msg = HandshakeMessage(
@@ -196,7 +215,7 @@ class AuthenticatedHandshake:
             "ephemeral_priv": ephemeral_priv,
             "initiator_id": initiator_id,
             "timestamp": msg.timestamp,
-            "mlkem_ct_obj": mlkem_ct_obj,
+            "x25519_shared": x25519_shared,
             "mlkem_shared": mlkem_shared,
         }
         self._pending[initiator_id] = state
@@ -245,13 +264,10 @@ class AuthenticatedHandshake:
         )
         x25519_shared = ephemeral_priv.exchange(initiator_pub)
 
-        # ML-KEM decapsulate
-        mlkem_shared = self.kem.decapsulate(
-            HybridCiphertext(
-                x25519_ephemeral_public=b"",
-                mlkem_ciphertext=initiator_msg.mlkem_ct,
-            ),
-            responder_pubkey,
+        # ML-KEM decapsulate (ROHES Shared Secret)
+        mlkem_shared = self.pq_kem.decapsulate(
+            initiator_msg.mlkem_ct,
+            responder_pubkey.mlkem_private,
         )
 
         session_key = self._derive_session_key(
@@ -343,8 +359,17 @@ class AuthenticatedHandshake:
                 raise ValueError("MAC ungueltig")
             self.stats["macs_verified"] += 1
 
+        # Threefish-512 benötigt 64-Byte-Key, session_key ist 32 Byte.
+        # Wir leiten den Threefish-Key separat per HKDF ab (Domain Separation).
+        threefish_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=64,
+            salt=None,
+            info=b"erebos-threefish-key-v1",
+        ).derive(session_key)
+
         tweak = hashlib.sha256(session_key + b"tweak").digest()[:16]
-        cipher = ThreefishCipher(key=session_key, tweak=tweak)
+        cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
 
         session_id = hashlib.sha256(
             session_key + str(time.time()).encode()

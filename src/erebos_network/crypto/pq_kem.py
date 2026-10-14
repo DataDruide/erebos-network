@@ -37,6 +37,10 @@ class PostQuantumKEM:
     """
 
     ALGORITHM = "ML-KEM-1024"
+    PUBLIC_KEY_LEN = 1568
+    PRIVATE_KEY_LEN = 3168
+    CIPHERTEXT_LEN = 1568
+    SHARED_SECRET_LEN = 32
 
     def __init__(self):
         if not HAS_LIBOQS:
@@ -82,14 +86,26 @@ class PostQuantumKEM:
     ) -> bytes:
         """Decapsuliert einen Shared Secret.
 
+        liboqs-python 0.16.0 API: Der Private Key muss im Konstruktor
+        uebergeben werden (nicht nachtraeglich via Attribut).
+
         Args:
-            ciphertext: Ciphertext
-            private_key: Empfänger Private Key
+            ciphertext: Ciphertext (1568 Byte fuer ML-KEM-1024)
+            private_key: Empfänger Private Key (3168 Byte)
 
         Returns:
             32-Byte Shared Secret
+
+        Raises:
+            ValueError: bei falscher Key-Groesse
         """
-        return self._kem.decap_secret(ciphertext)
+        if len(private_key) != self.PRIVATE_KEY_LEN:
+            raise ValueError(
+                f"private_key muss {self.PRIVATE_KEY_LEN} Byte sein, "
+                f"ist {len(private_key)}"
+            )
+        with oqs.KeyEncapsulation(self.ALGORITHM, private_key) as kem:
+            return kem.decap_secret(ciphertext)
 
     @staticmethod
     def sizes() -> dict:
