@@ -6,6 +6,8 @@ Basiert auf Radicle-Bug (2026): Handshake OK, aber Session-Keys
 nicht genutzt - Klartext lief durch.
 """
 
+import os
+
 import hashlib
 
 import pytest
@@ -241,3 +243,81 @@ class TestFullDataPath:
         cipher = ThreefishCipher.generate()
         tf_ct = cipher.encrypt(marker + b"\x00" * (64 - len(marker)))
         assert marker not in tf_ct, "Threefish leakt Klartext"
+
+
+# ---------------------------------------------------------------------------
+# KEM-Konsolidierung: zentrale KDF
+# ---------------------------------------------------------------------------
+
+class TestCentralHybridKDF:
+    """Tests für die zentrale KDF in crypto/hybrid_kem.py."""
+
+    def test_derive_hybrid_key_is_hkdf(self):
+        """derive_hybrid_key nutzt HKDF-SHA256."""
+        from erebos_network.crypto.hybrid_kem import derive_hybrid_key
+        x_ss = b"x" * 32
+        pq_ss = b"p" * 32
+        key = derive_hybrid_key(x_ss, pq_ss)
+        assert len(key) == 32
+
+    def test_derive_hybrid_key_deterministic(self):
+        """Zweimal gleicher Input -> gleicher Key."""
+        from erebos_network.crypto.hybrid_kem import derive_hybrid_key
+        x_ss = os.urandom(32)
+        pq_ss = os.urandom(32)
+        k1 = derive_hybrid_key(x_ss, pq_ss)
+        k2 = derive_hybrid_key(x_ss, pq_ss)
+        assert k1 == k2
+
+    def test_derive_hybrid_key_domain_separation(self):
+        """Verschiedene info-Strings -> verschiedene Keys."""
+        from erebos_network.crypto.hybrid_kem import derive_hybrid_key
+        x_ss = b"x" * 32
+        pq_ss = b"p" * 32
+        k1 = derive_hybrid_key(x_ss, pq_ss, info=b"context-a")
+        k2 = derive_hybrid_key(x_ss, pq_ss, info=b"context-b")
+        assert k1 != k2
+
+    def test_derive_hybrid_key_legacy_matches_old(self):
+        """derive_hybrid_key_legacy entspricht dem alten SHA-256."""
+        import hashlib
+        from erebos_network.crypto.hybrid_kem import derive_hybrid_key_legacy
+        x_ss = b"x" * 32
+        pq_ss = b"p" * 32
+        expected = hashlib.sha256(
+            x_ss + pq_ss + b"erebos-hybrid-kem"
+        ).digest()
+        assert derive_hybrid_key_legacy(x_ss, pq_ss) == expected
+
+    def test_hybrid_kem_default_is_legacy(self):
+        """Default-kdf ist 'legacy' (kein Breaking-Change)."""
+        from erebos_network.crypto.hybrid_kem import HybridKEM
+        kem = HybridKEM()
+        assert kem.kdf == "legacy"
+
+    def test_hybrid_kem_hkdf_mode(self):
+        """kdf='hkdf' liefert anderen Key als legacy."""
+        from erebos_network.crypto.hybrid_kem import HybridKEM
+        kem_legacy = HybridKEM(kdf="legacy")
+        kem_hkdf = HybridKEM(kdf="hkdf")
+        kp = kem_legacy.generate_keypair()
+        ct_l, ss_l = kem_legacy.encapsulate(kp)
+        ct_h, ss_h = kem_hkdf.encapsulate(kp)
+        assert ss_l != ss_h, "hkdf und legacy sollten unterschiedliche Keys liefern"
+
+    def test_hybrid_kem_invalid_kdf(self):
+        """Unbekannte kdf -> ValueError."""
+        import pytest
+        from erebos_network.crypto.hybrid_kem import HybridKEM
+        with pytest.raises(ValueError, match="Unbekannte kdf"):
+            HybridKEM(kdf="garbage")
+
+    def test_tunnel_pq_key_matches_direct_call(self):
+        """tunnel._derive_key_pq delegiert an derive_hybrid_key."""
+        from erebos_network.tunnel import _derive_key_pq
+        from erebos_network.crypto.hybrid_kem import derive_hybrid_key
+        x_ss = os.urandom(32)
+        pq_ss = os.urandom(32)
+        k_tunnel = _derive_key_pq(x_ss, pq_ss)
+        k_direct = derive_hybrid_key(x_ss, pq_ss, info=b"erebos-tunnel-pq-v1")
+        assert k_tunnel == k_direct

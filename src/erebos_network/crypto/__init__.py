@@ -11,7 +11,13 @@ from .pq_kem import PostQuantumKEM, KEMKeyPair
 from .pq_sig import PostQuantumSignature, SignatureKeyPair
 from .threefish import ThreefishCipher
 from .hybrid import HybridCrypto
-from .hybrid_kem import HybridKEM, HybridKeyPair, HybridCiphertext
+from .hybrid_kem import (
+    HybridKEM,
+    HybridKeyPair,
+    HybridCiphertext,
+    derive_hybrid_key,
+    derive_hybrid_key_legacy,
+)
 
 __all__ = [
     "PostQuantumKEM",
@@ -23,4 +29,6 @@ __all__ = [
     "HybridKEM",
     "HybridKeyPair",
     "HybridCiphertext",
+    "derive_hybrid_key",
+    "derive_hybrid_key_legacy",
 ]

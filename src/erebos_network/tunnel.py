@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .onion import open_layer
+from .crypto.hybrid_kem import derive_hybrid_key
 
 logger = logging.getLogger(__name__)
 
@@ -136,15 +137,18 @@ def _derive_key(shared_secret: bytes) -> bytes:
 def _derive_key_pq(x25519_shared: bytes, mlkem_shared: bytes) -> bytes:
     """Hybrid-Schluesselableitung: X25519 + ML-KEM-1024.
 
+    Delegiert an crypto.hybrid_kem.derive_hybrid_key (HKDF-SHA256).
+    Die info-String bleibt b"erebos-tunnel-pq-v1", damit bestehende
+    Tunnel-Verbindungen kompatibel bleiben.
+
     Wird fuer HANDSHAKE_V2_HYBRID benutzt. Der klassische _derive_key
     bleibt fuer Rueckwaertskompatibilitaet.
     """
-    return HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=None,
+    return derive_hybrid_key(
+        x25519_shared,
+        mlkem_shared,
         info=b"erebos-tunnel-pq-v1",
-    ).derive(x25519_shared + mlkem_shared)
+    )
 
 
 async def _read_exact(reader: asyncio.StreamReader, n: int) -> bytes:

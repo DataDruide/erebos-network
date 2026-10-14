@@ -16,11 +16,53 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
     X25519PublicKey,
 )
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .pq_kem import PostQuantumKEM, KEMKeyPair
 
 logger = logging.getLogger(__name__)
+
+
+def derive_hybrid_key(
+    x25519_shared: bytes,
+    mlkem_shared: bytes,
+    info: bytes = b"erebos-hybrid-kem-v1",
+) -> bytes:
+    """HKDF-SHA256 über (x25519_shared || mlkem_shared).
+
+    RFC 5869, mit Domain-Separation via `info`.
+    Empfohlene KDF für alle Hybrid-Schlüsselableitungen.
+
+    Args:
+        x25519_shared: X25519 Shared Secret (32 Byte)
+        mlkem_shared: ML-KEM-1024 Shared Secret (32 Byte)
+        info: Domain-Separation-String
+
+    Returns:
+        32-Byte Shared Secret
+    """
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=info,
+    ).derive(x25519_shared + mlkem_shared)
+
+
+def derive_hybrid_key_legacy(
+    x25519_shared: bytes,
+    mlkem_shared: bytes,
+) -> bytes:
+    """Legacy SHA-256(concat + marker) — NUR für Rückwärtskompat.
+
+    Wird von auth_handshake.py (Phase-1-Migration) und alten
+    HybridKEM-Instanzen benutzt. Neue Anwendungen sollen
+    `derive_hybrid_key` (HKDF) verwenden.
+    """
+    return hashlib.sha256(
+        x25519_shared + mlkem_shared + b"erebos-hybrid-kem"
+    ).digest()
 
 
 @dataclass
@@ -56,7 +98,16 @@ class HybridKEM:
     Shared Secret = SHA-256(X25519_secret || ML-KEM_secret).
     """
 
-    def __init__(self):
+    def __init__(self, kdf: str = "legacy"):
+        """Hybrid KEM.
+
+        Args:
+            kdf: "legacy" (SHA-256, aktueller Default für Kompat)
+                 "hkdf"   (HKDF-SHA256, empfohlen für neue Anwendungen)
+        """
+        if kdf not in ("legacy", "hkdf"):
+            raise ValueError(f"Unbekannte kdf: {kdf!r}")
+        self.kdf = kdf
         self.mlkem = PostQuantumKEM()
 
     def generate_keypair(self) -> HybridKeyPair:
@@ -108,10 +159,11 @@ class HybridKEM:
             public_key.mlkem_public
         )
 
-        # 3. Kombiniere mit SHA-256
-        shared_secret = hashlib.sha256(
-            x25519_secret + mlkem_secret + b"erebos-hybrid-kem"
-        ).digest()
+        # 3. Kombiniere via gewählter KDF
+        if self.kdf == "hkdf":
+            shared_secret = derive_hybrid_key(x25519_secret, mlkem_secret)
+        else:
+            shared_secret = derive_hybrid_key_legacy(x25519_secret, mlkem_secret)
 
         ciphertext = HybridCiphertext(
             x25519_ephemeral_public=ephemeral_pub_bytes,
@@ -141,10 +193,11 @@ class HybridKEM:
             private_key.mlkem_private,
         )
 
-        # 3. Kombiniere mit SHA-256
-        shared_secret = hashlib.sha256(
-            x25519_secret + mlkem_secret + b"erebos-hybrid-kem"
-        ).digest()
+        # 3. Kombiniere via gewählter KDF
+        if self.kdf == "hkdf":
+            shared_secret = derive_hybrid_key(x25519_secret, mlkem_secret)
+        else:
+            shared_secret = derive_hybrid_key_legacy(x25519_secret, mlkem_secret)
 
         return shared_secret
 
@@ -153,6 +206,8 @@ class HybridKEM:
         """Gibt Groessen zurueck."""
         return {
             "algorithm": "X25519+ML-KEM-1024",
+            "kdf_default": "legacy (SHA-256)",
+            "kdf_recommended": "hkdf (RFC 5869)",
             "x25519_public": 32,
             "x25519_private": 32,
             "mlkem_public": 1568,
