@@ -4,6 +4,9 @@ Kombiniert ML-KEM-1024 + Threefish-512.
 """
 
 import hashlib
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 import logging
 import os
 from dataclasses import dataclass
@@ -49,16 +52,31 @@ class HybridCrypto:
             kem_keypair.public_key
         )
 
-        # Threefish Key aus Shared Secret ableiten (HKDF-ähnlich)
-        threefish_key = hashlib.sha512(
-            shared_secret + b"erebos-threefish-key"
-        ).digest()[:64]
-        tweak = hashlib.sha256(
-            shared_secret + b"erebos-threefish-tweak"
-        ).digest()[:16]
+        # Threefish-Key + Tweak + Session-ID per HKDF (RFC 5869)
+        # Domain Separation via info-String.
+        threefish_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=64,
+            salt=None,
+            info=b"erebos-hybrid-threefish-key-v1",
+        ).derive(shared_secret)
+
+        tweak = HKDF(
+            algorithm=hashes.SHA256(),
+            length=16,
+            salt=None,
+            info=b"erebos-hybrid-threefish-tweak-v1",
+        ).derive(shared_secret)
+
+        session_id_bytes = HKDF(
+            algorithm=hashes.SHA256(),
+            length=16,
+            salt=None,
+            info=b"erebos-hybrid-session-id-v1",
+        ).derive(shared_secret)
+        session_id = session_id_bytes.hex()
 
         cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
-        session_id = hashlib.sha256(shared_secret).hexdigest()[:16]
 
         session = HybridSession(
             cipher=cipher,
