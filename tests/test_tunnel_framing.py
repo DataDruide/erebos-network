@@ -209,3 +209,66 @@ def test_public_api_exists():
     assert callable(_handle_relay)
     assert callable(run_peer_server)
     assert isinstance(ErebosTunnelClient, type)
+
+
+# ---------------------------------------------------------------------------
+# liboqs-Guard (Härtung: kein stiller Totalausfall ohne liboqs)
+# ---------------------------------------------------------------------------
+
+def test_has_liboqs_flag_exists():
+    """tunnel.py exportiert HAS_LIBOQS."""
+    from erebos_network.tunnel import HAS_LIBOQS
+    assert isinstance(HAS_LIBOQS, bool)
+
+
+def test_mlkem_load_fails_without_liboqs(monkeypatch):
+    """Ohne liboqs: _load_mlkem_keypair wirft klare RuntimeError."""
+    import pytest
+    from erebos_network import tunnel
+
+    monkeypatch.setattr(tunnel, "HAS_LIBOQS", False)
+    with pytest.raises(RuntimeError, match="liboqs nicht verfuegbar"):
+        tunnel._load_mlkem_keypair("client")
+
+
+def test_connect_fails_without_liboqs(monkeypatch):
+    """Ohne liboqs: connect() wirft RuntimeError statt ImportError."""
+    import asyncio
+    import pytest
+    from erebos_network import tunnel
+
+    monkeypatch.setattr(tunnel, "HAS_LIBOQS", False)
+    client = tunnel.ErebosTunnelClient(host="127.0.0.1", port=9999)
+    with pytest.raises(RuntimeError, match="liboqs nicht verfuegbar"):
+        asyncio.run(client.connect(peer_name="peer1"))
+
+
+def test_module_imports_without_liboqs(monkeypatch):
+    """tunnel.py bleibt importierbar, auch wenn liboqs fehlt."""
+    import importlib
+    import sys
+
+    # Modul aus Cache entfernen
+    mod_name = "erebos_network.tunnel"
+    if mod_name in sys.modules:
+        del sys.modules[mod_name]
+
+    # Import simulieren ohne liboqs
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "oqs":
+            raise ImportError("simulated: no liboqs")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        mod = importlib.import_module(mod_name)
+        assert mod.HAS_LIBOQS is False
+        assert mod.oqs is None
+    finally:
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        # Original neu laden
+        importlib.import_module(mod_name)

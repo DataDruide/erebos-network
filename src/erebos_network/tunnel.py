@@ -15,7 +15,12 @@ import os
 import struct
 from pathlib import Path
 
-import oqs
+try:
+    import oqs
+    HAS_LIBOQS = True
+except ImportError:
+    HAS_LIBOQS = False
+    oqs = None
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -82,6 +87,12 @@ def _load_or_create_keypair(name: str):
 
 def _load_mlkem_keypair(name: str):
     """Laedt ein ML-KEM-1024 Schluesselpaar (Raw Bytes)."""
+    if not HAS_LIBOQS:
+        raise RuntimeError(
+            "liboqs nicht verfuegbar. ML-KEM-Keys koennen nicht geladen "
+            "werden. Installiere: pip install liboqs-python "
+            "(plus liboqs systemweit)."
+        )
     priv_path = KEYS_DIR / f"{name}_mlkem"
     pub_path = KEYS_DIR / f"{name}_mlkem.pub"
 
@@ -157,7 +168,18 @@ class ErebosTunnelClient:
         peer_name: Name der Peer-Identitaet, deren statische Keys wir kennen.
                    Wenn None, wird der Name aus dem Ziel-Port via
                    PORT_TO_PEER_NAME abgeleitet (z.B. 9999 -> peer1).
+
+        Raises:
+            RuntimeError: wenn liboqs nicht verfuegbar ist.
         """
+        # Guard VOR jedem Netzwerk-Zugriff (fail fast).
+        if not HAS_LIBOQS:
+            raise RuntimeError(
+                "liboqs nicht verfuegbar. PQ-Hybrid-Handshake benoetigt "
+                "liboqs-python. Installiere: pip install liboqs-python "
+                "(plus liboqs systemweit)."
+            )
+
         if peer_name is None:
             peer_name = PORT_TO_PEER_NAME.get(self.port)
             if peer_name is None:
@@ -439,6 +461,12 @@ async def run_peer_server(port: int = PEER_PORT):
 
             # Peer-Identitaet aus Port
             ed_priv, x_priv, ed_pub, x_pub = _load_or_create_keypair(peer_name)
+            if not HAS_LIBOQS:
+                logger.error(
+                    "Peer: liboqs nicht verfuegbar, lehne Handshake ab"
+                )
+                return
+
             _, my_mlkem_pub = _load_mlkem_keypair(peer_name)
             my_mlkem_priv, _ = _load_mlkem_keypair(peer_name)
 
