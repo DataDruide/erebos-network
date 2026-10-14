@@ -138,6 +138,37 @@ def simulate_usage(
     }
 
 
+def load_live_topology(
+    bootstrap_peers: list[str],
+    own_address: str = "127.0.0.1:9999",
+) -> "nx.Graph":
+    """Lädt die LIVE-Topologie aus der DHT.
+
+    Args:
+        bootstrap_peers: Liste von Bootstrap-Adressen (IP:Port).
+        own_address: Eigene Adresse (bestimmt own_id).
+
+    Returns:
+        networkx-Graph mit den aktuellen Peer-Verbindungen.
+    """
+    from erebos_network.discovery import DiscoveryConfig, PeerDiscovery
+
+    discovery = PeerDiscovery(
+        own_address=own_address,
+        config=DiscoveryConfig(bootstrap_peers=list(bootstrap_peers)),
+    )
+    added = discovery.bootstrap()
+    print(f"[*] Bootstrap: {added} Peers hinzugefügt")
+
+    edges = discovery.export_topology()
+    print(f"[*] Topologie: {len(edges)} Kanten aus DHT")
+
+    G = nx.Graph()
+    for a, b in edges:
+        G.add_edge(a, b)
+    return G
+
+
 def analyze_usage(usage: dict, warn_above: float = 0.5) -> dict:
     """Analysiert Nutzungsverteilung.
 
@@ -284,6 +315,22 @@ def main() -> int:
         default=1000,
         help="Anzahl simulierter Verbindungen (Default: 1000)",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Live-Topologie aus DHT (braucht --bootstrap)",
+    )
+    parser.add_argument(
+        "--bootstrap",
+        action="append",
+        default=[],
+        help="Bootstrap-Peer für --live (mehrfach angebbar)",
+    )
+    parser.add_argument(
+        "--own-address",
+        default="127.0.0.1:9999",
+        help="Eigene Adresse für --live (Default: 127.0.0.1:9999)",
+    )
     args = parser.parse_args()
 
     if not _HAS_NX:
@@ -306,6 +353,28 @@ def main() -> int:
                 print(f"\n[✗] FAIL: Entry max = {worst:.4f} > {args.fail_above}")
                 return 1
             print(f"\n[✓] OK: Entry max = {worst:.4f} <= {args.fail_above}")
+        return 0
+
+    # Live-Analyse (DHT)
+    if args.live:
+        if not args.bootstrap:
+            print("[!] --live ohne --bootstrap -> leere Topologie")
+        G = load_live_topology(
+            bootstrap_peers=args.bootstrap,
+            own_address=args.own_address,
+        )
+        metrics = analyze(G, warn_above=args.warn_above)
+        write_github_summary(metrics)
+
+        if metrics["critical"]:
+            print(f"\n[!] WARNUNG: {len(metrics['critical'])} kritische Peers.")
+
+        if args.fail_above is not None:
+            worst = max(metrics["betweenness"].values()) if metrics["betweenness"] else 0.0
+            if worst > args.fail_above:
+                print(f"\n[✗] FAIL: BC max = {worst:.4f} > {args.fail_above}")
+                return 1
+            print(f"\n[✓] OK: BC max = {worst:.4f} <= {args.fail_above}")
         return 0
 
     # Statische Analyse (Datei)

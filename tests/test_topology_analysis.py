@@ -226,3 +226,47 @@ def test_simulate_usage_round_robin_perfect():
     # Jeder Peer genau 200 mal Entry
     for peer in pool:
         assert metrics["entry_counts"][peer] == 200
+
+
+# ---------------------------------------------------------------------------
+# Live-Topologie (DHT)
+# ---------------------------------------------------------------------------
+
+def test_load_live_topology_empty():
+    """--live ohne Bootstrap -> leerer Graph."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    from analyze_topology import load_live_topology
+
+    G = load_live_topology(bootstrap_peers=[])
+    assert G.number_of_nodes() == 0
+    assert G.number_of_edges() == 0
+
+
+def test_load_live_topology_with_bootstrap():
+    """--live mit Bootstrap -> Graph mit eigenen + Bootstrap-Knoten."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    from analyze_topology import load_live_topology
+
+    G = load_live_topology(
+        bootstrap_peers=["10.0.0.1:9999", "10.0.0.2:9999"],
+    )
+    # 1 eigener Knoten + 2 Bootstrap-Peers
+    assert G.number_of_nodes() >= 2
+    assert G.number_of_edges() >= 2
+
+
+def test_load_live_topology_ignore_self():
+    """Bootstrap-Adresse == eigene Adresse -> keine Kante zu sich selbst."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    from analyze_topology import load_live_topology
+
+    G = load_live_topology(
+        bootstrap_peers=["127.0.0.1:9999"],
+        own_address="127.0.0.1:9999",
+    )
+    # Keine Selbstkante
+    for u, v in G.edges():
+        assert u != v
