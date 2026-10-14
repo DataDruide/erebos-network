@@ -23,10 +23,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        # Hinweis: cryptography ist nötig, weil analyze_topology.py
-        # (--simulate) erebos_network.proxy importiert, das tunnel.py
-        # lädt, das cryptography importiert. Kein Krypto-Einsatz hier.
-        run: pip install "networkx>=3.0" cryptography
+        # Nur networkx: analyze_topology.py importiert jetzt
+        # erebos_network.topology_utils (krypto-frei).
+        run: pip install "networkx>=3.0"
 
       - name: Run topology analysis (static)
         run: |

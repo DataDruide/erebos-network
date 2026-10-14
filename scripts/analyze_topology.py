@@ -84,7 +84,7 @@ def simulate_topology(
     Returns:
         networkx-Graph (Multi-Edge auf denselben Peer wird dedupliziert).
     """
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
 
     G = nx.Graph()
     for peer in pool:
@@ -110,7 +110,7 @@ def simulate_usage(
     Returns:
         Dict mit entry_counts, relay_counts, exit_counts, edge_counts.
     """
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
     from collections import Counter
 
     entries: Counter = Counter()

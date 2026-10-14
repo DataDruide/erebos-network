@@ -92,13 +92,13 @@ def test_peer_list_baseline_loaded():
 
 def test_select_three_hops_pure_function_first():
     """Freie Funktion: 'first' liefert pool[:3]."""
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
     assert select_three_hops(["a", "b", "c", "d"], "first") == ["a", "b", "c"]
 
 
 def test_select_three_hops_pure_function_random():
     """Freie Funktion: 'random' liefert 3 unterschiedliche Peers."""
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
     hops = select_three_hops(["a", "b", "c", "d", "e"], "random")
     assert len(hops) == 3
     assert len(set(hops)) == 3
@@ -106,7 +106,7 @@ def test_select_three_hops_pure_function_random():
 
 def test_select_three_hops_pure_function_round_robin():
     """Freie Funktion: 'round_robin' rotiert deterministisch."""
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
     assert select_three_hops(["a", "b", "c", "d"], "round_robin", 0) == ["a", "b", "c"]
     assert select_three_hops(["a", "b", "c", "d"], "round_robin", 1) == ["b", "c", "d"]
     assert select_three_hops(["a", "b", "c", "d"], "round_robin", 3) == ["d", "a", "b"]
@@ -139,7 +139,7 @@ def test_simulate_first_creates_entry_spof():
     die Entry-Verteilung — das ist der echte SPOF.
     """
     from collections import Counter
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
 
     pool = ["a", "b", "c", "d", "e"]
     entries = Counter()
@@ -158,7 +158,7 @@ def test_simulate_first_creates_entry_spof():
 def test_simulate_random_balances_entries():
     """'random' mit 5-Peer-Pool: alle Peers ~20% als Entry."""
     from collections import Counter
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
 
     pool = ["a", "b", "c", "d", "e"]
     entries = Counter()
@@ -177,7 +177,7 @@ def test_simulate_random_balances_entries():
 def test_simulate_round_robin_balances_entries():
     """'round_robin' rotiert deterministisch."""
     from collections import Counter
-    from erebos_network.proxy import select_three_hops
+    from erebos_network.topology_utils import select_three_hops
 
     pool = ["a", "b", "c", "d", "e"]
     entries = Counter()

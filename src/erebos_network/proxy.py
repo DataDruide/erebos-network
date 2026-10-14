@@ -14,6 +14,7 @@ from .sectors import SectorType
 from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY
 from .onion import seal_for
 from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
+from .topology_utils import select_three_hops
 
 logger = logging.getLogger(__name__)
 
@@ -189,31 +190,6 @@ class Socks5Config:
     @property
     def peer3_name(self) -> str:
         return self.peer_pool[2] if len(self.peer_pool) > 2 else "peer3"
-
-
-def select_three_hops(
-    pool: list[str],
-    strategy: str = "random",
-    offset: int = 0,
-) -> list[str]:
-    """Wählt 3 Peers aus dem Pool (pure function, ohne Keys).
-
-    Args:
-        pool: Liste von Peer-Namen (mind. 3).
-        strategy: "first" | "random" | "round_robin"
-        offset: Nur für "round_robin" (aktuelle Position).
-
-    Returns:
-        Liste mit genau 3 Peer-Namen.
-    """
-    if strategy == "first" or len(pool) < 3:
-        return pool[:3]
-    if strategy == "random":
-        import random
-        return random.sample(pool, 3)
-    if strategy == "round_robin":
-        return [pool[(offset + i) % len(pool)] for i in range(3)]
-    return pool[:3]
 
 
 class ErebosSocks5Server:
