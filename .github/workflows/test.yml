@@ -31,18 +31,31 @@ jobs:
             cmake ninja-build libssl-dev \
             build-essential git
 
+      - name: Cache liboqs build
+        uses: actions/cache@v4
+        id: liboqs-cache
+        with:
+          path: /tmp/liboqs-install
+          key: liboqs-0.16.0-${{ runner.os }}-${{ runner.arch }}-v1
+
       - name: Build and install liboqs
+        if: steps.liboqs-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+          git clone --depth 1 --branch 0.16.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
           cd /tmp/liboqs
           mkdir build && cd build
           cmake -GNinja \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_INSTALL_PREFIX=/tmp/liboqs-install \
             -DBUILD_SHARED_LIBS=ON \
             -DOQS_BUILD_ONLY_LIB=ON \
+            -DOQS_DIST_BUILD=ON \
             ..
           ninja
-          sudo ninja install
+          ninja install
+
+      - name: Install liboqs from cache
+        run: |
+          sudo cp -r /tmp/liboqs-install/* /usr/local/
           sudo ldconfig
 
       - name: Install Python dependencies
