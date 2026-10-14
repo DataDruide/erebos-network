@@ -30,6 +30,9 @@ class AugurConfig:
     min_perturbation_size: int = 64
     rate_limit_per_second: float = 10.0
     history_size: int = 256
+    # Timing-Obfuskation (Härtung gegen Traffic-Fingerprinting)
+    jitter_enabled: bool = False
+    jitter_ratio: float = 0.3  # +/- 30% um Basisverzögerung
 
 
 @dataclass
@@ -213,8 +216,15 @@ class RateShaper:
     Basiert auf "Shift Your Shape" (2025).
     """
 
-    def __init__(self, target_rate_per_second: float = 10.0):
+    def __init__(
+        self,
+        target_rate_per_second: float = 10.0,
+        jitter_enabled: bool = False,
+        jitter_ratio: float = 0.3,
+    ):
         self.target_rate = target_rate_per_second
+        self.jitter_enabled = jitter_enabled
+        self.jitter_ratio = max(0.0, min(1.0, jitter_ratio))
         self._tokens = 0.0
         self._last_refill = time.time()
         self._max_tokens = target_rate_per_second * 2
@@ -243,11 +253,25 @@ class RateShaper:
         return False
 
     def delay_for_next(self) -> float:
-        """Berechnet die Verzoegerung bis zum naechsten Token."""
+        """Berechnet die Verzoegerung bis zum naechsten Token.
+
+        Bei aktiviertem Jitter wird die Basisverzoegerung um
+        +/- jitter_ratio gestreut. Das erschwert Timing-Fingerprinting
+        (konstante Intervallmuster verraten sonst den Client).
+        """
         self._refill()
         if self._tokens >= 1.0:
-            return 0.0
-        return (1.0 - self._tokens) / self.target_rate
+            base = 0.0
+        else:
+            base = (1.0 - self._tokens) / self.target_rate
+
+        if not self.jitter_enabled or base == 0.0:
+            return base
+
+        # Jitter proportional zur erwarteten Rate
+        expected_gap = 1.0 / self.target_rate
+        jitter = random.uniform(-self.jitter_ratio, self.jitter_ratio) * expected_gap
+        return max(0.0, base + jitter)
 
     def get_stats(self) -> dict:
         """Statistiken."""
@@ -255,4 +279,6 @@ class RateShaper:
             **self.stats,
             "tokens": round(self._tokens, 2),
             "target_rate": self.target_rate,
+            "jitter_enabled": self.jitter_enabled,
+            "jitter_ratio": self.jitter_ratio,
         }
