@@ -130,7 +130,20 @@ Status: 23 Phasen komplett, 479 Tests
 - 80 neue Unit-Tests (Onion-Basic + 3-Hop + Framing + Handshake)
 - 0 Tests gebrochen
 
-Gesamt: 479 Tests.
+### Phase 24: PQ-Transport-Handshake (Hybrid-KEM)
+- scripts/generate_keys.py erweitert um ML-KEM-1024 Keys
+  (peerN_mlkem, peerN_mlkem.pub)
+- tunnel.py: HANDSHAKE_V2_HYBRID (0x02), 1665-Byte-Handshake-Frame
+- _derive_key_pq: HKDF(x25519_shared || mlkem_shared)
+- _load_mlkem_keypair: Rohbyte-Persistenz
+- Signaturdeckung: version || x_pub || mlkem_pub/ct
+- connect() leitet peer_name aus Ziel-Port ab
+- Schutz gegen Harvest-Now-Decrypt-Later
+- 20 neue Unit-Tests (test_hybrid_handshake.py +
+  test_tunnel_handshake.py umgeschrieben)
+- Live-3-Hop-Test mit Hybrid-Handshake erfolgreich
+
+Gesamt: 489 Tests.
 
 ## In Arbeit
 

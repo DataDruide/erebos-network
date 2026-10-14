@@ -40,14 +40,26 @@ nicht das Ziel, nicht den Ursprung.
 
 ### Transport-Ebene
 
-Jeder TCP-Hop hat einen eigenen X25519-Handshake mit Ed25519-
-Authentifizierung und ChaCha20-Poly1305. Ende-zu-Ende zwischen den
-beiden Enden EINES Hops.
+Jeder TCP-Hop hat einen eigenen Hybrid-Handshake (X25519 + ML-KEM-1024)
+mit Ed25519-Authentifizierung und ChaCha20-Poly1305. Ende-zu-Ende
+zwischen den beiden Enden EINES Hops.
 
 - Ephemere X25519-Keys pro Handshake (Forward Secrecy)
-- Ed25519-Signatur des X25519-Pubkeys (Identitaet)
-- HKDF-SHA256 zur Schluesselableitung
+- ML-KEM-1024 Encapsulation (post-quantum)
+- Ed25519-Signatur ueber version || x_pub || mlkem_pub/ct
+- Session-Key = HKDF-SHA256(x25519_shared || mlkem_shared)
 - ChaCha20-Poly1305 fuer die Nutzdaten
+
+Handshake-Frame-Format (1665 Byte pro Richtung):
+
+    version(1)  ||  x_pub(32)  ||  mlkem_pub/ct(1568)  ||  sig(64)
+
+Version 0x02 = Hybrid PQ. Version 0x01 (klassisch) ist im Code noch
+vorgesehen, wird aber nicht mehr benutzt.
+
+Schutz gegen Harvest-Now-Decrypt-Later: der Session-Key ist nur
+brechbar, wenn ein Angreifer SOWOHL X25519 ALS AUCH ML-KEM-1024
+bricht.
 
 ### Onion-Ebene
 

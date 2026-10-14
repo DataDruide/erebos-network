@@ -1,13 +1,18 @@
-"""Tests fuer den X25519+Ed25519-Handshake (tunnel.py).
+"""Tests fuer den Hybrid-Handshake (X25519 + ML-KEM-1024) im Tunnel.
 
-Nachbau der Handshake-Sequenz ohne echte Sockets: alle Schritte
-laufen ueber eine asyncio-Pipe.
+Nachbau der Handshake-Sequenz ohne echte Sockets. Prueft:
+- Frame-Layout (version || x_pub || mlkem_pub || sig)
+- Peer-Antwort (version || x_pub || mlkem_ct || sig)
+- Signaturdeckung ueber version || x_pub || mlkem_*
+- Session-Key-Symmetrie zwischen beiden Seiten
+- ChaCha20-Poly1305 ueber den abgeleiteten Key
 """
 
 import asyncio
 import os
 
 import pytest
+import oqs
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -21,20 +26,18 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 from erebos_network.tunnel import (
-    KEYS_DIR,
+    HANDSHAKE_V1_CLASSIC,
+    HANDSHAKE_V2_HYBRID,
+    X25519_PUB_LEN,
+    MLKEM_PUB_LEN,
+    MLKEM_CT_LEN,
+    ED25519_SIG_LEN,
+    MLKEM_ALG,
     _derive_key,
-    _load_or_create_keypair,
+    _derive_key_pq,
     _send_frame,
     _recv_frame,
 )
-
-
-def _raw_priv(key):
-    return key.private_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PrivateFormat.Raw,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
 
 
 def _raw_pub(key):
@@ -45,7 +48,6 @@ def _raw_pub(key):
 
 
 class FakeWriter:
-    """StreamWriter-Ersatz, schreibt in einen StreamReader."""
     def __init__(self, reader):
         self.reader = reader
     def write(self, data):
@@ -54,173 +56,229 @@ class FakeWriter:
         pass
 
 
-# ---- Signatur / Verifikation ----
+# ---- Konstanten ----
 
-def test_ed25519_sign_verify():
-    """Ed25519 Signatur erzeugen und verifizieren."""
-    priv = Ed25519PrivateKey.generate()
-    pub = priv.public_key()
-
-    msg = b"some x25519 pubkey bytes"
-    sig = priv.sign(msg)
-    assert len(sig) == 64
-
-    pub.verify(sig, msg)  # wirft keine Exception
+def test_handshake_version_constants():
+    """V1_CLASSIC und V2_HYBRID sind unterscheidbar."""
+    assert HANDSHAKE_V1_CLASSIC == 0x01
+    assert HANDSHAKE_V2_HYBRID == 0x02
 
 
-def test_ed25519_wrong_key_fails():
-    """Signatur mit falschem Pubkey schlaegt fehl."""
-    priv_a = Ed25519PrivateKey.generate()
-    priv_b = Ed25519PrivateKey.generate()
+def test_length_constants():
+    """Wire-Format-Laengen stimmen mit liboqs ueberein."""
+    assert X25519_PUB_LEN == 32
+    assert MLKEM_PUB_LEN == 1568
+    assert MLKEM_CT_LEN == 1568
+    assert ED25519_SIG_LEN == 64
 
-    msg = b"payload"
-    sig = priv_a.sign(msg)
+
+# ---- Frame-Layout ----
+
+def test_client_handshake_frame_size():
+    """Client-Frame: version(1) + x_pub(32) + mlkem_pub(1568) + sig(64)."""
+    ed = Ed25519PrivateKey.generate()
+    x = X25519PrivateKey.generate()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        mlkem_pub = kem.generate_keypair()
+
+    x_pub = _raw_pub(x)
+    signed_data = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_pub
+    sig = ed.sign(signed_data)
+
+    frame = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_pub + sig
+    expected_size = 1 + 32 + 1568 + 64
+    assert len(frame) == expected_size
+    assert expected_size == 1665
+
+
+def test_peer_response_frame_size():
+    """Peer-Frame: version(1) + x_pub(32) + mlkem_ct(1568) + sig(64)."""
+    ed = Ed25519PrivateKey.generate()
+    x = X25519PrivateKey.generate()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        mlkem_pub = kem.generate_keypair()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as enc:
+        mlkem_ct, _ = enc.encap_secret(mlkem_pub)
+
+    x_pub = _raw_pub(x)
+    signed_data = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_ct
+    sig = ed.sign(signed_data)
+
+    frame = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_ct + sig
+    assert len(frame) == 1665
+
+
+# ---- Signaturen ----
+
+def test_signature_covers_version_x_and_mlkem():
+    """Signatur deckt version || x_pub || mlkem_pub."""
+    ed = Ed25519PrivateKey.generate()
+    x = X25519PrivateKey.generate()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        mlkem_pub = kem.generate_keypair()
+
+    x_pub = _raw_pub(x)
+    signed = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_pub
+    sig = ed.sign(signed)
+
+    # Korrekte Verifikation
+    ed.public_key().verify(sig, signed)
+
+    # Manipulierte version schlaegt fehl
     with pytest.raises(Exception):
-        priv_b.public_key().verify(sig, msg)
+        ed.public_key().verify(
+            sig, bytes([HANDSHAKE_V1_CLASSIC]) + x_pub + mlkem_pub
+        )
 
-
-def test_ed25519_tampered_message_fails():
-    """Manipulierte Message schlaegt Verifikation fehl."""
-    priv = Ed25519PrivateKey.generate()
-    sig = priv.sign(b"original")
+    # Manipulierter mlkem_pub schlaegt fehl
     with pytest.raises(Exception):
-        priv.public_key().verify(sig, b"tampered")
+        ed.public_key().verify(
+            sig,
+            bytes([HANDSHAKE_V2_HYBRID]) + x_pub + b"\x00" * MLKEM_PUB_LEN,
+        )
 
 
-# ---- X25519 Exchange ----
+def test_peer_signature_covers_version_x_and_ct():
+    """Peer-Signatur deckt version || x_pub || mlkem_ct."""
+    ed = Ed25519PrivateKey.generate()
+    x = X25519PrivateKey.generate()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        mlkem_pub = kem.generate_keypair()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as enc:
+        mlkem_ct, _ = enc.encap_secret(mlkem_pub)
 
-def test_x25519_exchange_symmetric():
-    """Beide Seiten berechnen dasselbe Shared Secret."""
-    a_priv = X25519PrivateKey.generate()
-    b_priv = X25519PrivateKey.generate()
-
-    a_shared = a_priv.exchange(b_priv.public_key())
-    b_shared = b_priv.exchange(a_priv.public_key())
-    assert a_shared == b_shared
-
-
-def test_x25519_shared_length():
-    """X25519 Shared Secret ist 32 Byte."""
-    a = X25519PrivateKey.generate()
-    b = X25519PrivateKey.generate()
-    shared = a.exchange(b.public_key())
-    assert len(shared) == 32
+    x_pub = _raw_pub(x)
+    signed = bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_ct
+    sig = ed.sign(signed)
+    ed.public_key().verify(sig, signed)
 
 
-# ---- HKDF ueber Shared Secret ----
-
-def test_derive_key_from_x25519():
-    """HKDF ueber X25519-Shared-Secret liefert 32 Byte, symmetrisch."""
-    a_priv = X25519PrivateKey.generate()
-    b_priv = X25519PrivateKey.generate()
-
-    shared_a = a_priv.exchange(b_priv.public_key())
-    shared_b = b_priv.exchange(a_priv.public_key())
-
-    key_a = _derive_key(shared_a)
-    key_b = _derive_key(shared_b)
-    assert key_a == key_b
-    assert len(key_a) == 32
-
-
-# ---- Vollstaendige Handshake-Sequenz ----
+# ---- Vollstaendige Sequenz ----
 
 @pytest.mark.asyncio
-async def test_full_handshake_sequence():
-    """Vollstaendige X25519+Ed25519-Sequenz ueber asyncio-Pipe."""
-    # Client-Seite
-    client_ed = Ed25519PrivateKey.generate()
-    client_x = X25519PrivateKey.generate()
-    client_x_pub = _raw_pub(client_x)
-
-    # Peer-Seite
+async def test_full_hybrid_handshake_sequence():
+    """Client sendet Frame, Peer antwortet, beide berechnen denselben Key."""
+    # --- Peer-Identitaet ---
     peer_ed = Ed25519PrivateKey.generate()
     peer_x = X25519PrivateKey.generate()
-    peer_x_pub = _raw_pub(peer_x)
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        peer_mlkem_pub = kem.generate_keypair()
+        peer_mlkem_priv = kem.export_secret_key()
 
+    peer_x_pub = _raw_pub(peer_x)
+    peer_ed_pub = peer_ed.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+
+    # --- Client-Identitaet ---
+    client_ed = Ed25519PrivateKey.generate()
+    client_x = X25519PrivateKey.generate()
+    with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+        client_mlkem_pub = kem.generate_keypair()
+        client_mlkem_priv = kem.export_secret_key()
+
+    client_x_pub = _raw_pub(client_x)
+
+    # === Runde 1: Client sendet ===
     reader = asyncio.StreamReader()
     writer = FakeWriter(reader)
 
-    # 1. Client sendet x_pub + sig
-    client_sig = client_ed.sign(client_x_pub)
-    await _send_frame(writer, client_x_pub + client_sig)
+    signed = bytes([HANDSHAKE_V2_HYBRID]) + client_x_pub + client_mlkem_pub
+    sig = client_ed.sign(signed)
+    frame = bytes([HANDSHAKE_V2_HYBRID]) + client_x_pub + client_mlkem_pub + sig
+    await _send_frame(writer, frame)
 
-    # 2. Peer liest, verifiziert
+    # === Peer empfaengt und verifiziert ===
     received = await _recv_frame(reader)
-    assert received == client_x_pub + client_sig
-    rx_x_pub = received[:32]
-    rx_sig = received[32:]
-    client_ed.public_key().verify(rx_sig, rx_x_pub)
-    assert rx_x_pub == client_x_pub
+    assert received == frame
+    assert received[0] == HANDSHAKE_V2_HYBRID
+    rx_client_x_pub = received[1:1 + X25519_PUB_LEN]
+    rx_client_mlkem_pub = received[
+        1 + X25519_PUB_LEN : 1 + X25519_PUB_LEN + MLKEM_PUB_LEN
+    ]
+    rx_sig = received[1 + X25519_PUB_LEN + MLKEM_PUB_LEN:]
+    client_ed.public_key().verify(
+        rx_sig,
+        bytes([HANDSHAKE_V2_HYBRID]) + rx_client_x_pub + rx_client_mlkem_pub,
+    )
 
-    # 3. Peer sendet eigene x_pub + sig zurueck (ueber neue Pipe)
+    # === Peer: X25519 + ML-KEM Encapsulate ===
+    x_shared_peer = peer_x.exchange(
+        X25519PublicKey.from_public_bytes(rx_client_x_pub)
+    )
+    with oqs.KeyEncapsulation(MLKEM_ALG) as enc:
+        mlkem_ct, mlkem_shared_peer = enc.encap_secret(rx_client_mlkem_pub)
+
+    # === Peer sendet Antwort ===
     reader2 = asyncio.StreamReader()
     writer2 = FakeWriter(reader2)
-    peer_sig = peer_ed.sign(peer_x_pub)
-    await _send_frame(writer2, peer_x_pub + peer_sig)
 
-    # 4. Client liest, verifiziert
-    received2 = await _recv_frame(reader2)
-    rx_peer_x_pub = received2[:32]
-    rx_peer_sig = received2[32:]
-    peer_ed.public_key().verify(rx_peer_sig, rx_peer_x_pub)
-    assert rx_peer_x_pub == peer_x_pub
+    peer_signed = bytes([HANDSHAKE_V2_HYBRID]) + peer_x_pub + mlkem_ct
+    peer_sig = peer_ed.sign(peer_signed)
+    response = (
+        bytes([HANDSHAKE_V2_HYBRID]) + peer_x_pub + mlkem_ct + peer_sig
+    )
+    await _send_frame(writer2, response)
 
-    # 5. Beide berechnen Shared Secret -> gleicher Key
-    client_shared = client_x.exchange(X25519PublicKey.from_public_bytes(rx_peer_x_pub))
-    peer_shared = peer_x.exchange(X25519PublicKey.from_public_bytes(rx_x_pub))
+    # === Client empfaengt ===
+    rx_response = await _recv_frame(reader2)
+    assert rx_response == response
+    rx_peer_x_pub = rx_response[1:1 + X25519_PUB_LEN]
+    rx_mlkem_ct = rx_response[
+        1 + X25519_PUB_LEN : 1 + X25519_PUB_LEN + MLKEM_CT_LEN
+    ]
+    rx_peer_sig = rx_response[1 + X25519_PUB_LEN + MLKEM_CT_LEN:]
+    peer_ed.public_key().verify(
+        rx_peer_sig,
+        bytes([HANDSHAKE_V2_HYBRID]) + rx_peer_x_pub + rx_mlkem_ct,
+    )
 
-    key_client = _derive_key(client_shared)
-    key_peer = _derive_key(peer_shared)
+    # === Client: X25519 + ML-KEM Decapsulate ===
+    x_shared_client = client_x.exchange(
+        X25519PublicKey.from_public_bytes(rx_peer_x_pub)
+    )
+    with oqs.KeyEncapsulation(MLKEM_ALG, client_mlkem_priv) as dec:
+        mlkem_shared_client = dec.decap_secret(rx_mlkem_ct)
+
+    # === Symmetrie ===
+    assert x_shared_client == x_shared_peer
+    assert mlkem_shared_client == mlkem_shared_peer
+
+    key_client = _derive_key_pq(x_shared_client, mlkem_shared_client)
+    key_peer = _derive_key_pq(x_shared_peer, mlkem_shared_peer)
     assert key_client == key_peer
 
 
-# ---- ChaCha20Poly1305 ueber den abgeleiteten Key ----
+# ---- ChaCha mit abgeleitetem Key ----
 
-def test_chacha_roundtrip_with_derived_key():
-    """ChaCha20-Poly1305 mit HKDF-abgeleitetem Key."""
-    a_priv = X25519PrivateKey.generate()
-    b_priv = X25519PrivateKey.generate()
-    shared = a_priv.exchange(b_priv.public_key())
-    key = _derive_key(shared)
+def test_chacha_with_hybrid_key():
+    """ChaCha20-Poly1305 mit hybrid abgeleitetem Key."""
+    x_shared = os.urandom(32)
+    mlkem_shared = os.urandom(32)
+    key = _derive_key_pq(x_shared, mlkem_shared)
 
     cipher = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
-    plaintext = b"hello over the tunnel"
-
+    plaintext = b"hello over the hybrid tunnel"
     ct = cipher.encrypt(nonce, plaintext, None)
     back = cipher.decrypt(nonce, ct, None)
     assert back == plaintext
 
 
-def test_chacha_wrong_key_fails():
-    """ChaCha20-Poly1305 mit falschem Key schlaegt fehl."""
-    key1 = os.urandom(32)
-    key2 = os.urandom(32)
+# ---- Klassischer Pfad bleibt verfuegbar ----
 
-    cipher1 = ChaCha20Poly1305(key1)
-    cipher2 = ChaCha20Poly1305(key2)
-
-    nonce = os.urandom(12)
-    ct = cipher1.encrypt(nonce, b"message", None)
-    with pytest.raises(Exception):
-        cipher2.decrypt(nonce, ct, None)
+def test_classic_derive_key_still_works():
+    """_derive_key (klassisch) bleibt nutzbar fuer Rueckwaertskompatibilitaet."""
+    shared = os.urandom(32)
+    key = _derive_key(shared)
+    assert len(key) == 32
 
 
-# ---- Integration mit den echten Projekt-Keys ----
-
-def test_project_keys_handshake_works():
-    """Die echten peer1/peer2 Keys aus KEYS_DIR funktionieren im Handshake."""
-    c_ed_priv, c_x_priv, c_ed_pub, c_x_pub = _load_or_create_keypair("peer1")
-    p_ed_priv, p_x_priv, p_ed_pub, p_x_pub = _load_or_create_keypair("peer2")
-
-    # Signatur
-    sig = c_ed_priv.sign(c_x_pub)
-    p_ed = Ed25519PublicKey.from_public_bytes(c_ed_pub)
-    p_ed.verify(sig, c_x_pub)
-
-    # Shared Secret
-    shared_c = c_x_priv.exchange(X25519PublicKey.from_public_bytes(p_x_pub))
-    shared_p = p_x_priv.exchange(X25519PublicKey.from_public_bytes(c_x_pub))
-    assert shared_c == shared_p
-    assert len(_derive_key(shared_c)) == 32
+def test_classic_and_pq_derive_differ():
+    """Klassischer und PQ-Pfad liefern unterschiedliche Keys bei gleichem Input."""
+    shared = os.urandom(32)
+    mlkem_shared = os.urandom(32)
+    k_classic = _derive_key(shared)
+    k_pq = _derive_key_pq(shared, mlkem_shared)
+    assert k_classic != k_pq

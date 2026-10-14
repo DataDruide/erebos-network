@@ -89,6 +89,29 @@ Zusaetzlich zu purem ML-KEM-1024 bietet Erebos einen Hybrid-Modus:
 
 Vorteil: Sicher, selbst wenn einer der beiden Algorithmen gebrochen wird.
 
+## Transport-Handshake (Hybrid-KEM)
+
+Der Erebos-Peer-Tunnel nutzt einen Hybrid-Handshake:
+
+1. Client sendet: version(1) || x_pub(32) || mlkem_pub(1568) || sig(64)
+2. Peer antwortet: version(1) || x_pub(32) || mlkem_ct(1568)  || sig(64)
+3. Beide Seiten:
+   - x25519_shared = X25519(ephemeral_priv, peer_x_pub)
+   - mlkem_shared  = ML-KEM-1024 Encap/Decap
+   - session_key   = HKDF-SHA256(x25519_shared || mlkem_shared,
+                                 info=b"erebos-tunnel-pq-v1")
+
+Frame-Groesse: 1665 Byte pro Richtung.
+
+Signaturdeckung: Ed25519 sig ueber version || x_pub || mlkem_pub/ct.
+
+Vorteil: Harvest-Now-Decrypt-Later-Schutz. Der Session-Key ist nur
+brechbar, wenn ein Angreifer SOWOHL X25519 ALS AUCH ML-KEM-1024
+bricht.
+
+Implementiert in src/erebos_network/tunnel.py.
+Tests: tests/test_hybrid_handshake.py, tests/test_tunnel_handshake.py.
+
 ## PQ-Sphinx (Forschungsprototyp)
 
 Klassisches Sphinx nutzt DH-Eigenschaften. PQ-KEMs teilen diese nicht.

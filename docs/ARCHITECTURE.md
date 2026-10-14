@@ -42,8 +42,18 @@ pro Schicht.
 | Algorithmus | Zweck | Sicherheit |
 |-------------|-------|------------|
 | ML-KEM-1024 | Schluesselaustausch | NIST Level 5 |
-| SLH-DSA-SHA2-256s | Signaturen | NIST Level 5 |
-| Threefish-512 | Symmetrisch | 256-Bit PQ |
+| X25519 + ML-KEM-1024 | Hybrid-Transport-Handshake | NIST Level 5 |
+| Ed25519 | Transport-Signaturen | Klassisch (128-Bit) |
+| SLH-DSA-SHA2-256s | Paket-Signaturen | NIST Level 5 |
+| ChaCha20-Poly1305 | Transport-Nutzdaten | 256-Bit |
+| Threefish-512 | Paket-Verschluesselung | 256-Bit PQ |
+
+Der Transport-Handshake ist hybrid (X25519 + ML-KEM-1024):
+Schutz gegen Harvest-Now-Decrypt-Later. Die Transport-Signaturen
+bleiben Ed25519 (klassisch) - ein bewusster Trade-off zwischen
+Vertraulichkeit (PQ) und Authentizitaet (klassisch, schneller).
+Paket-Signaturen (SLH-DSA) und Paket-Verschluesselung (Threefish)
+sind weiterhin post-quantum.
 
 ### 4. Mixnet-Schicht
 

@@ -1,8 +1,17 @@
-"""Erebos Key-Generator für Peer-Identitäten."""
+"""Erebos Key-Generator fuer Peer-Identitaeten.
+
+Erzeugt pro Identitaet:
+  <name>_ed25519       32 Byte private (Raw)   Ed25519-Signaturschluessel
+  <name>_x25519        32 Byte private (Raw)   X25519-Schluesselaustausch
+  <name>_x25519.pub    32 Byte public  (Raw)
+  <name>_mlkem        3168 Byte private (Raw)  ML-KEM-1024 (FIPS 203)
+  <name>_mlkem.pub    1568 Byte public  (Raw)
+"""
 
 import sys
 from pathlib import Path
 
+import oqs
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
@@ -28,6 +37,7 @@ def _raw_pub(key) -> bytes:
 def generate_identity(name: str) -> None:
     KEYS_DIR.mkdir(exist_ok=True)
 
+    # Klassische Schluessel
     ed = Ed25519PrivateKey.generate()
     x = X25519PrivateKey.generate()
 
@@ -39,10 +49,21 @@ def generate_identity(name: str) -> None:
     (KEYS_DIR / f"{name}_x25519").write_bytes(x_bytes)
     (KEYS_DIR / f"{name}_x25519.pub").write_bytes(x_pub)
 
+    # ML-KEM-1024 (FIPS 203)
+    with oqs.KeyEncapsulation("ML-KEM-1024") as kem:
+        mlkem_pub = kem.generate_keypair()
+        mlkem_priv = kem.export_secret_key()
+
+    (KEYS_DIR / f"{name}_mlkem").write_bytes(mlkem_priv)
+    (KEYS_DIR / f"{name}_mlkem.pub").write_bytes(mlkem_pub)
+
+    # Ausgabe (nur Laengen, keine privaten Hex-Werte)
     print(f"[{name}]")
-    print(f"  ed25519 (priv): {ed_bytes.hex()}")
-    print(f"  x25519  (priv): {x_bytes.hex()}")
-    print(f"  x25519  (pub) : {x_pub.hex()}")
+    print(f"  ed25519 (priv): {len(ed_bytes):5d} B  {ed_bytes.hex()[:16]}...")
+    print(f"  x25519  (priv): {len(x_bytes):5d} B  {x_bytes.hex()[:16]}...")
+    print(f"  x25519  (pub) : {len(x_pub):5d} B  {x_pub.hex()[:16]}...")
+    print(f"  mlkem   (priv): {len(mlkem_priv):5d} B")
+    print(f"  mlkem   (pub) : {len(mlkem_pub):5d} B")
     print()
 
 

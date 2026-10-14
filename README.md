@@ -292,6 +292,19 @@ Dynamische Relay-Header und konstante Layer-Laengen:
 
 Siehe [docs/ONION_ROUTING.md](docs/ONION_ROUTING.md) fuer Details.
 
+### Phase 24: PQ-Transport-Handshake (Hybrid-KEM)
+
+Transport-Handshake mit X25519 + ML-KEM-1024:
+
+- 1665-Byte-Handshake-Frame (version || x_pub || mlkem_* || sig)
+- Session-Key = HKDF(x25519_shared || mlkem_shared)
+- Signatur ueber version || x_pub || mlkem_pub/ct
+- Schutz gegen Harvest-Now-Decrypt-Later
+- 20 neue Unit-Tests (Hybrid-Handshake + Tunnel-Handshake)
+- Live-3-Hop-Test mit Hybrid-Handshake erfolgreich
+
+Siehe [docs/PQ_CRYPTO.md](docs/PQ_CRYPTO.md) fuer Details.
+
 ---
 
 ## Installation

@@ -15,6 +15,7 @@ import os
 import struct
 from pathlib import Path
 
+import oqs
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -35,6 +36,17 @@ MAX_FRAME = 65536
 FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
 FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
 FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
+
+# Handshake-Versionen (erstes Byte im Handshake-Frame)
+HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF
+HANDSHAKE_V2_HYBRID  = 0x02  # PQ: X25519 + ML-KEM-1024 + Ed25519 + HKDF
+
+MLKEM_ALG = "ML-KEM-1024"
+MLKEM_PUB_LEN = 1568
+MLKEM_PRIV_LEN = 3168
+MLKEM_CT_LEN = 1568
+ED25519_SIG_LEN = 64
+X25519_PUB_LEN = 32
 
 # Port → Peer-Identitaet. Jeder Peer weiss anhand seines Listen-Ports,
 # welcher Private-Key ihm gehoert.
@@ -68,6 +80,28 @@ def _load_or_create_keypair(name: str):
     return ed_priv, x_priv, ed_pub, x_pub
 
 
+def _load_mlkem_keypair(name: str):
+    """Laedt ein ML-KEM-1024 Schluesselpaar (Raw Bytes)."""
+    priv_path = KEYS_DIR / f"{name}_mlkem"
+    pub_path = KEYS_DIR / f"{name}_mlkem.pub"
+
+    if not priv_path.exists() or not pub_path.exists():
+        raise FileNotFoundError(
+            f"ML-KEM-Schluessel fuer '{name}' fehlen in {KEYS_DIR}. "
+            f"Bitte zuerst mit dem Key-Generator erstellen."
+        )
+
+    priv = priv_path.read_bytes()
+    pub = pub_path.read_bytes()
+
+    if len(priv) != MLKEM_PRIV_LEN:
+        raise ValueError(f"{name}_mlkem: {len(priv)} statt {MLKEM_PRIV_LEN} Byte")
+    if len(pub) != MLKEM_PUB_LEN:
+        raise ValueError(f"{name}_mlkem.pub: {len(pub)} statt {MLKEM_PUB_LEN} Byte")
+
+    return priv, pub
+
+
 def _derive_key(shared_secret: bytes) -> bytes:
     """Leitet einen 32-Byte-Schluessel aus dem Shared Secret ab."""
     return HKDF(
@@ -76,6 +110,20 @@ def _derive_key(shared_secret: bytes) -> bytes:
         salt=None,
         info=b"erebos-tunnel-v1",
     ).derive(shared_secret)
+
+
+def _derive_key_pq(x25519_shared: bytes, mlkem_shared: bytes) -> bytes:
+    """Hybrid-Schluesselableitung: X25519 + ML-KEM-1024.
+
+    Wird fuer HANDSHAKE_V2_HYBRID benutzt. Der klassische _derive_key
+    bleibt fuer Rueckwaertskompatibilitaet.
+    """
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"erebos-tunnel-pq-v1",
+    ).derive(x25519_shared + mlkem_shared)
 
 
 async def _read_exact(reader: asyncio.StreamReader, n: int) -> bytes:
@@ -103,34 +151,101 @@ class ErebosTunnelClient:
         self.writer = None
         self.cipher = None
 
-    async def connect(self):
+    async def connect(self, peer_name: str = None):
+        """Baut den Hybrid-Handshake (X25519 + ML-KEM-1024) auf.
+
+        peer_name: Name der Peer-Identitaet, deren statische Keys wir kennen.
+                   Wenn None, wird der Name aus dem Ziel-Port via
+                   PORT_TO_PEER_NAME abgeleitet (z.B. 9999 -> peer1).
+        """
+        if peer_name is None:
+            peer_name = PORT_TO_PEER_NAME.get(self.port)
+            if peer_name is None:
+                raise ValueError(
+                    f"Kein Peer-Name fuer Port {self.port} bekannt. "
+                    f"Bekannte Ports: {sorted(PORT_TO_PEER_NAME.keys())}"
+                )
+            logger.debug(
+                f"connect(): peer_name aus Port {self.port} abgeleitet -> "
+                f"{peer_name}"
+            )
+
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
 
         ed_priv, x_priv, ed_pub, x_pub = _load_or_create_keypair("client")
+        _, my_mlkem_pub = _load_mlkem_keypair("client")
 
-        # Sende unsere X25519 oeffentlichen Schluessel + Ed25519 Signatur
-        signature = ed_priv.sign(x_pub)
-        logger.debug(f"Client sendet: x_pub={len(x_pub)}B, sig={len(signature)}B")
-        logger.debug(f"Client x_pub hex: {x_pub.hex()}")
-        logger.debug(f"Client sig hex:   {signature.hex()[:32]}...")
-        await _send_frame(self.writer, x_pub + signature)
+        # Handshake-Frame bauen: version || x_pub || mlkem_pub || sig
+        # Signatur deckt version || x_pub || mlkem_pub
+        signed_data = (
+            bytes([HANDSHAKE_V2_HYBRID]) + x_pub + my_mlkem_pub
+        )
+        signature = ed_priv.sign(signed_data)
+        assert len(signature) == ED25519_SIG_LEN
 
-        # Empfange Peer's X25519 oeffentlichen Schluessel + Signatur
+        frame = (
+            bytes([HANDSHAKE_V2_HYBRID])
+            + x_pub
+            + my_mlkem_pub
+            + signature
+        )
+        logger.debug(
+            f"Client sendet Handshake: version=0x{HANDSHAKE_V2_HYBRID:02x}, "
+            f"x_pub={len(x_pub)}B, mlkem_pub={len(my_mlkem_pub)}B, "
+            f"sig={len(signature)}B, total={len(frame)}B"
+        )
+        await _send_frame(self.writer, frame)
+
+        # Peer-Antwort empfangen: version || x_pub || mlkem_ct || sig
         peer_data = await _recv_frame(self.reader)
-        peer_x_pub = peer_data[:32]
-        peer_sig = peer_data[32:]
+        if len(peer_data) < 1:
+            raise ValueError("Leere Peer-Handshake-Antwort")
 
-        # Verifiziere Peer's Signatur (Peer's Ed25519 Pubkey ist in KEYS_DIR)
-        _, _, peer_ed_pub, _ = _load_or_create_keypair("peer")
+        peer_version = peer_data[0]
+        if peer_version != HANDSHAKE_V2_HYBRID:
+            raise ValueError(
+                f"Peer spricht Handshake-Version 0x{peer_version:02x}, "
+                f"erwartet 0x{HANDSHAKE_V2_HYBRID:02x}"
+            )
+
+        peer_x_pub = peer_data[1:1 + X25519_PUB_LEN]
+        peer_mlkem_ct = peer_data[
+            1 + X25519_PUB_LEN : 1 + X25519_PUB_LEN + MLKEM_CT_LEN
+        ]
+        peer_sig = peer_data[1 + X25519_PUB_LEN + MLKEM_CT_LEN:]
+
+        if len(peer_sig) != ED25519_SIG_LEN:
+            raise ValueError(
+                f"Peer-Signatur falsche Groesse: {len(peer_sig)} statt "
+                f"{ED25519_SIG_LEN}"
+            )
+
+        # Peer-Signatur verifizieren
+        signed_data = (
+            bytes([HANDSHAKE_V2_HYBRID]) + peer_x_pub + peer_mlkem_ct
+        )
+        _, _, peer_ed_pub, _ = _load_or_create_keypair(peer_name)
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
         peer_ed = Ed25519PublicKey.from_public_bytes(peer_ed_pub)
-        peer_ed.verify(peer_sig, peer_x_pub)
+        peer_ed.verify(peer_sig, signed_data)
 
-        # X25519 Schluesselaustausch
-        shared = x_priv.exchange(X25519PublicKey.from_public_bytes(peer_x_pub))
-        key = _derive_key(shared)
+        # X25519 Shared Secret
+        x_shared = x_priv.exchange(
+            X25519PublicKey.from_public_bytes(peer_x_pub)
+        )
+
+        # ML-KEM Decapsulate mit Client-Privkey
+        my_mlkem_priv, _ = _load_mlkem_keypair("client")
+        with oqs.KeyEncapsulation(MLKEM_ALG, my_mlkem_priv) as dec:
+            mlkem_shared = dec.decap_secret(peer_mlkem_ct)
+
+        # Kombinierter Session-Key
+        key = _derive_key_pq(x_shared, mlkem_shared)
         self.cipher = ChaCha20Poly1305(key)
-        logger.info(f"Verschluesselter Tunnel zu {self.host}:{self.port} aufgebaut")
+        logger.info(
+            f"Verschluesselter Hybrid-Tunnel zu {self.host}:{self.port} "
+            f"aufgebaut (peer={peer_name})"
+        )
 
     async def send(self, data: bytes):
         nonce = os.urandom(12)
@@ -296,34 +411,85 @@ async def run_peer_server(port: int = PEER_PORT):
         try:
             client_data = await _recv_frame(reader)
             logger.debug(f"Peer empfing: {len(client_data)}B total")
-            client_x_pub = client_data[:32]
-            client_sig = client_data[32:]
-            logger.debug(f"Peer empfaengt x_pub: {client_x_pub.hex()}")
-            logger.debug(f"Peer empfaengt sig:   {client_sig.hex()[:32]}...")
 
-            ed_priv, x_priv, ed_pub, x_pub = _load_or_create_keypair("peer")
+            if len(client_data) < 1:
+                logger.error("Peer: leere Handshake-Anfrage")
+                return
 
-            # Verifiziere Client's Signatur
+            client_version = client_data[0]
+            if client_version != HANDSHAKE_V2_HYBRID:
+                logger.error(
+                    f"Peer: Client spricht Version 0x{client_version:02x}, "
+                    f"erwartet 0x{HANDSHAKE_V2_HYBRID:02x}"
+                )
+                return
+
+            # Layout: version(1) || x_pub(32) || mlkem_pub(1568) || sig(64)
+            client_x_pub = client_data[1:1 + X25519_PUB_LEN]
+            client_mlkem_pub = client_data[
+                1 + X25519_PUB_LEN : 1 + X25519_PUB_LEN + MLKEM_PUB_LEN
+            ]
+            client_sig = client_data[1 + X25519_PUB_LEN + MLKEM_PUB_LEN:]
+
+            if len(client_sig) != ED25519_SIG_LEN:
+                logger.error(
+                    f"Peer: Client-Sig falsche Groesse: {len(client_sig)}"
+                )
+                return
+
+            # Peer-Identitaet aus Port
+            ed_priv, x_priv, ed_pub, x_pub = _load_or_create_keypair(peer_name)
+            _, my_mlkem_pub = _load_mlkem_keypair(peer_name)
+            my_mlkem_priv, _ = _load_mlkem_keypair(peer_name)
+
+            # Client-Signatur verifizieren: deckt version || x_pub || mlkem_pub
             _, _, client_ed_pub, _ = _load_or_create_keypair("client")
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
             client_ed = Ed25519PublicKey.from_public_bytes(client_ed_pub)
-            logger.debug(f"Peer Pubkey: {client_ed_pub.hex()}")
-            logger.debug(f"Peer x_pub:  {client_x_pub.hex()}")
-            logger.debug(f"Peer sig:    {client_sig.hex()[:32]}...")
+            signed_data = (
+                bytes([HANDSHAKE_V2_HYBRID]) + client_x_pub + client_mlkem_pub
+            )
             try:
-                client_ed.verify(client_sig, client_x_pub)
+                client_ed.verify(client_sig, signed_data)
                 logger.debug("Peer Verifikation: GUELTIG")
             except Exception as ve:
-                logger.debug(f"Peer Verifikation FEHLER: {type(ve).__name__}: {ve!r}")
+                logger.debug(
+                    f"Peer Verifikation FEHLER: {type(ve).__name__}: {ve!r}"
+                )
                 raise
 
-            # Sende unsere X25519 Pubkey + Signatur
-            signature = ed_priv.sign(x_pub)
-            await _send_frame(writer, x_pub + signature)
+            # X25519 Shared Secret
+            x_shared = x_priv.exchange(
+                X25519PublicKey.from_public_bytes(client_x_pub)
+            )
 
-            # Schluessel ableiten
-            shared = x_priv.exchange(X25519PublicKey.from_public_bytes(client_x_pub))
-            key = _derive_key(shared)
+            # ML-KEM Encapsulate mit Client-ML-KEM-Pubkey
+            with oqs.KeyEncapsulation(MLKEM_ALG) as enc:
+                mlkem_ct, mlkem_shared_enc = enc.encap_secret(client_mlkem_pub)
+
+            # Peer-Signatur ueber version || x_pub || mlkem_ct
+            peer_signed_data = (
+                bytes([HANDSHAKE_V2_HYBRID]) + x_pub + mlkem_ct
+            )
+            signature = ed_priv.sign(peer_signed_data)
+            assert len(signature) == ED25519_SIG_LEN
+
+            # Antwort bauen und senden
+            response = (
+                bytes([HANDSHAKE_V2_HYBRID])
+                + x_pub
+                + mlkem_ct
+                + signature
+            )
+            logger.debug(
+                f"Peer sendet Handshake-Antwort: {len(response)}B "
+                f"(x_pub={len(x_pub)}, mlkem_ct={len(mlkem_ct)}, "
+                f"sig={len(signature)})"
+            )
+            await _send_frame(writer, response)
+
+            # Kombinierter Session-Key
+            key = _derive_key_pq(x_shared, mlkem_shared_enc)
             cipher = ChaCha20Poly1305(key)
 
             # Ersten typisierten Frame empfangen

@@ -43,12 +43,22 @@ Abwehr:
 
 ### 5. Quanten-Computer
 
-Faehigkeit: Bricht klassische Krypto.
+Faehigkeit: Bricht klassische Krypto (Shor's Algorithmus), insbesondere
+Harvest-Now-Decrypt-Later auf aufgezeichnete Transport-Sessions.
 
 Abwehr:
-- ML-KEM-1024 (NIST Level 5)
-- SLH-DSA-SHA2-256s
-- Threefish-512
+- Transport-Handshake: Hybrid X25519 + ML-KEM-1024 (NIST Level 5)
+- Paket-Signaturen: SLH-DSA-SHA2-256s
+- Paket-Verschluesselung: Threefish-512 (256-Bit PQ)
+- Session-Key = HKDF-SHA256(x25519_shared || mlkem_shared)
+
+Grenzen:
+- Transport-Signaturen sind Ed25519 (klassisch). Ein Quanten-
+  Computer koennte eine Session faelschly signieren, aber NICHT
+  eine aufgezeichnete Session rueckwirkend entschluesseln, weil
+  der Session-Key einen ephemeren X25519-Anteil hat.
+- Der Vertraulichkeits-Anteil des Handshakes ist PQ, der
+  Authentizitaets-Anteil klassisch.
 
 
 ### 7. Server-Timing-Angriff
