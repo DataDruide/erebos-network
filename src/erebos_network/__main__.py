@@ -127,6 +127,13 @@ def main() -> int:
         help="Aktiviert RateShaper + Jitter (Opt-In)",
     )
     parser.add_argument(
+        "--padding",
+        type=int,
+        default=0,
+        metavar="BLOCK",
+        help="Padding-Blockgröße in Bytes (0 = aus, 1024 = empfohlen)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -135,6 +142,14 @@ def main() -> int:
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    # Padding-Blockgröße setzen (wirkt auf tunnel.py-Modulkonstante)
+    if args.padding > 0:
+        from . import tunnel as _tunnel
+        _tunnel.PADDING_BLOCK_SIZE = args.padding
+        logging.getLogger(__name__).info(
+            f"Padding aktiv: Blockgröße {args.padding}B"
+        )
 
     if args.peer:
         from .tunnel import run_peer_server

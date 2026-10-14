@@ -272,3 +272,117 @@ def test_module_imports_without_liboqs(monkeypatch):
             del sys.modules[mod_name]
         # Original neu laden
         importlib.import_module(mod_name)
+
+
+# ---------------------------------------------------------------------------
+# Padding (Größen-Obfuskation)
+# ---------------------------------------------------------------------------
+
+import os
+
+
+class TestPaddingHelpers:
+    """Unit-Tests für _apply_padding / _strip_padding (2-Byte-Header)."""
+
+    def test_padding_disabled_passthrough(self):
+        """block_size=0: kein Header, kein Padding."""
+        from erebos_network import tunnel
+        data = b"hello world"
+        assert tunnel._apply_padding(data, block_size=0) == data
+        assert tunnel._strip_padding(data, block_size=0) == data
+
+    def test_padding_applied_1024(self):
+        """block_size=1024: Header (2B) + Padding auf 1024-Grenze."""
+        from erebos_network import tunnel
+        data = b"x" * 100
+        padded = tunnel._apply_padding(data, block_size=1024)
+        assert len(padded) == 1024
+        # padding_len = 1024 - 2 - 100 = 922
+        assert padded[0:2] == b"\x03\x9a"  # 922 big-endian
+        # Daten sind an Position 2..102
+        assert padded[2:102] == data
+
+    def test_padding_roundtrip_1024(self):
+        """_apply_padding + _strip_padding ist Identität."""
+        import os
+        from erebos_network import tunnel
+        for size in (0, 1, 100, 500, 1021, 1022, 2000):
+            data = os.urandom(size)
+            padded = tunnel._apply_padding(data, block_size=1024)
+            stripped = tunnel._strip_padding(padded, block_size=1024)
+            assert stripped == data, f"Roundtrip-Fehler bei size={size}"
+
+    def test_padding_uniform_wire_size(self):
+        """Verschiedene Daten < block → gleiche Wire-Größe."""
+        from erebos_network import tunnel
+        sizes = [1, 10, 100, 500, 900]
+        wire_sizes = {
+            len(tunnel._apply_padding(b"x" * s, block_size=1024))
+            for s in sizes
+        }
+        assert wire_sizes == {1024}, f"Ungleiche Wire-Größen: {wire_sizes}"
+
+    def test_padding_block_boundary(self):
+        """Daten genau auf Blockgrenze."""
+        from erebos_network import tunnel
+        # 1022 Daten-Bytes → 1024 (2 Byte Header passen genau)
+        assert len(tunnel._apply_padding(b"x" * 1022, block_size=1024)) == 1024
+        # 1023 Daten-Bytes → 2048 (Header+1023 = 1025 > 1024)
+        assert len(tunnel._apply_padding(b"x" * 1023, block_size=1024)) == 2048
+
+    def test_strip_padding_invalid(self):
+        """padding_len > len(data) → ValueError."""
+        import pytest
+        from erebos_network import tunnel
+        # Header 200, aber nur 10 Byte total
+        bad = (200).to_bytes(2, "big") + b"x" * 8
+        with pytest.raises(ValueError, match="padding_len"):
+            tunnel._strip_padding(bad, block_size=1024)
+
+    def test_strip_padding_empty(self):
+        """Leerer Frame → ValueError."""
+        import pytest
+        from erebos_network import tunnel
+        with pytest.raises(ValueError, match="zu kurz"):
+            tunnel._strip_padding(b"", block_size=1024)
+
+    def test_default_block_size_from_global(self, monkeypatch):
+        """Ohne block_size-Argument wird der Modul-Global genutzt."""
+        from erebos_network import tunnel
+        monkeypatch.setattr(tunnel, "PADDING_BLOCK_SIZE", 512)
+        data = b"x" * 100
+        padded = tunnel._apply_padding(data)  # ohne block_size
+        assert len(padded) == 512
+        assert tunnel._strip_padding(padded) == data
+
+    def test_padding_block_too_large(self):
+        """block_size > 65535 → ValueError."""
+        import pytest
+        from erebos_network import tunnel
+        with pytest.raises(ValueError, match="block_size"):
+            tunnel._apply_padding(b"x" * 10, block_size=100000)
+
+
+class TestPaddingEnvVar:
+    """PADDING_BLOCK_SIZE wird aus Environment gelesen (Modul-Import)."""
+
+    def test_env_var_default_zero(self):
+        """Ohne EREBOS_PADDING_BLOCK ist Padding aus."""
+        from erebos_network import tunnel
+        assert isinstance(tunnel.PADDING_BLOCK_SIZE, int)
+
+    def test_env_var_override(self, monkeypatch):
+        """EREBOS_PADDING_BLOCK=512 → PADDING_BLOCK_SIZE=512."""
+        import importlib
+        import sys
+        monkeypatch.setenv("EREBOS_PADDING_BLOCK", "512")
+
+        if "erebos_network.tunnel" in sys.modules:
+            del sys.modules["erebos_network.tunnel"]
+
+        fresh = importlib.import_module("erebos_network.tunnel")
+        assert fresh.PADDING_BLOCK_SIZE == 512
+
+        if "erebos_network.tunnel" in sys.modules:
+            del sys.modules["erebos_network.tunnel"]
+        importlib.import_module("erebos_network.tunnel")

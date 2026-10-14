@@ -37,6 +37,16 @@ PEER_PORT = 9999
 
 MAX_FRAME = 65536
 
+# Padding-Konfiguration für Größen-Obfuskation.
+#   0   = Padding aus (Backward-Compat, altes Wire-Format)
+#   256 = Padding auf 256-Byte-Grenzen (uniform, mehr Bandbreite)
+#   1024 = Padding auf 1024-Byte-Grenzen (empfohlen)
+# Kann per Environment-Variable überschrieben werden:
+#   EREBOS_PADDING_BLOCK=1024 python -m erebos_network --proxy
+PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "0"))
+
+# Frame-Typen (erstes Byte im entschluesselten Frame einer Tunnel-Session)
+
 # Frame-Typen (erstes Byte im entschluesselten Frame einer Tunnel-Session)
 FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
 FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
@@ -139,6 +149,66 @@ def _derive_key_pq(x25519_shared: bytes, mlkem_shared: bytes) -> bytes:
 
 async def _read_exact(reader: asyncio.StreamReader, n: int) -> bytes:
     return await reader.readexactly(n)
+
+
+# 2-Byte-Header für padding_len (big-endian).
+# Erlaubt Blockgrößen bis 65535 ohne Hack.
+PADDING_HEADER_LEN = 2
+
+
+def _apply_padding(data: bytes, block_size: int = None) -> bytes:
+    """Wendet Padding auf Klartext an (nur wenn block_size > 0).
+
+    Format: [2B padding_len (BE)][original data][random padding]
+    Der Empfänger liest padding_len und entfernt das Padding.
+
+    Args:
+        data: Klartext
+        block_size: Padding-Blockgröße. None → Modul-Global PADDING_BLOCK_SIZE.
+                    0 → kein Padding (Klassisches Format).
+
+    padding_len = 0 ist gültig (kein Padding, nur 2 Byte Header).
+    """
+    if block_size is None:
+        block_size = PADDING_BLOCK_SIZE
+    if block_size <= 0:
+        return data  # Klassisches Format ohne Header
+    if block_size > 65535:
+        raise ValueError(f"block_size muss <= 65535 sein, ist {block_size}")
+
+    total = PADDING_HEADER_LEN + len(data)
+    # Nächste Blockgrenze >= total (mindestens 1 Block)
+    padded_total = ((total + block_size - 1) // block_size) * block_size
+    if padded_total < block_size:
+        padded_total = block_size
+    padding_len = padded_total - total
+    header = padding_len.to_bytes(PADDING_HEADER_LEN, "big")
+    if padding_len == 0:
+        return header + data
+    return header + data + os.urandom(padding_len)
+
+
+def _strip_padding(padded: bytes, block_size: int = None) -> bytes:
+    """Entfernt Padding. Symmetrisch zu _apply_padding.
+
+    Args:
+        padded: Padding-behafteter Klartext
+        block_size: None → Modul-Global. 0 → Klassisches Format (passthrough).
+
+    Raises:
+        ValueError: bei ungültigem Header oder padding_len > Restlänge.
+    """
+    if block_size is None:
+        block_size = PADDING_BLOCK_SIZE
+    if block_size <= 0:
+        return padded  # Klassisches Format
+    if len(padded) < PADDING_HEADER_LEN:
+        raise ValueError("Padding-Frame zu kurz")
+    padding_len = int.from_bytes(padded[:PADDING_HEADER_LEN], "big")
+    end = len(padded) - padding_len
+    if end < PADDING_HEADER_LEN:
+        raise ValueError(f"Ungültige padding_len={padding_len}")
+    return padded[PADDING_HEADER_LEN:end]
 
 
 async def _send_frame(writer: asyncio.StreamWriter, data: bytes):
@@ -270,8 +340,9 @@ class ErebosTunnelClient:
         )
 
     async def send(self, data: bytes):
+        padded = _apply_padding(data)
         nonce = os.urandom(12)
-        ct = self.cipher.encrypt(nonce, data, None)
+        ct = self.cipher.encrypt(nonce, padded, None)
         await _send_frame(self.writer, nonce + ct)
 
     async def send_typed(self, frame_type: int, payload: bytes):
@@ -281,7 +352,8 @@ class ErebosTunnelClient:
     async def receive(self) -> bytes:
         frame = await _recv_frame(self.reader)
         nonce, ct = frame[:12], frame[12:]
-        return self.cipher.decrypt(nonce, ct, None)
+        padded = self.cipher.decrypt(nonce, ct, None)
+        return _strip_padding(padded)
 
     async def close(self):
         if self.writer:
@@ -522,7 +594,8 @@ async def run_peer_server(port: int = PEER_PORT):
 
             # Ersten typisierten Frame empfangen
             frame = await _recv_frame(reader)
-            first = cipher.decrypt(frame[:12], frame[12:], None)
+            padded = cipher.decrypt(frame[:12], frame[12:], None)
+            first = _strip_padding(padded)
             if not first:
                 logger.warning("Leerer erster Frame")
                 return
