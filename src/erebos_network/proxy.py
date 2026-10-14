@@ -155,9 +155,16 @@ class Socks5Config:
     entry_port: int = 9999
     relay1_port: int = 9998
     relay2_port: int = 9997
-    peer1_name: str = "peer1"
-    peer2_name: str = "peer2"
-    peer3_name: str = "peer3"
+    # Peer-Pool für die 3-Hop-Auswahl.
+    # Default = alte hardcoded Peers (Backward-Compat).
+    peer_pool: list[str] = field(
+        default_factory=lambda: ["peer1", "peer2", "peer3"]
+    )
+    # Wie werden die 3 Hops aus dem Pool gewählt?
+    #   "first"       -> pool[0], pool[1], pool[2]  (Backward-Compat)
+    #   "random"      -> random.sample(pool, 3)
+    #   "round_robin" -> rotierend bei jeder Verbindung
+    entry_strategy: str = "first"
     connect_timeout: float = 10.0
     max_chunk: int = 65536
     # Timing-Obfuskation auf dem Byte-Stream (opt-in)
@@ -168,6 +175,20 @@ class Socks5Config:
     def peer_pub_path(self, peer_name: str) -> Path:
         """Pfad zum X25519-Public-Key eines Peers."""
         return self.keys_dir / f"{peer_name}_x25519.pub"
+
+    # --- Backward-Compat: alte Namen als Properties ---
+
+    @property
+    def peer1_name(self) -> str:
+        return self.peer_pool[0] if len(self.peer_pool) > 0 else "peer1"
+
+    @property
+    def peer2_name(self) -> str:
+        return self.peer_pool[1] if len(self.peer_pool) > 1 else "peer2"
+
+    @property
+    def peer3_name(self) -> str:
+        return self.peer_pool[2] if len(self.peer_pool) > 2 else "peer3"
 
 
 class ErebosSocks5Server:
@@ -191,6 +212,8 @@ class ErebosSocks5Server:
         self.config = config or Socks5Config()
         self._server = None
         self._connections = 0
+        # Offset für round_robin-Strategie
+        self._rr_offset = 0
         # RateShaper für Timing-Obfuskation (opt-in via traffic_shaping=True)
         self.shaper = (
             RateShaper(
@@ -204,15 +227,76 @@ class ErebosSocks5Server:
         self._load_peer_keys()
 
     def _load_peer_keys(self) -> None:
-        """Lädt die X25519-Public-Keys der 3 Hops aus dem konfigurierten Verzeichnis."""
+        """Lädt X25519-Public-Keys für ALLE Peers im Pool."""
         cfg = self.config
-        self.peer1_pub = cfg.peer_pub_path(cfg.peer1_name).read_bytes()
-        self.peer2_pub = cfg.peer_pub_path(cfg.peer2_name).read_bytes()
-        self.peer3_pub = cfg.peer_pub_path(cfg.peer3_name).read_bytes()
-        self.peer1_host = cfg.entry_host
-        self.peer1_port = cfg.entry_port
-        self.peer2_port = cfg.relay1_port
-        self.peer3_port = cfg.relay2_port
+        if len(cfg.peer_pool) < 3:
+            raise ValueError(
+                f"peer_pool muss mindestens 3 Peers haben, hat {len(cfg.peer_pool)}"
+            )
+        # Alle Pool-Peers laden
+        self.peer_pubs: dict[str, bytes] = {}
+        for name in cfg.peer_pool:
+            self.peer_pubs[name] = cfg.peer_pub_path(name).read_bytes()
+        # Ports: Entry + 2 Relays (nach Pool-Reihenfolge)
+        self.peer_ports: dict[str, int] = {}
+        for i, name in enumerate(cfg.peer_pool):
+            if i == 0:
+                self.peer_ports[name] = cfg.entry_port
+            elif i == 1:
+                self.peer_ports[name] = cfg.relay1_port
+            else:
+                self.peer_ports[name] = cfg.relay2_port
+        self.entry_host = cfg.entry_host
+
+    def _select_three_hops(self) -> list[str]:
+        """Wählt 3 Peers aus dem Pool basierend auf entry_strategy.
+
+        Returns:
+            Liste mit genau 3 Peer-Namen.
+        """
+        pool = self.config.peer_pool
+        strategy = self.config.entry_strategy
+        if strategy == "first" or len(pool) < 3:
+            return pool[:3]
+        if strategy == "random":
+            import random
+            return random.sample(pool, 3)
+        if strategy == "round_robin":
+            hops = [pool[(self._rr_offset + i) % len(pool)] for i in range(3)]
+            self._rr_offset = (self._rr_offset + 1) % len(pool)
+            return hops
+        # Fallback
+        return pool[:3]
+
+    # --- Backward-Compat: alte Attribute als Properties ---
+
+    @property
+    def peer1_pub(self) -> bytes:
+        return self.peer_pubs.get(self.config.peer1_name, b"")
+
+    @property
+    def peer2_pub(self) -> bytes:
+        return self.peer_pubs.get(self.config.peer2_name, b"")
+
+    @property
+    def peer3_pub(self) -> bytes:
+        return self.peer_pubs.get(self.config.peer3_name, b"")
+
+    @property
+    def peer1_host(self) -> str:
+        return self.entry_host
+
+    @property
+    def peer1_port(self) -> int:
+        return self.peer_ports.get(self.config.peer1_name, self.config.entry_port)
+
+    @property
+    def peer2_port(self) -> int:
+        return self.peer_ports.get(self.config.peer2_name, self.config.relay1_port)
+
+    @property
+    def peer3_port(self) -> int:
+        return self.peer_ports.get(self.config.peer3_name, self.config.relay2_port)
 
     async def start(self):
         self._server = await asyncio.start_server(
@@ -287,35 +371,47 @@ class ErebosSocks5Server:
             )
 
             # 3-Hop-Onion bauen:
-            #   L3 (an Peer-3):  FRAME_OPEN + "host:port"
-            #   L2 (an Peer-2):  FRAME_RELAY + hdr(OPEN, :9997) + L3
-            #   L1 (an Peer-1):  FRAME_RELAY + hdr(RELAY, :9998) + L2
-            # Der Transport-Tunnel zu Peer-1 (Port 9999) verschluesselt
-            # L1 nochmal (ErebosTunnelClient.cipher).
+            #   Hop-Auswahl per _select_three_hops() (peer_pool + entry_strategy)
+            #   L3 (an Hop3): FRAME_OPEN + "host:port"
+            #   L2 (an Hop2): FRAME_RELAY + hdr(OPEN, hop3_port) + L3
+            #   L1 (an Hop1): FRAME_RELAY + hdr(RELAY, hop2_port) + L2
+            # Der Transport-Tunnel zu Hop1 verschluesselt L1 nochmal.
             from .onion import (
                 pack_relay_header,
                 FRAME_OPEN_WIRE,
                 FRAME_RELAY_WIRE,
             )
 
+            hops = self._select_three_hops()
+            hop1, hop2, hop3 = hops[0], hops[1], hops[2]
+            hop1_pub = self.peer_pubs[hop1]
+            hop2_pub = self.peer_pubs[hop2]
+            hop3_pub = self.peer_pubs[hop3]
+            hop1_port = self.peer_ports[hop1]
+            hop2_port = self.peer_ports[hop2]
+            hop3_port = self.peer_ports[hop3]
+            logger.info(
+                f"[{conn_id}] Pfad: {hop1}:{hop1_port} -> "
+                f"{hop2}:{hop2_port} -> {hop3}:{hop3_port}"
+            )
+
             target_bytes = f"{host}:{port}".encode()
 
-            # l3-Klartext = "host:port" (kein Frame-Marker; der kommt per
-            # send_typed(FRAME_OPEN, ...) auf Transport-Ebene durch Peer-2).
+            # l3-Klartext = "host:port"
             l3_plain = target_bytes
-            l3 = seal_for(self.peer3_pub, l3_plain)
+            l3 = seal_for(hop3_pub, l3_plain)
 
             # l2-Klartext = hdr2 (3B) + l3-Sealed
-            hdr2 = pack_relay_header(FRAME_OPEN_WIRE, self.peer3_port)
+            hdr2 = pack_relay_header(FRAME_OPEN_WIRE, hop3_port)
             l2_plain = hdr2 + l3
-            l2 = seal_for(self.peer2_pub, l2_plain)
+            l2 = seal_for(hop2_pub, l2_plain)
 
             # l1-Klartext = hdr1 (3B) + l2-Sealed
-            hdr1 = pack_relay_header(FRAME_RELAY_WIRE, self.peer2_port)
+            hdr1 = pack_relay_header(FRAME_RELAY_WIRE, hop2_port)
             l1_plain = hdr1 + l2
-            l1 = seal_for(self.peer1_pub, l1_plain)
+            l1 = seal_for(hop1_pub, l1_plain)
 
-            tunnel = ErebosTunnelClient(host=self.peer1_host, port=self.peer1_port)
+            tunnel = ErebosTunnelClient(host=self.entry_host, port=hop1_port)
             try:
                 await asyncio.wait_for(tunnel.connect(), timeout=self.config.connect_timeout)
             except Exception as e:

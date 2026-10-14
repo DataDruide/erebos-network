@@ -70,7 +70,7 @@ jobs:
 
       - name: Generate test keys
         run: |
-          python scripts/generate_keys.py client peer1 peer2 peer3
+          python scripts/generate_keys.py client peer1 peer2 peer3 peer4 peer5
 
       - name: Run tests
         run: pytest -v

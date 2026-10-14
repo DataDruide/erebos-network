@@ -162,7 +162,7 @@ def test_socks5_server_custom_ports():
 
         cfg = Socks5Config(
             keys_dir=tmp,
-            peer1_name="a", peer2_name="b", peer3_name="c",
+            peer_pool=["a", "b", "c"],
             entry_port=7777, relay1_port=7778, relay2_port=7779,
         )
         server = ErebosSocks5Server(ErebosProxy(), config=cfg)
@@ -271,3 +271,141 @@ def test_socks5_config_custom_max_chunk():
     """max_chunk ist konfigurierbar."""
     cfg = Socks5Config(max_chunk=32768)
     assert cfg.max_chunk == 32768
+
+
+# ---------------------------------------------------------------------------
+# Peer-Pool + Rotation (3-Hop-Auswahl)
+# ---------------------------------------------------------------------------
+
+import tempfile
+import random as _random
+
+
+def _make_pool_keys(tmp: Path, names: tuple) -> None:
+    """Erzeugt X25519-Keypairs für gegebene Peer-Namen in tmp."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    for name in names:
+        priv = X25519PrivateKey.generate()
+        pub = priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        (tmp / f"{name}_x25519.pub").write_bytes(pub)
+
+
+def test_socks5_config_peer_pool_default():
+    """Default-Pool = ['peer1', 'peer2', 'peer3']."""
+    cfg = Socks5Config()
+    assert cfg.peer_pool == ["peer1", "peer2", "peer3"]
+    assert cfg.entry_strategy == "first"
+
+
+def test_socks5_config_custom_pool():
+    """Custom-Pool wird respektiert."""
+    cfg = Socks5Config(peer_pool=["alice", "bob", "carol", "dave", "eve"])
+    assert len(cfg.peer_pool) == 5
+    assert cfg.peer1_name == "alice"
+    assert cfg.peer2_name == "bob"
+    assert cfg.peer3_name == "carol"
+
+
+def test_socks5_config_peer_pool_too_small():
+    """Pool mit < 3 Peers wirft ValueError."""
+    import pytest
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _make_pool_keys(tmp, ("p1", "p2"))
+        cfg = Socks5Config(keys_dir=tmp, peer_pool=["p1", "p2"])
+        with pytest.raises(ValueError, match="mindestens 3"):
+            ErebosSocks5Server(ErebosProxy(), config=cfg)
+
+
+def test_select_three_hops_first():
+    """'first' liefert deterministisch die ersten 3 Pool-Einträge."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        names = ("a", "b", "c", "d", "e")
+        _make_pool_keys(tmp, names)
+        cfg = Socks5Config(keys_dir=tmp, peer_pool=list(names))
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        for _ in range(10):
+            assert server._select_three_hops() == ["a", "b", "c"]
+
+
+def test_select_three_hops_random():
+    """'random' liefert 3 Peers, über viele Läufe alle Pool-Peers."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        names = ("a", "b", "c", "d", "e")
+        _make_pool_keys(tmp, names)
+        cfg = Socks5Config(
+            keys_dir=tmp, peer_pool=list(names), entry_strategy="random"
+        )
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        seen = set()
+        for _ in range(200):
+            hops = server._select_three_hops()
+            assert len(hops) == 3
+            assert len(set(hops)) == 3  # keine Duplikate
+            seen.update(hops)
+        assert seen == set(names), f"Nicht alle Peers gesehen: {seen}"
+
+
+def test_select_three_hops_round_robin():
+    """'round_robin' rotiert deterministisch."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        names = ("a", "b", "c", "d", "e")
+        _make_pool_keys(tmp, names)
+        cfg = Socks5Config(
+            keys_dir=tmp, peer_pool=list(names), entry_strategy="round_robin"
+        )
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        seen = [tuple(server._select_three_hops()) for _ in range(5)]
+        # Erwartete Sequenz: [a,b,c], [b,c,d], [c,d,e], [d,e,a], [e,a,b]
+        assert seen[0] == ("a", "b", "c")
+        assert seen[1] == ("b", "c", "d")
+        assert seen[2] == ("c", "d", "e")
+        assert seen[3] == ("d", "e", "a")
+        assert seen[4] == ("e", "a", "b")
+
+
+def test_backward_compat_attributes():
+    """Alte Attribute (peer1_pub, peer1_port, etc.) bleiben verfügbar."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        names = ("p1", "p2", "p3")
+        _make_pool_keys(tmp, names)
+        cfg = Socks5Config(keys_dir=tmp, peer_pool=list(names))
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        assert len(server.peer1_pub) == 32
+        assert len(server.peer2_pub) == 32
+        assert len(server.peer3_pub) == 32
+        assert server.peer1_port == 9999
+        assert server.peer2_port == 9998
+        assert server.peer3_port == 9997
+        assert server.peer1_host == "127.0.0.1"
+
+
+def test_5peer_pool_rotation_reduces_bc():
+    """Mit random-Rotation ist kein Peer zu dominant."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        names = ("a", "b", "c", "d", "e")
+        _make_pool_keys(tmp, names)
+        cfg = Socks5Config(
+            keys_dir=tmp, peer_pool=list(names), entry_strategy="random"
+        )
+        server = ErebosSocks5Server(ErebosProxy(), config=cfg)
+        # 1000 Pfade, zähle Entry-Peer-Vorkommen
+        entry_counts: dict[str, int] = {n: 0 for n in names}
+        for _ in range(1000):
+            hops = server._select_three_hops()
+            entry_counts[hops[0]] += 1
+        # Alle 5 Peers sollten zwischen 10% und 30% liegen
+        for name, count in entry_counts.items():
+            ratio = count / 1000
+            assert 0.10 < ratio < 0.30, (
+                f"Peer {name} als Entry: {ratio:.2%} (erwartet 15-25%)"
+            )

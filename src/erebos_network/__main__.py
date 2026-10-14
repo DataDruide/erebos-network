@@ -134,6 +134,12 @@ def main() -> int:
         help="Padding-Blockgröße in Bytes (0 = aus, 1024 = empfohlen)",
     )
     parser.add_argument(
+        "--entry-strategy",
+        choices=["first", "random", "round_robin"],
+        default="first",
+        help="Strategie für 3-Hop-Auswahl (Default: first = Backward-Compat)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -165,7 +171,10 @@ def main() -> int:
             server = ErebosSocks5Server(
                 proxy,
                 port=args.proxy_port,
-                config=Socks5Config(traffic_shaping=args.traffic_shaping),
+                config=Socks5Config(
+                    traffic_shaping=args.traffic_shaping,
+                    entry_strategy=args.entry_strategy,
+                ),
             )
             await server.start()
             try:
