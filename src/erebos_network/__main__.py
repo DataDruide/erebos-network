@@ -6,7 +6,7 @@ import logging
 import sys
 
 from .api import run_server
-from .proxy import ErebosProxy, ErebosSocks5Server
+from .proxy import ErebosProxy, ErebosSocks5Server, Socks5Config
 from .router import ErebosRouter
 from .sectors import SectorType, list_sectors
 
@@ -147,7 +147,11 @@ def main() -> int:
     if args.proxy:
         async def run_proxy():
             proxy = ErebosProxy(traffic_shaping=args.traffic_shaping)
-            server = ErebosSocks5Server(proxy, port=args.proxy_port)
+            server = ErebosSocks5Server(
+                proxy,
+                port=args.proxy_port,
+                config=Socks5Config(),
+            )
             await server.start()
             try:
                 await asyncio.Event().wait()

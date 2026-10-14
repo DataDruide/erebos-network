@@ -5,6 +5,7 @@ Nimmt Anfragen entgegen und leitet sie über den Erebos-Router.
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -140,6 +141,31 @@ SOCKS5_REP_HOST_UNREACHABLE = 0x04
 SOCKS5_REP_CMD_NOT_SUPPORTED = 0x07
 
 
+@dataclass
+class Socks5Config:
+    """Konfiguration für den 3-Hop-SOCKS5-Listener.
+
+    Erlaubt es, Pfade, Ports und Peer-Namen ohne Code-Änderung anzupassen.
+    Defaults sind mit den bisherigen Hardcoded-Werten identisch, damit
+    bestehende Aufrufe unverändert funktionieren.
+    """
+
+    keys_dir: Path = field(default_factory=lambda: Path("erebos_keys"))
+    entry_host: str = "127.0.0.1"
+    entry_port: int = 9999
+    relay1_port: int = 9998
+    relay2_port: int = 9997
+    peer1_name: str = "peer1"
+    peer2_name: str = "peer2"
+    peer3_name: str = "peer3"
+    connect_timeout: float = 10.0
+    max_chunk: int = 65536
+
+    def peer_pub_path(self, peer_name: str) -> Path:
+        """Pfad zum X25519-Public-Key eines Peers."""
+        return self.keys_dir / f"{peer_name}_x25519.pub"
+
+
 class ErebosSocks5Server:
     """SOCKS5-Listener mit direkter Weiterleitung.
 
@@ -148,21 +174,31 @@ class ErebosSocks5Server:
     Uebergangsloesung, bis echtes Erebos-Routing implementiert ist.
     """
 
-    def __init__(self, proxy, host="127.0.0.1", port=4447):
+    def __init__(
+        self,
+        proxy,
+        host: str = "127.0.0.1",
+        port: int = 4447,
+        config: Optional[Socks5Config] = None,
+    ):
         self.proxy = proxy
         self.host = host
         self.port = port
+        self.config = config or Socks5Config()
         self._server = None
         self._connections = 0
+        self._load_peer_keys()
 
-        KEYS = Path(__file__).parent.parent.parent / "erebos_keys"
-        self.peer1_pub = (KEYS / "peer1_x25519.pub").read_bytes()
-        self.peer2_pub = (KEYS / "peer2_x25519.pub").read_bytes()
-        self.peer3_pub = (KEYS / "peer3_x25519.pub").read_bytes()
-        self.peer1_host = "127.0.0.1"
-        self.peer1_port = 9999
-        self.peer2_port = 9998
-        self.peer3_port = 9997
+    def _load_peer_keys(self) -> None:
+        """Lädt die X25519-Public-Keys der 3 Hops aus dem konfigurierten Verzeichnis."""
+        cfg = self.config
+        self.peer1_pub = cfg.peer_pub_path(cfg.peer1_name).read_bytes()
+        self.peer2_pub = cfg.peer_pub_path(cfg.peer2_name).read_bytes()
+        self.peer3_pub = cfg.peer_pub_path(cfg.peer3_name).read_bytes()
+        self.peer1_host = cfg.entry_host
+        self.peer1_port = cfg.entry_port
+        self.peer2_port = cfg.relay1_port
+        self.peer3_port = cfg.relay2_port
 
     async def start(self):
         self._server = await asyncio.start_server(
@@ -267,7 +303,7 @@ class ErebosSocks5Server:
 
             tunnel = ErebosTunnelClient(host=self.peer1_host, port=self.peer1_port)
             try:
-                await asyncio.wait_for(tunnel.connect(), timeout=10.0)
+                await asyncio.wait_for(tunnel.connect(), timeout=self.config.connect_timeout)
             except Exception as e:
                 logger.error(f"[{conn_id}] Tunnel-Aufbau fehlgeschlagen: {e}")
                 await self._send_reply(writer, SOCKS5_REP_HOST_UNREACHABLE)
