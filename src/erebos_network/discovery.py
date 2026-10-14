@@ -127,6 +127,18 @@ class PeerDiscovery:
                 removed += 1
         return removed
 
+    def export_topology(self, use_addresses: bool = False) -> list[tuple[str, str]]:
+        """Exportiert die aktuelle Peer-Topologie als Kantenliste.
+
+        Args:
+            use_addresses: True  -> IP:Port als Knoten-IDs
+                           False -> Peer-IDs (Hex)
+
+        Returns:
+            Liste von (own_key, peer_key) Paaren.
+        """
+        return self.routing_table.to_edges(use_addresses=use_addresses)
+
     def get_stats(self) -> dict:
         """Statistiken."""
         result = {

@@ -62,3 +62,34 @@ def test_discovery_stats():
     stats = d.get_stats()
     assert stats["peers_added"] == 1
     assert stats["peer_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Topologie-Export via PeerDiscovery
+# ---------------------------------------------------------------------------
+
+def test_discovery_export_topology_empty():
+    """Frische Discovery -> leere Topologie."""
+    from erebos_network.discovery import PeerDiscovery
+
+    d = PeerDiscovery("127.0.0.1:9999")
+    assert d.export_topology() == []
+
+
+def test_discovery_export_topology_with_peers():
+    """Discovery mit Peers exportiert Kanten."""
+    from erebos_network.discovery import DiscoveryConfig, PeerDiscovery
+
+    d = PeerDiscovery(
+        "127.0.0.1:9999",
+        DiscoveryConfig(bootstrap_peers=["10.0.0.1:9999", "10.0.0.2:9999"]),
+    )
+    d.bootstrap()
+    edges = d.export_topology()
+    assert len(edges) == 2
+    # Mit Adressen
+    edges_addr = d.export_topology(use_addresses=True)
+    assert len(edges_addr) == 2
+    dsts = {b for _, b in edges_addr}
+    assert "10.0.0.1:9999" in dsts
+    assert "10.0.0.2:9999" in dsts

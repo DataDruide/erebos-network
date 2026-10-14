@@ -192,6 +192,27 @@ class RoutingTable:
         """Gesamtzahl der Peers."""
         return sum(b.size for b in self.buckets.values())
 
+    def to_edges(self, use_addresses: bool = False) -> list[tuple[str, str]]:
+        """Exportiert Peer-Verbindungen als (src, dst)-Paare.
+
+        Fuer Topologie-Analyse: jeder Peer in einem Bucket ist direkt
+        mit dem eigenen Knoten verbunden.
+
+        Args:
+            use_addresses: True  -> IP:Port als Knoten-IDs (lesbar)
+                           False -> Peer-IDs (Hex, kanonisch)
+
+        Returns:
+            Kantenliste, jede Kante ist (own_key, peer_key).
+        """
+        own_key = self.own_id
+        edges: list[tuple[str, str]] = []
+        for bucket in self.buckets.values():
+            for peer in bucket.peers:
+                peer_key = peer.address if use_addresses else peer.peer_id
+                edges.append((own_key, peer_key))
+        return edges
+
     def get_stats(self) -> dict:
         """Gibt Statistiken zurück."""
         return {

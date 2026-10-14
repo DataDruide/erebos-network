@@ -97,3 +97,42 @@ def test_routing_table_find_closest():
 
     closest = table.find_closest("0" * 64, count=3)
     assert len(closest) <= 3
+
+
+# ---------------------------------------------------------------------------
+# Topologie-Export
+# ---------------------------------------------------------------------------
+
+def test_routing_table_to_edges_empty():
+    """Leere Routing-Tabelle -> leere Kantenliste."""
+    from erebos_network.dht import RoutingTable
+
+    rt = RoutingTable("own_id_hex")
+    assert rt.to_edges() == []
+    assert rt.to_edges(use_addresses=True) == []
+
+
+def test_routing_table_to_edges_with_peers():
+    """Peers in Buckets -> Kanten (own -> peer)."""
+    from erebos_network.dht import PeerInfo, RoutingTable
+
+    rt = RoutingTable("a" * 64)
+    peers = [
+        PeerInfo(peer_id="b" * 64, address="10.0.0.1:9999"),
+        PeerInfo(peer_id="c" * 64, address="10.0.0.2:9999"),
+    ]
+    for p in peers:
+        rt.add_peer(p)
+
+    edges = rt.to_edges()
+    assert len(edges) == 2
+    for src, dst in edges:
+        assert src == "a" * 64
+        assert dst in {"b" * 64, "c" * 64}
+
+    # Mit Adressen
+    edges_addr = rt.to_edges(use_addresses=True)
+    assert len(edges_addr) == 2
+    for src, dst in edges_addr:
+        assert src == "a" * 64
+        assert dst in {"10.0.0.1:9999", "10.0.0.2:9999"}
