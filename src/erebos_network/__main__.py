@@ -21,10 +21,14 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-async def demo() -> None:
-    """Demo: Zeigt Router-Entscheidungen."""
+async def demo(traffic_shaping: bool = False) -> None:
+    """Demo: Zeigt Router-Entscheidungen.
+
+    Args:
+        traffic_shaping: Aktiviert RateShaper + Jitter im Proxy.
+    """
     router = ErebosRouter()
-    proxy = ErebosProxy(router)
+    proxy = ErebosProxy(router, traffic_shaping=traffic_shaping)
     await proxy.start()
 
     print("\n" + "=" * 60)
@@ -58,6 +62,10 @@ async def demo() -> None:
     stats = proxy.get_stats()
     print(f"  Requests total: {stats['requests_total']}")
     print(f"  Requests routed: {stats['requests_routed']}")
+    print(f"  Traffic-Shaping: {stats['traffic_shaping']}")
+    if stats["shaper"] is not None:
+        print(f"  Shaped requests: {stats['shaped_requests']}")
+        print(f"  Shaper: {stats['shaper']}")
     print(f"  Router stats: {stats['router']}")
 
     await proxy.stop()
@@ -157,7 +165,7 @@ def main() -> int:
         return 0
 
     if args.demo:
-        asyncio.run(demo())
+        asyncio.run(demo(traffic_shaping=args.traffic_shaping))
         return 0
 
     parser.print_help()
