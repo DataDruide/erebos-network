@@ -1,0 +1,33 @@
+name: Topology
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Wöchentlich Mo 6:00 UTC
+    - cron: '0 6 * * 1'
+
+jobs:
+  analyze:
+    name: Analyze Peer Topology
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install networkx
+        run: pip install "networkx>=3.0"
+
+      - name: Run topology analysis
+        run: |
+          python scripts/analyze_topology.py \
+            --peer-file peer_list.txt \
+            --warn-above 0.3 \
+            --fail-above 0.9

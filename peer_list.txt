@@ -1,0 +1,22 @@
+# Erebos Peer-Topologie (Baseline)
+#
+# Format: 'peer_a peer_b' pro Zeile (ungerichtete Kante)
+# Kommentare mit '#'.
+#
+# Diese Topologie spiegelt den aktuellen 3-Hop-Onion-Pfad
+# (peer1 -> peer2 -> peer3) plus Redundanz-Peers wider.
+#
+# Wenn sich die Topologie ändert:
+#   1. Datei anpassen
+#   2. python scripts/analyze_topology.py
+#   3. Auf kritische Peers prüfen (BC > 0.3)
+
+# 3-Hop-Onion-Kern
+peer1 peer2
+peer2 peer3
+
+# Redundanz-Verbindungen
+peer1 peer4
+peer2 peer4
+peer3 peer5
+peer4 peer5
