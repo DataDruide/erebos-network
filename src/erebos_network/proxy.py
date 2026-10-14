@@ -191,6 +191,31 @@ class Socks5Config:
         return self.peer_pool[2] if len(self.peer_pool) > 2 else "peer3"
 
 
+def select_three_hops(
+    pool: list[str],
+    strategy: str = "random",
+    offset: int = 0,
+) -> list[str]:
+    """Wählt 3 Peers aus dem Pool (pure function, ohne Keys).
+
+    Args:
+        pool: Liste von Peer-Namen (mind. 3).
+        strategy: "first" | "random" | "round_robin"
+        offset: Nur für "round_robin" (aktuelle Position).
+
+    Returns:
+        Liste mit genau 3 Peer-Namen.
+    """
+    if strategy == "first" or len(pool) < 3:
+        return pool[:3]
+    if strategy == "random":
+        import random
+        return random.sample(pool, 3)
+    if strategy == "round_robin":
+        return [pool[(offset + i) % len(pool)] for i in range(3)]
+    return pool[:3]
+
+
 class ErebosSocks5Server:
     """SOCKS5-Listener mit direkter Weiterleitung.
 
@@ -249,24 +274,12 @@ class ErebosSocks5Server:
         self.entry_host = cfg.entry_host
 
     def _select_three_hops(self) -> list[str]:
-        """Wählt 3 Peers aus dem Pool basierend auf entry_strategy.
-
-        Returns:
-            Liste mit genau 3 Peer-Namen.
-        """
+        """Wählt 3 Peers aus dem Pool (delegiert an freie Funktion)."""
         pool = self.config.peer_pool
-        strategy = self.config.entry_strategy
-        if strategy == "first" or len(pool) < 3:
-            return pool[:3]
-        if strategy == "random":
-            import random
-            return random.sample(pool, 3)
-        if strategy == "round_robin":
-            hops = [pool[(self._rr_offset + i) % len(pool)] for i in range(3)]
+        hops = select_three_hops(pool, self.config.entry_strategy, self._rr_offset)
+        if self.config.entry_strategy == "round_robin" and len(pool) >= 3:
             self._rr_offset = (self._rr_offset + 1) % len(pool)
-            return hops
-        # Fallback
-        return pool[:3]
+        return hops
 
     # --- Backward-Compat: alte Attribute als Properties ---
 

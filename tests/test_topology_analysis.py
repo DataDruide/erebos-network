@@ -84,3 +84,145 @@ def test_peer_list_baseline_loaded():
     G = load_topology(peer_file)
     assert G.number_of_nodes() >= 5
     assert G.number_of_edges() >= 5
+
+
+# ---------------------------------------------------------------------------
+# Simulation (echte Nutzung mit Pfad-Rotation)
+# ---------------------------------------------------------------------------
+
+def test_select_three_hops_pure_function_first():
+    """Freie Funktion: 'first' liefert pool[:3]."""
+    from erebos_network.proxy import select_three_hops
+    assert select_three_hops(["a", "b", "c", "d"], "first") == ["a", "b", "c"]
+
+
+def test_select_three_hops_pure_function_random():
+    """Freie Funktion: 'random' liefert 3 unterschiedliche Peers."""
+    from erebos_network.proxy import select_three_hops
+    hops = select_three_hops(["a", "b", "c", "d", "e"], "random")
+    assert len(hops) == 3
+    assert len(set(hops)) == 3
+
+
+def test_select_three_hops_pure_function_round_robin():
+    """Freie Funktion: 'round_robin' rotiert deterministisch."""
+    from erebos_network.proxy import select_three_hops
+    assert select_three_hops(["a", "b", "c", "d"], "round_robin", 0) == ["a", "b", "c"]
+    assert select_three_hops(["a", "b", "c", "d"], "round_robin", 1) == ["b", "c", "d"]
+    assert select_three_hops(["a", "b", "c", "d"], "round_robin", 3) == ["d", "a", "b"]
+
+
+def test_simulate_topology_5peers():
+    """Simulation erzeugt Graph mit 5 Peers."""
+    from analyze_topology import simulate_topology
+    pool = ["a", "b", "c", "d", "e"]
+    G = simulate_topology(pool, "random", iterations=100)
+    assert G.number_of_nodes() == 5
+    assert G.number_of_edges() >= 5  # mind. so viele wie nötig
+
+
+def test_simulate_random_bc_below_threshold():
+    """Random-Rotation: BC max < 0.5."""
+    from analyze_topology import simulate_topology, analyze
+    pool = ["a", "b", "c", "d", "e"]
+    G = simulate_topology(pool, "random", iterations=1000)
+    metrics = analyze(G, warn_above=0.3)
+    worst = max(metrics["betweenness"].values())
+    assert worst < 0.5, f"BC max = {worst:.4f} (erwartet < 0.5)"
+
+
+def test_simulate_first_creates_entry_spof():
+    """'first' ohne Rotation: peer1 ist IMMER Entry (SPOF).
+
+    Hinweis: BC auf ungewichtetem Graph ist hier nicht das richtige Maß,
+    weil networkx identische Kanten dedupliziert. Stattdessen messen wir
+    die Entry-Verteilung — das ist der echte SPOF.
+    """
+    from collections import Counter
+    from erebos_network.proxy import select_three_hops
+
+    pool = ["a", "b", "c", "d", "e"]
+    entries = Counter()
+    for _ in range(1000):
+        hops = select_three_hops(pool, "first")
+        entries[hops[0]] += 1
+
+    # 'a' ist IMMER Entry -> Single Point of Failure
+    assert entries["a"] == 1000
+    assert entries["b"] == 0
+    assert entries["c"] == 0
+    assert entries["d"] == 0
+    assert entries["e"] == 0
+
+
+def test_simulate_random_balances_entries():
+    """'random' mit 5-Peer-Pool: alle Peers ~20% als Entry."""
+    from collections import Counter
+    from erebos_network.proxy import select_three_hops
+
+    pool = ["a", "b", "c", "d", "e"]
+    entries = Counter()
+    for _ in range(1000):
+        hops = select_three_hops(pool, "random")
+        entries[hops[0]] += 1
+
+    # Jeder Peer sollte zwischen 10% und 30% als Entry dienen
+    for name in pool:
+        ratio = entries[name] / 1000
+        assert 0.10 < ratio < 0.30, (
+            f"Peer {name}: {ratio:.2%} als Entry (erwartet 10-30%)"
+        )
+
+
+def test_simulate_round_robin_balances_entries():
+    """'round_robin' rotiert deterministisch."""
+    from collections import Counter
+    from erebos_network.proxy import select_three_hops
+
+    pool = ["a", "b", "c", "d", "e"]
+    entries = Counter()
+    for i in range(1000):
+        hops = select_three_hops(pool, "round_robin", offset=i)
+        entries[hops[0]] += 1
+
+    # Perfekte Balance: jeder Peer genau 200 mal
+    for name in pool:
+        assert entries[name] == 200, (
+            f"Peer {name}: {entries[name]} (erwartet 200)"
+        )
+
+
+def test_simulate_usage_first_creates_entry_spof():
+    """'first': peer1 ist IMMER Entry -> SPOF."""
+    from analyze_topology import simulate_usage, analyze_usage
+    pool = ["a", "b", "c", "d", "e"]
+    usage = simulate_usage(pool, "first", iterations=100)
+    metrics = analyze_usage(usage, warn_above=0.5)
+    # 'a' ist in 100% der Fälle Entry -> SPOF
+    assert metrics["entry_counts"]["a"] == 100
+    assert metrics["critical"] == ["a"]
+
+
+def test_simulate_usage_random_balanced():
+    """'random': jeder Peer ~20% als Entry, kein SPOF."""
+    from analyze_topology import simulate_usage, analyze_usage
+    pool = ["a", "b", "c", "d", "e"]
+    usage = simulate_usage(pool, "random", iterations=1000)
+    metrics = analyze_usage(usage, warn_above=0.5)
+    # Kein Peer > 50% Entry -> kein SPOF
+    assert metrics["critical"] == []
+    # Alle Peers 10-30%
+    for peer in pool:
+        ratio = metrics["entry_counts"][peer] / 1000
+        assert 0.10 < ratio < 0.30
+
+
+def test_simulate_usage_round_robin_perfect():
+    """'round_robin': perfekte Balance."""
+    from analyze_topology import simulate_usage, analyze_usage
+    pool = ["a", "b", "c", "d", "e"]
+    usage = simulate_usage(pool, "round_robin", iterations=1000)
+    metrics = analyze_usage(usage, warn_above=0.5)
+    # Jeder Peer genau 200 mal Entry
+    for peer in pool:
+        assert metrics["entry_counts"][peer] == 200

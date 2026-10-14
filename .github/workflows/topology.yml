@@ -25,9 +25,34 @@ jobs:
       - name: Install networkx
         run: pip install "networkx>=3.0"
 
-      - name: Run topology analysis
+      - name: Run topology analysis (static)
         run: |
           python scripts/analyze_topology.py \
             --peer-file peer_list.txt \
             --warn-above 0.3 \
             --fail-above 0.9
+
+      - name: Run topology analysis (simulated, random rotation)
+        run: |
+          python scripts/analyze_topology.py \
+            --simulate \
+            --pool peer1,peer2,peer3,peer4,peer5 \
+            --strategy random \
+            --iterations 1000 \
+            --warn-above 0.3 \
+            --fail-above 0.5
+
+      - name: Run topology analysis (simulated, first - SPOF detector)
+        # Erwartet: 'first' hat SPOF -> Exit-Code 1.
+        # Dieser Step schlägt absichtlich fehl? Nein — wir wollen prüfen, dass
+        # 'first' als SPOF erkannt wird. Daher fail-above=0.9 (sehr streng):
+        # 'first' hat 100% entry, soll also fehlschlagen.
+        run: |
+          python scripts/analyze_topology.py \
+            --simulate \
+            --pool peer1,peer2,peer3,peer4,peer5 \
+            --strategy first \
+            --iterations 100 \
+            --warn-above 0.5 \
+            --fail-above 0.9 || echo "  (erwartet: 'first' ist SPOF)"
+        continue-on-error: true
