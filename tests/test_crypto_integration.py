@@ -289,11 +289,11 @@ class TestCentralHybridKDF:
         ).digest()
         assert derive_hybrid_key_legacy(x_ss, pq_ss) == expected
 
-    def test_hybrid_kem_default_is_legacy(self):
-        """Default-kdf ist 'legacy' (kein Breaking-Change)."""
+    def test_hybrid_kem_default_is_hkdf(self):
+        """Default-kdf ist 'hkdf' (RFC 5869, gehaertet)."""
         from erebos_network.crypto.hybrid_kem import HybridKEM
         kem = HybridKEM()
-        assert kem.kdf == "legacy"
+        assert kem.kdf == "hkdf"
 
     def test_hybrid_kem_hkdf_mode(self):
         """kdf='hkdf' liefert anderen Key als legacy."""

@@ -74,6 +74,26 @@ class HybridKeyPair:
     mlkem_public: bytes
     mlkem_private: bytes
 
+    def __post_init__(self):
+        # Public Keys: immer validieren (auch fuer reine Empfaenger-Kontexte).
+        if len(self.x25519_public) != 32:
+            raise ValueError(
+                f"x25519_public muss 32 Byte sein, ist {len(self.x25519_public)}"
+            )
+        if len(self.mlkem_public) != 1568:
+            raise ValueError(
+                f"mlkem_public muss 1568 Byte sein, ist {len(self.mlkem_public)}"
+            )
+        # Private Keys: nur wenn vorhanden (leer = Public-Only-Kontext).
+        if self.x25519_private and len(self.x25519_private) != 32:
+            raise ValueError(
+                f"x25519_private muss 32 Byte sein, ist {len(self.x25519_private)}"
+            )
+        if self.mlkem_private and len(self.mlkem_private) != 3168:
+            raise ValueError(
+                f"mlkem_private muss 3168 Byte sein, ist {len(self.mlkem_private)}"
+            )
+
     @property
     def algorithm(self) -> str:
         return "X25519+ML-KEM-1024"
@@ -85,6 +105,18 @@ class HybridCiphertext:
 
     x25519_ephemeral_public: bytes
     mlkem_ciphertext: bytes
+
+    def __post_init__(self):
+        if len(self.x25519_ephemeral_public) != 32:
+            raise ValueError(
+                f"x25519_ephemeral_public muss 32 Byte sein, "
+                f"ist {len(self.x25519_ephemeral_public)}"
+            )
+        if len(self.mlkem_ciphertext) != 1568:
+            raise ValueError(
+                f"mlkem_ciphertext muss 1568 Byte sein, "
+                f"ist {len(self.mlkem_ciphertext)}"
+            )
 
     @property
     def total_size(self) -> int:
@@ -98,12 +130,12 @@ class HybridKEM:
     Shared Secret = SHA-256(X25519_secret || ML-KEM_secret).
     """
 
-    def __init__(self, kdf: str = "legacy"):
+    def __init__(self, kdf: str = "hkdf"):
         """Hybrid KEM.
 
         Args:
-            kdf: "legacy" (SHA-256, aktueller Default für Kompat)
-                 "hkdf"   (HKDF-SHA256, empfohlen für neue Anwendungen)
+            kdf: "hkdf"   (HKDF-SHA256, RFC 5869, Default)
+                 "legacy" (SHA-256(concat), nur fuer Rueckwaerts-Kompat)
         """
         if kdf not in ("legacy", "hkdf"):
             raise ValueError(f"Unbekannte kdf: {kdf!r}")
@@ -138,11 +170,19 @@ class HybridKEM:
         """Encapsuliert einen Hybrid Shared Secret.
 
         Args:
-            public_key: Empfaenger Public Key
+            public_key: Empfaenger Public Key (HybridKeyPair)
 
         Returns:
             (HybridCiphertext, shared_secret)
+
+        Raises:
+            TypeError: wenn public_key kein HybridKeyPair ist
         """
+        if not isinstance(public_key, HybridKeyPair):
+            raise TypeError(
+                f"public_key muss HybridKeyPair sein, "
+                f"ist {type(public_key).__name__}"
+            )
         # 1. X25519 ephemeral
         ephemeral_priv = X25519PrivateKey.generate()
         ephemeral_pub_bytes = ephemeral_priv.public_key().public_bytes(
@@ -177,7 +217,21 @@ class HybridKEM:
         ciphertext: HybridCiphertext,
         private_key: HybridKeyPair,
     ) -> bytes:
-        """Decapsuliert einen Hybrid Shared Secret."""
+        """Decapsuliert einen Hybrid Shared Secret.
+
+        Raises:
+            TypeError: wenn ciphertext/private_key falscher Typ
+        """
+        if not isinstance(ciphertext, HybridCiphertext):
+            raise TypeError(
+                f"ciphertext muss HybridCiphertext sein, "
+                f"ist {type(ciphertext).__name__}"
+            )
+        if not isinstance(private_key, HybridKeyPair):
+            raise TypeError(
+                f"private_key muss HybridKeyPair sein, "
+                f"ist {type(private_key).__name__}"
+            )
         # 1. X25519
         ephemeral_pub = X25519PublicKey.from_public_bytes(
             ciphertext.x25519_ephemeral_public
@@ -206,8 +260,8 @@ class HybridKEM:
         """Gibt Groessen zurueck."""
         return {
             "algorithm": "X25519+ML-KEM-1024",
-            "kdf_default": "legacy (SHA-256)",
-            "kdf_recommended": "hkdf (RFC 5869)",
+            "kdf_default": "hkdf (RFC 5869)",
+            "kdf_legacy": "sha256-concat (backward-compat only)",
             "x25519_public": 32,
             "x25519_private": 32,
             "mlkem_public": 1568,
