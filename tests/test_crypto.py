@@ -133,3 +133,40 @@ class TestThreefishAEAD:
         ct = a1.encrypt(b"data")
         with pytest.raises(ValueError, match="MAC"):
             a2.decrypt(ct)
+
+
+# ---------------------------------------------------------------------------
+# Threefish-Backend-Audit
+# ---------------------------------------------------------------------------
+
+def test_threefish_backend_is_c_extension():
+    """Stellt sicher, dass pyskein eine C-Extension ist (timing-safe).
+
+    Wenn pyskein jemals auf pure Python umgestellt wird, faellt dieser
+    Test durch und wir wissen, dass ein Timing-Audit notwendig ist.
+    """
+    try:
+        from _skein import threefish
+    except ImportError:
+        import pytest
+        pytest.skip("pyskein (_skein) nicht installiert")
+
+    # C-Extensions erscheinen als "builtin_function_or_method"
+    assert type(threefish).__name__ == "builtin_function_or_method", (
+        f"pyskein.threefish ist vom Typ {type(threefish).__name__}, "
+        "nicht 'builtin_function_or_method' — moeglicher Timing-Angriff!"
+    )
+
+
+def test_threefish_roundtrip_via_c_backend():
+    """Roundtrip mit dem C-Backend."""
+    from erebos_network.crypto.threefish import ThreefishCipher
+    import os
+
+    key = os.urandom(64)
+    tweak = os.urandom(16)
+    c = ThreefishCipher(key=key, tweak=tweak)
+    for size in (64, 128, 1024):
+        pt = os.urandom(size)
+        ct = c.encrypt(pt)
+        assert c.decrypt(ct) == pt
