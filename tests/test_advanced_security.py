@@ -158,6 +158,7 @@ def test_pq_sphinx_sizes():
     assert sizes["num_hops"] == 3
     assert sizes["nist_level"] == 5
     assert sizes["algorithm"] == "PQ-Sphinx (ML-KEM-1024)"
+    assert sizes["per_layer_min"] == 1568 + 12 + 16  # kem_ct + nonce + tag
 
 
 def test_pq_sphinx_create_packet():
