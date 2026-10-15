@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Erebos — Aus der Dunkelheit ins Netz</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --bg2: #12121a;
+    --bg3: #1a1a24;
+    --border: #2a2a3a;
+    --fg: #e0e0e8;
+    --fg2: #a0a0b0;
+    --accent: #7b5cff;
+    --accent2: #00d4aa;
+    --warn: #ffb020;
+    --err: #ff4060;
+    --ok: #00d4aa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header {
+    background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 3rem 1.5rem 2rem;
+    text-align: center;
+  }
+  header h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
+  header p { color: var(--fg2); font-size: 1.1rem; margin-top: 0.5rem; }
+
+  nav {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 100;
+  }
+  nav a {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    color: var(--fg2);
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  nav a:hover { background: var(--bg3); color: var(--fg); text-decoration: none; }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+  section { margin-bottom: 3rem; }
+  section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    border-left: 3px solid var(--accent);
+    padding-left: 0.75rem;
+  }
+
+  .grid { display: grid; gap: 1rem; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    transition: all 0.2s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card h3 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+  .card p { color: var(--fg2); font-size: 0.9rem; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--fg2); flex-shrink: 0;
+  }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .status-info { flex: 1; }
+  .status-info strong { display: block; }
+  .status-info span { color: var(--fg2); font-size: 0.85rem; }
+
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: var(--fg2);
+  }
+  .badge.accent { background: rgba(123,92,255,0.15); border-color: var(--accent); color: var(--accent); }
+  .badge.ok { background: rgba(0,212,170,0.15); border-color: var(--ok); color: var(--ok); }
+  .badge.warn { background: rgba(255,176,32,0.15); border-color: var(--warn); color: var(--warn); }
+
+  .forum-thread {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+  }
+  .forum-thread .votes {
+    text-align: center;
+    min-width: 40px;
+  }
+  .forum-thread .votes strong { display: block; font-size: 1.2rem; color: var(--accent2); }
+  .forum-thread .votes span { font-size: 0.7rem; color: var(--fg2); }
+  .forum-thread .thread-body { flex: 1; }
+  .forum-thread .thread-body h4 { font-size: 0.95rem; margin-bottom: 0.25rem; }
+  .forum-thread .thread-body .meta { font-size: 0.8rem; color: var(--fg2); }
+
+  .member-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: var(--bg);
+  }
+  .member-info strong { display: block; font-size: 0.9rem; }
+  .member-info span { font-size: 0.75rem; color: var(--fg2); }
+
+  .event {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+  }
+  .event .date {
+    text-align: center;
+    min-width: 60px;
+    padding: 0.5rem;
+    background: var(--bg3);
+    border-radius: 8px;
+  }
+  .event .date strong { display: block; font-size: 1.3rem; color: var(--accent); }
+  .event .date span { font-size: 0.7rem; color: var(--fg2); text-transform: uppercase; }
+  .event .event-body { flex: 1; }
+  .event .event-body h4 { font-size: 0.95rem; }
+  .event .event-body p { font-size: 0.85rem; color: var(--fg2); }
+
+  .tool-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    color: var(--fg);
+  }
+  .tool-link:hover { border-color: var(--accent2); text-decoration: none; }
+  .tool-link .icon { font-size: 1.5rem; }
+
+  footer {
+    text-align: center;
+    padding: 2rem 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--fg2);
+    font-size: 0.85rem;
+  }
+
+  .hero-actions { display: flex; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 0.6rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    color: var(--fg);
+    transition: all 0.2s;
+  }
+  .btn:hover { border-color: var(--accent); text-decoration: none; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: #6a4de6; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Erebos</h1>
+  <p>Aus der Dunkelheit ins Netz — Anonymes Netzwerk mit adaptiven Sektoren</p>
+  <div class="hero-actions">
+    <a href="#quickstart" class="btn primary">Jetzt starten</a>
+    <a href="#community" class="btn">Community</a>
+    <a href="https://github.com/DataDruide/erebos-network" class="btn">GitHub</a>
+  </div>
+</header>
+
+<nav>
+  <a href="#status">Status</a>
+  <a href="#quickstart">Quick-Start</a>
+  <a href="#community">Community</a>
+  <a href="#forum">Forum</a>
+  <a href="#members">Mitglieder</a>
+  <a href="#events">Events</a>
+  <a href="#tools">Tools</a>
+  <a href="#governance">Governance</a>
+</nav>
+
+<main>
+
+  <!-- Status -->
+  <section id="status">
+    <h2>Netzwerk-Status</h2>
+    <div class="status">
+      <div class="dot ok"></div>
+      <div class="status-info">
+        <strong>I2P-Router</strong>
+        <span>Erreichbar auf 127.0.0.1:7070</span>
+      </div>
+      <a href="http://127.0.0.1:7070" class="badge accent">Konsole</a>
+    </div>
+    <div class="status">
+      <div class="dot ok"></div>
+      <div class="status-info">
+        <strong>Erebos-Network</strong>
+        <span>Peers: 0 | Routes: 3 | Sektor: standard</span>
+      </div>
+      <span class="badge ok">Online</span>
+    </div>
+    <div class="status">
+      <div class="dot warn"></div>
+      <div class="status-info">
+        <strong>DHT-Bootstrap</strong>
+        <span>Keine Bootstrap-Peers konfiguriert</span>
+      </div>
+      <span class="badge warn">Setup nötig</span>
+    </div>
+  </section>
+
+  <!-- Quick-Start -->
+  <section id="quickstart">
+    <h2>Quick-Start</h2>
+    <div class="grid grid-3">
+      <div class="card">
+        <h3>1. i2pd installieren</h3>
+        <p>Lade den I2P-Router herunter und starte ihn auf 127.0.0.1:7070.</p>
+        <p style="margin-top: 0.75rem;"><a href="https://i2pd.website" class="badge accent">i2pd.website</a></p>
+      </div>
+      <div class="card">
+        <h3>2. Erebos starten</h3>
+        <p>Klone das Repo und starte den Daemon auf 127.0.0.1:9050.</p>
+        <p style="margin-top: 0.75rem;"><span class="badge">python -m erebos_network --serve</span></p>
+      </div>
+      <div class="card">
+        <h3>3. .erebos nutzen</h3>
+        <p>Öffne <code>http://my-service.erebos</code> im Erebos-Browser.</p>
+        <p style="margin-top: 0.75rem;"><span class="badge ok">Bereit</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Community -->
+  <section id="community">
+    <h2>Community</h2>
+    <div class="grid grid-2">
+      <div class="card">
+        <h3>💬 Forum</h3>
+        <p>Diskutiere Technik, Sicherheit und Governance mit anderen Mitgliedern.</p>
+        <p style="margin-top: 0.75rem;"><a href="#forum" class="badge accent">Zum Forum</a></p>
+      </div>
+      <div class="card">
+        <h3>📚 Wiki</h3>
+        <p>Dokumentation, How-Tos und RFCs für Entwickler und Nutzer.</p>
+        <p style="margin-top: 0.75rem;"><a href="#" class="badge accent">Zum Wiki</a></p>
+      </div>
+      <div class="card">
+        <h3>👥 Mitglieder</h3>
+        <p>Peer-Profile mit Reputation, Badges und Beitrittsdatum.</p>
+        <p style="margin-top: 0.75rem;"><a href="#members" class="badge accent">Zur Liste</a></p>
+      </div>
+      <div class="card">
+        <h3>📅 Events</h3>
+        <p>Meetups, Cryptopartys und Workshops in deiner Nähe.</p>
+        <p style="margin-top: 0.75rem;"><a href="#events" class="badge accent">Zum Kalender</a></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Forum -->
+  <section id="forum">
+    <h2>Aktuelle Forum-Threads</h2>
+    <div class="forum-thread">
+      <div class="votes"><strong>42</strong><span>Votes</span></div>
+      <div class="thread-body">
+        <h4><a href="#">Wie konfiguriere ich Bootstrap-Peers für die DHT?</a></h4>
+        <div class="meta">von <strong>alice</strong> · vor 2 Stunden · 8 Antworten</div>
+      </div>
+    </div>
+    <div class="forum-thread">
+      <div class="votes"><strong>31</strong><span>Votes</span></div>
+      <div class="thread-body">
+        <h4><a href="#">ThreefishAEAD vs. ChaCha20 — was ist besser für Erebos?</a></h4>
+        <div class="meta">von <strong>bob</strong> · vor 5 Stunden · 12 Antworten</div>
+      </div>
+    </div>
+    <div class="forum-thread">
+      <div class="votes"><strong>18</strong><span>Votes</span></div>
+      <div class="thread-body">
+        <h4><a href="#">Topologie-Analyse: BC max = 0.25 — ist das gut?</a></h4>
+        <div class="meta">von <strong>carol</strong> · vor 1 Tag · 5 Antworten</div>
+      </div>
+    </div>
+    <div style="margin-top: 1rem; text-align: center;">
+      <a href="#" class="btn">Alle Threads anzeigen</a>
+    </div>
+  </section>
+
+  <!-- Members -->
+  <section id="members">
+    <h2>Mitglieder</h2>
+    <div class="grid grid-3">
+      <div class="member-card">
+        <div class="avatar">A</div>
+        <div class="member-info">
+          <strong>alice</strong>
+          <span>Reputation: 0.95 · seit Jan 2026</span>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="avatar">B</div>
+        <div class="member-info">
+          <strong>bob</strong>
+          <span>Reputation: 0.87 · seit Feb 2026</span>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="avatar">C</div>
+        <div class="member-info">
+          <strong>carol</strong>
+          <span>Reputation: 0.92 · seit Mär 2026</span>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="avatar">D</div>
+        <div class="member-info">
+          <strong>dave</strong>
+          <span>Reputation: 0.78 · seit Apr 2026</span>
+        </div>
+      </div>
+      <div class="member-card">
+        <div class="avatar">E</div>
+        <div class="member-info">
+          <strong>eve</strong>
+          <span>Reputation: 0.65 · seit Mai 2026</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 1rem; text-align: center;">
+      <a href="#" class="btn">Alle Mitglieder</a>
+    </div>
+  </section>
+
+  <!-- Events -->
+  <section id="events">
+    <h2>Kommende Events</h2>
+    <div class="event">
+      <div class="date"><strong>15</strong><span>Nov</span></div>
+      <div class="event-body">
+        <h4>Cryptoparty Berlin</h4>
+        <p>Workshop: Erebos-Browser aufsetzen und .erebos-Domains nutzen.</p>
+      </div>
+    </div>
+    <div class="event">
+      <div class="date"><strong>22</strong><span>Nov</span></div>
+      <div class="event-body">
+        <h4>Erebos Community Call</h4>
+        <p>Monatlicher Online-Austausch: Roadmap, Governance, Technik.</p>
+      </div>
+    </div>
+    <div class="event">
+      <div class="date"><strong>05</strong><span>Dez</span></div>
+      <div class="event-body">
+        <h4>Node-Operator-Workshop</h4>
+        <p>Wie betreibe ich einen Erebos-Peer und trage zur DHT bei?</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tools -->
+  <section id="tools">
+    <h2>Tools</h2>
+    <a href="#" class="tool-link">
+      <span class="icon">📊</span>
+      <div>
+        <strong>Topologie-Visualizer</strong>
+        <p style="font-size: 0.85rem; color: var(--fg2);">Betweenness-Centrality live anzeigen</p>
+      </div>
+    </a>
+    <a href="#" class="tool-link">
+      <span class="icon">🔍</span>
+      <div>
+        <strong>DHT-Explorer</strong>
+        <p style="font-size: 0.85rem; color: var(--fg2);">Routing-Tabelle durchsuchen</p>
+      </div>
+    </a>
+    <a href="#" class="tool-link">
+      <span class="icon">📈</span>
+      <div>
+        <strong>BC-Report</strong>
+        <p style="font-size: 0.85rem; color: var(--fg2);">Kritische Peers identifizieren</p>
+      </div>
+    </a>
+    <a href="#" class="tool-link">
+      <span class="icon">🌐</span>
+      <div>
+        <strong>eepSite-Verzeichnis</strong>
+        <p style="font-size: 0.85rem; color: var(--fg2);">Wichtige I2P-Dienste</p>
+      </div>
+    </a>
+  </section>
+
+  <!-- Governance -->
+  <section id="governance">
+    <h2>Governance</h2>
+    <div class="grid grid-2">
+      <div class="card">
+        <h3>📜 Aktive Proposals</h3>
+        <p>3 offene Vorschläge zur Abstimmung.</p>
+        <p style="margin-top: 0.75rem;"><span class="badge warn">3 offen</span></p>
+      </div>
+      <div class="card">
+        <h3>🗳️ Letzte Abstimmung</h3>
+        <p>„Adaptive Thresholds für BurstBreaker" — angenommen (87%).</p>
+        <p style="margin-top: 0.75rem;"><span class="badge ok">Angenommen</span></p>
+      </div>
+      <div class="card">
+        <h3>🛣️ Roadmap</h3>
+        <p>Q4 2026: Mixnet-Integration, Cover-Traffic, Community-Portal.</p>
+        <p style="margin-top: 0.75rem;"><a href="#" class="badge accent">Zur Roadmap</a></p>
+      </div>
+      <div class="card">
+        <h3>👥 Contributors</h3>
+        <p>12 aktive Entwickler, 5 Node-Operatoren.</p>
+        <p style="margin-top: 0.75rem;"><a href="#" class="badge accent">Mitmachen</a></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Wichtige eepSites -->
+  <section id="eepsites">
+    <h2>Wichtige eepSites</h2>
+    <div class="grid grid-2">
+      <a href="http://stats.i2p" class="tool-link">
+        <span class="icon">📊</span>
+        <div><strong>stats.i2p</strong><p style="font-size: 0.85rem; color: var(--fg2);">I2P-Statistiken und Adressbuch</p></div>
+      </a>
+      <a href="http://identiguy.i2p" class="tool-link">
+        <span class="icon">🔎</span>
+        <div><strong>identiguy.i2p</strong><p style="font-size: 0.85rem; color: var(--fg2);">I2P-Dienste-Verzeichnis</p></div>
+      </a>
+      <a href="http://i2p-projekt.i2p" class="tool-link">
+        <span class="icon">🏠</span>
+        <div><strong>i2p-projekt.i2p</strong><p style="font-size: 0.85rem; color: var(--fg2);">Offizielle I2P-Startseite</p></div>
+      </a>
+      <a href="http://forum.i2p" class="tool-link">
+        <span class="icon">💬</span>
+        <div><strong>forum.i2p</strong><p style="font-size: 0.85rem; color: var(--fg2);">I2P-Community-Forum</p></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Über Erebos -->
+  <section id="about">
+    <h2>Über Erebos</h2>
+    <div class="card">
+      <p>Erebos ist ein anonymer Browser für das I2P-Netzwerk. Er basiert auf Firefox ESR 128 und kombiniert die Fingerprint-Härtung des Tor Browsers mit der dezentralen Architektur von I2P.</p>
+      <p style="margin-top: 1rem;">
+        <span class="badge ok">RFC 5869 HKDF</span>
+        <span class="badge ok">ThreefishAEAD</span>
+        <span class="badge ok">ChaCha20</span>
+        <span class="badge ok">ML-KEM-1024</span>
+        <span class="badge accent">Open Source</span>
+        <span class="badge accent">MPL 2.0</span>
+      </p>
+      <p style="margin-top: 1rem;"><a href="https://github.com/DataDruide/erebos-network" class="badge accent">Projekt auf GitHub</a></p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Erebos Browser — Open Source (MPL 2.0)</p>
+  <p style="margin-top: 0.5rem;">Aus der Dunkelheit ins Netz</p>
+</footer>
+
+</body>
+</html>
