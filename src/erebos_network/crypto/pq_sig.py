@@ -45,6 +45,9 @@ class PostQuantumSignature:
 
     ALGORITHM = "SLH_DSA_PURE_SHA2_256S"
     DISPLAY_NAME = "SLH-DSA-SHA2-256s"
+    PUBLIC_KEY_LEN = 64
+    PRIVATE_KEY_LEN = 128    # tatsaechlicher Wert aus liboqs
+    SIGNATURE_LEN = 29792
 
     def __init__(self):
         if not HAS_LIBOQS:
@@ -55,9 +58,9 @@ class PostQuantumSignature:
 
     def generate_keypair(self) -> SignatureKeyPair:
         """Generiert ein SLH-DSA Schluesselpaar."""
-        sig = oqs.Signature(self.ALGORITHM)
-        public_key = sig.generate_keypair()
-        private_key = sig.export_secret_key()
+        with oqs.Signature(self.ALGORITHM) as sig:
+            public_key = sig.generate_keypair()
+            private_key = sig.export_secret_key()
 
         logger.info(
             f"SLH-DSA KeyPair generiert: "
@@ -74,20 +77,37 @@ class PostQuantumSignature:
 
         Args:
             message: Zu signierende Nachricht
-            private_key: Privater Schluessel
+            private_key: Privater Schluessel (PRIVATE_KEY_LEN Byte)
 
         Returns:
-            Signatur
+            Signatur (SIGNATURE_LEN Byte)
+
+        Raises:
+            ValueError: bei falscher Key-Laenge
         """
-        sig = oqs.Signature(self.ALGORITHM, private_key)
-        return sig.sign(message)
+        if len(private_key) != self.PRIVATE_KEY_LEN:
+            raise ValueError(
+                f"private_key muss {self.PRIVATE_KEY_LEN} Byte sein, "
+                f"ist {len(private_key)}"
+            )
+        with oqs.Signature(self.ALGORITHM, private_key) as sig:
+            return sig.sign(message)
 
     def verify(
         self, message: bytes, signature: bytes, public_key: bytes
     ) -> bool:
-        """Verifiziert eine Signatur."""
-        sig = oqs.Signature(self.ALGORITHM)
-        return sig.verify(message, signature, public_key)
+        """Verifiziert eine Signatur.
+
+        Raises:
+            ValueError: bei falscher Public-Key-Laenge
+        """
+        if len(public_key) != self.PUBLIC_KEY_LEN:
+            raise ValueError(
+                f"public_key muss {self.PUBLIC_KEY_LEN} Byte sein, "
+                f"ist {len(public_key)}"
+            )
+        with oqs.Signature(self.ALGORITHM) as sig:
+            return sig.verify(message, signature, public_key)
 
     @staticmethod
     def sizes() -> dict:
@@ -95,7 +115,8 @@ class PostQuantumSignature:
         return {
             "algorithm": "SLH-DSA-SHA2-256s",
             "liboqs_name": "SLH_DSA_PURE_SHA2_256S",
-            "public_key": 64,
-            "signature": 29792,
+            "public_key": PostQuantumSignature.PUBLIC_KEY_LEN,
+            "private_key": PostQuantumSignature.PRIVATE_KEY_LEN,
+            "signature": PostQuantumSignature.SIGNATURE_LEN,
             "nist_level": 5,
         }
