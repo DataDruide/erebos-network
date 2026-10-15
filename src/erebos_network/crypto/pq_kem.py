@@ -48,7 +48,8 @@ class PostQuantumKEM:
                 "liboqs-python nicht installiert. "
                 "Installiere: pip install liboqs-python"
             )
-        self._kem = oqs.KeyEncapsulation(self.ALGORITHM)
+        # Kein persistentes oqs-Objekt: jeder Aufruf oeffnet/schliesst
+        # einen Context-Manager (verhindert native Buffer-Leaks).
 
     def generate_keypair(self) -> KEMKeyPair:
         """Generiert ein ML-KEM-1024 Schlüsselpaar.
@@ -56,8 +57,20 @@ class PostQuantumKEM:
         Returns:
             KEMKeyPair mit Public Key (1568 Bytes) und Private Key (3168 Bytes)
         """
-        public_key = self._kem.generate_keypair()
-        private_key = self._kem.export_secret_key()
+        with oqs.KeyEncapsulation(self.ALGORITHM) as kem:
+            public_key = kem.generate_keypair()
+            private_key = kem.export_secret_key()
+
+        if len(public_key) != self.PUBLIC_KEY_LEN:
+            raise RuntimeError(
+                f"liboqs lieferte {len(public_key)}B Public Key "
+                f"(erwartet {self.PUBLIC_KEY_LEN})"
+            )
+        if len(private_key) != self.PRIVATE_KEY_LEN:
+            raise RuntimeError(
+                f"liboqs lieferte {len(private_key)}B Private Key "
+                f"(erwartet {self.PRIVATE_KEY_LEN})"
+            )
 
         logger.info(
             f"ML-KEM-1024 KeyPair generiert: "
@@ -78,7 +91,24 @@ class PostQuantumKEM:
         Returns:
             (ciphertext, shared_secret) - beide 1568 Bytes / 32 Bytes
         """
-        ciphertext, shared_secret = self._kem.encap_secret(public_key)
+        if len(public_key) != self.PUBLIC_KEY_LEN:
+            raise ValueError(
+                f"public_key muss {self.PUBLIC_KEY_LEN} Byte sein, "
+                f"ist {len(public_key)}"
+            )
+        with oqs.KeyEncapsulation(self.ALGORITHM) as kem:
+            ciphertext, shared_secret = kem.encap_secret(public_key)
+
+        if len(ciphertext) != self.CIPHERTEXT_LEN:
+            raise RuntimeError(
+                f"liboqs lieferte {len(ciphertext)}B Ciphertext "
+                f"(erwartet {self.CIPHERTEXT_LEN})"
+            )
+        if len(shared_secret) != self.SHARED_SECRET_LEN:
+            raise RuntimeError(
+                f"liboqs lieferte {len(shared_secret)}B Shared Secret "
+                f"(erwartet {self.SHARED_SECRET_LEN})"
+            )
         return ciphertext, shared_secret
 
     def decapsulate(
@@ -104,8 +134,19 @@ class PostQuantumKEM:
                 f"private_key muss {self.PRIVATE_KEY_LEN} Byte sein, "
                 f"ist {len(private_key)}"
             )
+        if len(ciphertext) != self.CIPHERTEXT_LEN:
+            raise ValueError(
+                f"ciphertext muss {self.CIPHERTEXT_LEN} Byte sein, "
+                f"ist {len(ciphertext)}"
+            )
         with oqs.KeyEncapsulation(self.ALGORITHM, private_key) as kem:
-            return kem.decap_secret(ciphertext)
+            shared_secret = kem.decap_secret(ciphertext)
+        if len(shared_secret) != self.SHARED_SECRET_LEN:
+            raise RuntimeError(
+                f"liboqs lieferte {len(shared_secret)}B Shared Secret "
+                f"(erwartet {self.SHARED_SECRET_LEN})"
+            )
+        return shared_secret
 
     @staticmethod
     def sizes() -> dict:
