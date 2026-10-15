@@ -111,3 +111,120 @@ class ThreefishCipher:
             "post_quantum_security": 256,
             "backend": "pyskein" if HAS_PYSKEIN else "unavailable",
         }
+
+
+# ---------------------------------------------------------------------------
+# ThreefishAEAD: CTR + HMAC-SHA256 (Encrypt-then-MAC)
+# ---------------------------------------------------------------------------
+#
+# ThreefishCipher (oben) arbeitet im ECB-Modus: jeder 64-Byte-Block wird
+# unabhaengig verschluesselt. Das ist fuer Nachrichten unsicher (Muster-
+# erkennung, Block-Vertauschung).
+#
+# ThreefishAEAD kapselt Threefish-512 im CTR-Modus + HMAC-SHA256:
+#   ciphertext = nonce(16) || AES-aequivalenter CTR-Stream || HMAC-SHA256(32)
+#
+# Empfohlen fuer ALLE neuen Nachrichten.
+
+import hashlib
+import hmac as _hmac
+
+
+@dataclass
+class ThreefishAEAD:
+    """Threefish-512 im CTR-Modus + HMAC-SHA256 (Encrypt-then-MAC).
+
+    Wire-Format: nonce(16) || ciphertext || tag(32)
+    """
+
+    key: bytes       # 64 Byte
+    mac_key: bytes   # 32 Byte
+
+    def __post_init__(self):
+        if len(self.key) != 64:
+            raise ValueError(f"key muss 64 Byte sein, ist {len(self.key)}")
+        if len(self.mac_key) != 32:
+            raise ValueError(f"mac_key muss 32 Byte sein, ist {len(self.mac_key)}")
+
+    @classmethod
+    def from_secret(
+        cls,
+        shared_secret: bytes,
+        info: bytes = b"erebos-threefish-aead-v1",
+    ) -> "ThreefishAEAD":
+        """Leitet Key + MAC-Key per HKDF aus einem Shared Secret ab."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+        key = HKDF(
+            algorithm=hashes.SHA256(), length=64, salt=None,
+            info=info + b":key",
+        ).derive(shared_secret)
+        mac_key = HKDF(
+            algorithm=hashes.SHA256(), length=32, salt=None,
+            info=info + b":mac",
+        ).derive(shared_secret)
+        return cls(key=key, mac_key=mac_key)
+
+    def _keystream(self, nonce: bytes, length: int) -> bytes:
+        """CTR-Keystream: tweak = nonce(16), cipher.encrypt(0^64) pro Block."""
+        # Threefish-512 Tweak ist 16 Byte. Wir encodieren den Counter
+        # XOR mit der Nonce im Tweak.
+        stream = b""
+        block_index = 0
+        while len(stream) < length:
+            counter = block_index.to_bytes(16, "big")
+            tweak = bytes(a ^ b for a, b in zip(nonce, counter))
+            cipher = ThreefishCipher(self.key, tweak)
+            keystream_block = cipher.encrypt(b"\x00" * 64)
+            stream += keystream_block
+            block_index += 1
+        return stream[:length]
+
+    def encrypt(self, plaintext: bytes, nonce: bytes = None) -> bytes:
+        """Verschluesselt mit Threefish-CTR + HMAC.
+
+        Returns:
+            nonce(16) || ciphertext || tag(32)
+        """
+        if nonce is None:
+            nonce = os.urandom(16)
+        if len(nonce) != 16:
+            raise ValueError(f"nonce muss 16 Byte sein, ist {len(nonce)}")
+
+        keystream = self._keystream(nonce, len(plaintext))
+        ct = bytes(a ^ b for a, b in zip(plaintext, keystream))
+        tag = _hmac.new(
+            self.mac_key, nonce + ct, hashlib.sha256
+        ).digest()
+        return nonce + ct + tag
+
+    def decrypt(self, data: bytes) -> bytes:
+        """Entschluesselt und verifiziert HMAC.
+
+        Raises:
+            ValueError: bei falscher Laenge oder ungueltigem MAC.
+        """
+        if len(data) < 16 + 32:
+            raise ValueError(f"Zu kurz: {len(data)}")
+        nonce, ct, tag = data[:16], data[16:-32], data[-32:]
+        expected = _hmac.new(
+            self.mac_key, nonce + ct, hashlib.sha256
+        ).digest()
+        if not _hmac.compare_digest(tag, expected):
+            raise ValueError("MAC verification failed")
+        keystream = self._keystream(nonce, len(ct))
+        return bytes(a ^ b for a, b in zip(ct, keystream))
+
+    @staticmethod
+    def sizes() -> dict:
+        return {
+            "algorithm": "Threefish-512-CTR+HMAC-SHA256",
+            "key": 64,
+            "mac_key": 32,
+            "nonce": 16,
+            "tag": 32,
+            "block": 64,
+            "mode": "CTR",
+            "mac": "HMAC-SHA256 (encrypt-then-MAC)",
+        }

@@ -57,3 +57,79 @@ def test_hybrid_sizes():
     sizes = HybridCrypto.sizes()
     assert sizes["hybrid"]["nist_level"] == 5
     assert sizes["hybrid"]["post_quantum_security"] == 256
+
+
+# ---------------------------------------------------------------------------
+# ThreefishAEAD (CTR + HMAC)
+# ---------------------------------------------------------------------------
+
+class TestThreefishAEAD:
+    def test_aead_sizes(self):
+        """ThreefishAEAD-Größen."""
+        from erebos_network.crypto import ThreefishAEAD
+        sizes = ThreefishAEAD.sizes()
+        assert sizes["key"] == 64
+        assert sizes["nonce"] == 16
+        assert sizes["tag"] == 32
+        assert sizes["mode"] == "CTR"
+
+    def test_aead_roundtrip(self):
+        """Encrypt/Decrypt Roundtrip."""
+        from erebos_network.crypto import ThreefishAEAD
+        import os
+        aead = ThreefishAEAD.from_secret(os.urandom(32))
+        for size in (0, 1, 64, 100, 1000):
+            pt = os.urandom(size)
+            ct = aead.encrypt(pt)
+            assert aead.decrypt(ct) == pt, f"Roundtrip bei size={size}"
+
+    def test_aead_tamper_detection(self):
+        """Manipulation wird erkannt."""
+        import pytest
+        from erebos_network.crypto import ThreefishAEAD
+        import os
+        aead = ThreefishAEAD.from_secret(os.urandom(32))
+        ct = bytearray(aead.encrypt(b"geheim"))
+        ct[-1] ^= 0x01  # Tag manipulieren
+        with pytest.raises(ValueError, match="MAC"):
+            aead.decrypt(bytes(ct))
+
+    def test_aead_unique_ciphertexts(self):
+        """Nonce ist zufällig -> verschiedene Ciphertexte."""
+        from erebos_network.crypto import ThreefishAEAD
+        import os
+        aead = ThreefishAEAD.from_secret(os.urandom(32))
+        ct1 = aead.encrypt(b"same")
+        ct2 = aead.encrypt(b"same")
+        assert ct1 != ct2
+
+    def test_aead_no_patterns(self):
+        """Gleiche Blöcke -> verschiedene Ciphertext-Blöcke (CTR)."""
+        from erebos_network.crypto import ThreefishAEAD
+        import os
+        aead = ThreefishAEAD.from_secret(os.urandom(32))
+        pt = b"A" * 64 + b"A" * 64  # zwei gleiche Blöcke
+        ct = aead.encrypt(pt)
+        block1 = ct[16:16+64]
+        block2 = ct[16+64:16+128]
+        assert block1 != block2, "ECB-Muster erkannt!"
+
+    def test_aead_hkdf_from_secret(self):
+        """from_secret leitet deterministisch ab."""
+        from erebos_network.crypto import ThreefishAEAD
+        secret = b"x" * 32
+        a1 = ThreefishAEAD.from_secret(secret)
+        a2 = ThreefishAEAD.from_secret(secret)
+        assert a1.key == a2.key
+        assert a1.mac_key == a2.mac_key
+
+    def test_aead_wrong_key_fails(self):
+        """Falscher Key -> MAC-Fehler."""
+        import pytest
+        from erebos_network.crypto import ThreefishAEAD
+        import os
+        a1 = ThreefishAEAD.from_secret(b"a" * 32)
+        a2 = ThreefishAEAD.from_secret(b"b" * 32)
+        ct = a1.encrypt(b"data")
+        with pytest.raises(ValueError, match="MAC"):
+            a2.decrypt(ct)

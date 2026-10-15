@@ -9,7 +9,7 @@ Basiert auf NIST-Standards:
 
 from .pq_kem import PostQuantumKEM, KEMKeyPair
 from .pq_sig import PostQuantumSignature, SignatureKeyPair
-from .threefish import ThreefishCipher
+from .threefish import ThreefishCipher, ThreefishAEAD
 from .hybrid import HybridCrypto
 from .hybrid_kem import (
     HybridKEM,
@@ -25,6 +25,7 @@ __all__ = [
     "PostQuantumSignature",
     "SignatureKeyPair",
     "ThreefishCipher",
+    "ThreefishAEAD",
     "HybridCrypto",
     "HybridKEM",
     "HybridKeyPair",
