@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from .pq_kem import PostQuantumKEM, KEMKeyPair
+from .pq_kem import PostQuantumKEM
 from .threefish import ThreefishAEAD
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HybridSession:
-    """Eine Hybrid-Session."""
+    """Eine Hybrid-Session (symmetrisch nach KEM-Handshake).
+
+    Der asymmetrische ML-KEM-Teil ist bereits abgeschlossen; diese
+    Session haelt nur den abgeleiteten AEAD-Schluessel.
+    """
 
     aead: ThreefishAEAD
-    kem_keypair: KEMKeyPair
     session_id: str
 
     @property
@@ -44,13 +47,11 @@ class HybridCrypto:
 
     def create_session(self) -> HybridSession:
         """Erstellt eine neue Hybrid-Session."""
-        # ML-KEM KeyPair
+        # ML-KEM: asymmetrischer Teil (Keypair + Encapsulate).
+        # Der Ciphertext wird hier verworfen: die Session haelt nur den
+        # symmetrischen AEAD-Schluessel.
         kem_keypair = self.kem.generate_keypair()
-
-        # Threefish aus Shared Secret ableiten
-        ciphertext, shared_secret = self.kem.encapsulate(
-            kem_keypair.public_key
-        )
+        _, shared_secret = self.kem.encapsulate(kem_keypair.public_key)
 
         # ThreefishAEAD: CTR + HMAC-SHA256, HKDF-basierte Key-Ableitung.
         aead = ThreefishAEAD.from_secret(
@@ -68,7 +69,6 @@ class HybridCrypto:
 
         session = HybridSession(
             aead=aead,
-            kem_keypair=kem_keypair,
             session_id=session_id,
         )
         self._sessions[session_id] = session
