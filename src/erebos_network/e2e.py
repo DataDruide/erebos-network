@@ -1,7 +1,17 @@
-"""End-to-End Modus fuer Erebos Network.
+"""End-to-End Modus (Forschungsprototyp).
 
-Beide Seiten nutzen Erebos - kein Exit-Gateway noetig.
-Schuetzt gegen Server, die Exit-Traffic sehen.
+WICHTIG: Dies ist ein symmetrischer Prototyp.
+  - shared_secret = secrets.token_bytes(32) (kein KEM-Handshake!)
+  - kein Schluesselaustausch zwischen Peers
+  - beide Seiten teilen sich das Secret im gleichen Prozess
+
+Fuer echte E2E-Verschluesselung zwischen Peers siehe:
+  - auth_handshake.py (authentifizierter Hybrid-Handshake)
+  - tunnel.py (verschluesselter Transport)
+
+Krypto:
+  - ChaCha20-Poly1305 AEAD (RFC 8439)
+  - shared_secret wird per HKDF abgeleitet (RFC 5869)
 """
 
 import hashlib
@@ -12,6 +22,9 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +124,7 @@ class EndToEnd:
             raise ValueError("Session nicht etabliert")
 
         # XOR mit SHA-256-Keystream (Prototyp)
-        encrypted = self._xor_encrypt(payload, session.shared_secret)
+        encrypted = self._aead_encrypt(payload, session.shared_secret)
         session.messages_sent += 1
         self.stats["messages_sent"] += 1
         return encrypted
@@ -122,7 +135,7 @@ class EndToEnd:
         if not session or not session.is_established:
             raise ValueError("Session nicht etabliert")
 
-        decrypted = self._xor_encrypt(ciphertext, session.shared_secret)
+        decrypted = self._aead_decrypt(ciphertext, session.shared_secret)
         session.messages_received += 1
         return decrypted
 
@@ -136,15 +149,37 @@ class EndToEnd:
         return True
 
     @staticmethod
-    def _xor_encrypt(data: bytes, key: bytes) -> bytes:
-        """XOR-Verschluesselung."""
-        result = bytearray(len(data))
-        for i in range(0, len(data), 32):
-            block = key + i.to_bytes(8, "big")
-            keystream = hashlib.sha256(block).digest()
-            for j in range(min(32, len(data) - i)):
-                result[i + j] = data[i + j] ^ keystream[j]
-        return bytes(result)
+    def _aead_key_from_secret(shared_secret: bytes) -> bytes:
+        """HKDF-SHA256: leitet einen 32-Byte AEAD-Key ab (RFC 5869)."""
+        return HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"erebos-e2e-aead-v1",
+        ).derive(shared_secret)
+
+    @classmethod
+    def _aead_encrypt(cls, data: bytes, shared_secret: bytes) -> bytes:
+        """ChaCha20-Poly1305 AEAD-Verschluesselung (RFC 8439).
+
+        Liefert (nonce(12) || ciphertext || tag(16)).
+        """
+        key = cls._aead_key_from_secret(shared_secret)
+        nonce = os.urandom(12)
+        ct = ChaCha20Poly1305(key).encrypt(nonce, data, None)
+        return nonce + ct
+
+    @classmethod
+    def _aead_decrypt(cls, data: bytes, shared_secret: bytes) -> bytes:
+        """ChaCha20-Poly1305 AEAD-Entschluesselung."""
+        if len(data) < 12 + 16:
+            raise ValueError(f"Zu kurz fuer AEAD: {len(data)} Byte")
+        key = cls._aead_key_from_secret(shared_secret)
+        nonce, ct = data[:12], data[12:]
+        return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+
+    # Backward-Compat: alter Name (war XOR).
+    _xor_encrypt = _aead_encrypt
 
     @property
     def active_sessions(self) -> int:
