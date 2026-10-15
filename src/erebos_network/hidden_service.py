@@ -4,6 +4,11 @@ Beidseitig anonyme Dienste - weder Client noch Server
 kennen die Identitaet des anderen.
 
 Erweitert um Descriptor-Hardening (Anti-Flood).
+
+WICHTIG: Forschungsprototyp.
+  - shared_secret = secrets.token_bytes(32) (kein KEM-Handshake)
+  - Service-IDs sind 128-Bit-Hashes (Truncation)
+  - Fuer produktive Hidden Services siehe tunnel.py
 """
 
 import hashlib
@@ -82,7 +87,11 @@ class HiddenService:
     ) -> HSDescriptor:
         """Erstellt einen neuen Hidden Service."""
         key_seed = secrets.token_bytes(32)
-        service_id = hashlib.sha256(key_seed).hexdigest()[:16]
+        # Domain Separation (RFC 5869-Stil): service_id ist nicht nur
+        # ein Hash des Seeds, sondern explizit als HS-ID markiert.
+        service_id = hashlib.sha256(
+            b"erebos-hs-id-v1:" + key_seed
+        ).hexdigest()[:16]
 
         descriptor = HSDescriptor(
             service_id=service_id,
@@ -120,7 +129,7 @@ class HiddenService:
 
         # Descriptor-ID
         descriptor_id = hashlib.sha256(
-            f"{service_id}:{time.time()}".encode()
+            f"erebos-hs-descriptor-v1:{service_id}:{time.time()}".encode()
         ).hexdigest()[:16]
 
         # PoW berechnen
@@ -166,12 +175,11 @@ class HiddenService:
             return None
 
         session_id = hashlib.sha256(
-            f"{client_id}:{service_id}:{time.time()}".encode()
+            f"erebos-hs-session-v1:{client_id}:{service_id}:{time.time()}".encode()
         ).hexdigest()[:16]
 
-        rendezvous = hashlib.sha256(
-            secrets.token_bytes(32)
-        ).hexdigest()[:16]
+        # Direkt 128 Bit Zufall als Hex (kein doppeltes Hashing).
+        rendezvous = secrets.token_bytes(16).hex()
 
         session = HSSession(
             session_id=session_id,

@@ -142,7 +142,10 @@ class TestHiddenServiceIntegration:
         service = hs.create_service()
         session = hs.establish_session("client1", service.service_id)
         assert len(session.shared_secret) == 32
-        assert len(session.rendezvous_point) == 16
+        # Rendezvous ist 16 Byte Hex = 32 Zeichen (vorher 16 wegen
+        # doppeltem SHA-256). Mit dem Audit ist es direkt aus
+        # secrets.token_bytes(16) abgeleitet.
+        assert len(session.rendezvous_point) == 32
 
     def test_hs_different_sessions_different_secrets(self):
         """Verschiedene HS-Sessions haben verschiedene Secrets."""
