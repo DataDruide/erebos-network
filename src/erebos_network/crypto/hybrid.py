@@ -94,20 +94,6 @@ class HybridCrypto:
         return session.aead.decrypt(ciphertext)
 
     @staticmethod
-    def _pad(data: bytes) -> bytes:
-        """PKCS#7-ähnliches Padding auf 64 Bytes."""
-        block_size = 64
-        padding_length = block_size - (len(data) % block_size)
-        padding = bytes([padding_length] * padding_length)
-        return data + padding
-
-    @staticmethod
-    def _unpad(data: bytes) -> bytes:
-        """Entfernt Padding."""
-        padding_length = data[-1]
-        return data[:-padding_length]
-
-    @staticmethod
     def sizes() -> dict:
         """Gibt Größen zurück."""
         return {

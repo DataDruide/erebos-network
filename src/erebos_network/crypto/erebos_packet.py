@@ -12,8 +12,6 @@ Sicherheitseigenschaften:
 import hashlib
 import hmac
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 import logging
 import secrets
 import struct
@@ -84,46 +82,6 @@ class ErebosPacketFormat:
             "packets_peeled": 0,
             "bytes_created": 0,
         }
-
-    def _derive_threefish_key(self, shared_secret: bytes, context: bytes) -> bytes:
-        """Leitet einen Threefish-512-Key (64 Bytes) per HKDF ab.
-
-        RFC 5869: HKDF-SHA256, mit Domain Separation via info.
-        Der context wird als info-Suffix verwendet, damit verschiedene
-        Zwecke unterschiedliche Keys liefern.
-        """
-        return HKDF(
-            algorithm=hashes.SHA256(),
-            length=64,
-            salt=None,
-            info=b"erebos-packet-threefish-v1:" + context,
-        ).derive(shared_secret)
-
-    def _derive_mac_key(self, shared_secret: bytes) -> bytes:
-        """Leitet einen HMAC-Key (32 Bytes) per HKDF ab.
-
-        Vermeidet, dass rohe Shared Secrets direkt als HMAC-Key
-        verwendet werden. RFC 5869.
-        """
-        return HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=b"erebos-packet-mac-v1",
-        ).derive(shared_secret)
-
-    def _derive_tweak(self, shared_secret: bytes) -> bytes:
-        """Leitet einen Tweak (16 Bytes) per HKDF ab.
-
-        RFC 5869: HKDF-SHA256, mit Domain Separation via info.
-        Keine Truncation mehr (length=16 direkt).
-        """
-        return HKDF(
-            algorithm=hashes.SHA256(),
-            length=16,
-            salt=None,
-            info=b"erebos-packet-tweak-v1",
-        ).derive(shared_secret)
 
     def create_packet(
         self,
