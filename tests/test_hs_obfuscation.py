@@ -30,12 +30,38 @@ def test_burst_breaker_short():
 
 
 def test_burst_breaker_long():
-    """Langer Burst wird zerlegt."""
-    config = HSObfuscationConfig(burst_threshold=3, padding_rate=0.0)
+    """Langer Burst wird zerlegt (deterministisch, Jitter aus)."""
+    config = HSObfuscationConfig(
+        burst_threshold=3,
+        burst_threshold_jitter=0.0,   # deterministisch
+        padding_rate=0.0,
+    )
     b = BurstBreaker(config)
     burst = Burst(packets=[100] * 9, direction=1)
     result = b.break_burst(burst)
     assert len(result) == 3  # 9 / 3 = 3 Bursts
+
+
+def test_burst_breaker_long_adaptive():
+    """Langer Burst mit Jitter: Chunk-Groesse variiert, aber begrenzt."""
+    config = HSObfuscationConfig(
+        burst_threshold=3,
+        burst_threshold_jitter=0.3,
+        padding_rate=0.0,
+    )
+    b = BurstBreaker(config)
+    burst = Burst(packets=[100] * 30, direction=1)
+    result = b.break_burst(burst)
+
+    # Mindestens 2 Chunks, kein Chunk groesser als max Threshold
+    assert len(result) >= 2
+    max_threshold = int(
+        config.burst_threshold * (1 + config.burst_threshold_jitter)
+    )
+    for chunk in result:
+        assert chunk.size <= max_threshold, (
+            f"Chunk zu gross: {chunk.size} > {max_threshold}"
+        )
 
 
 def test_burst_breaker_padding():

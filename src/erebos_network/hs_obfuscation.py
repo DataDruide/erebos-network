@@ -20,7 +20,9 @@ class HSObfuscationConfig:
     """Konfiguration fuer HS-Obfuskation."""
 
     burst_threshold: int = 5
+    burst_threshold_jitter: float = 0.3   # +/- 30%
     burst_padding_size: int = 3
+    burst_padding_jitter: float = 0.5     # +/- 50%
     padding_rate: float = 0.29  # August-Maschine: 29%
     splash_enabled: bool = True
     splash_blocks_min: int = 1
@@ -63,6 +65,12 @@ class BurstBreaker:
             "padding_bytes": 0,
         }
 
+    def _adaptive_threshold(self, base: int, jitter: float) -> int:
+        """Zufälliger Threshold um einen Basiswert (Jitter)."""
+        low = max(1, int(base * (1 - jitter)))
+        high = max(low, int(base * (1 + jitter)))
+        return secrets.randbelow(high - low + 1) + low
+
     def break_burst(self, burst: Burst) -> list[Burst]:
         """Zerlegt einen Burst in kleinere Bursts.
 
@@ -74,7 +82,11 @@ class BurstBreaker:
         """
         self.stats["bursts_processed"] += 1
 
-        if burst.size <= self.config.burst_threshold:
+        threshold = self._adaptive_threshold(
+            self.config.burst_threshold,
+            self.config.burst_threshold_jitter,
+        )
+        if burst.size <= threshold:
             return [burst]
 
         # Break-Burst: Zerlege in Chunks
@@ -84,7 +96,7 @@ class BurstBreaker:
         for i, packet in enumerate(burst.packets):
             current_packets.append(packet)
 
-            if len(current_packets) >= self.config.burst_threshold:
+            if len(current_packets) >= threshold:
                 result.append(Burst(
                     packets=current_packets,
                     direction=burst.direction,
@@ -130,9 +142,20 @@ class SplashHS:
             "splash_bytes": 0,
         }
 
-    def inject(self, packets: list[int]) -> list[int]:
-        """Injiziert Splash-Bloecke."""
+    def inject(
+        self, packets: list[int], burst_detected: bool = True
+    ) -> list[int]:
+        """Injiziert Splash-Bloecke (adaptiv bei Burst-Erkennung).
+
+        Args:
+            packets: Paketgroessen
+            burst_detected: True (Default) -> Splash injizieren.
+                            False -> nur bei Burst-Erkennung splashen
+                            (Nym-Ansatz: Cover nur wenn noetig).
+        """
         if not self.config.splash_enabled or not packets:
+            return packets
+        if not burst_detected:
             return packets
 
         result = list(packets)

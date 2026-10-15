@@ -21,6 +21,7 @@ class RotationReason(Enum):
     SCHEDULED = "scheduled"
     HEALTH = "health"
     AGE = "age"
+    USAGE = "usage"
     INTERSECTION = "intersection"
     MANUAL = "manual"
 
@@ -36,6 +37,8 @@ class RotationConfig:
     max_rotation_seconds: int = 24 * 3600  # 24h
     max_consecutive_failures: int = 3
     max_age_seconds: int = 24 * 3600
+    # Tor rend-spec-v3: INTRO_POINT_LIFETIME_INTRODUCTIONS
+    max_introductions: int = 16384
     num_intro_points: int = 3
     intersection_threshold: int = 3  # gleicher Peer in 3 Sessions
     intersection_window: int = 10  # ueber 10 Sessions
@@ -55,6 +58,7 @@ class IntroPoint:
     consecutive_failures: int = 0
     total_failures: int = 0
     total_successes: int = 0
+    introductions_handled: int = 0
     is_healthy: bool = True
 
     @property
@@ -99,6 +103,7 @@ class IntroPointManager:
             "rotations_scheduled": 0,
             "rotations_health": 0,
             "rotations_age": 0,
+            "rotations_usage": 0,
             "rotations_intersection": 0,
             "intersections_detected": 0,
         }
@@ -145,6 +150,12 @@ class IntroPointManager:
             point.last_seen = time.time()
             point.is_healthy = True
 
+    def record_introduction(self, point_id: str) -> None:
+        """Zählt eine erhaltene Introduction (INTRODUCE2-Zelle)."""
+        point = self._points.get(point_id)
+        if point:
+            point.introductions_handled += 1
+
     def record_failure(self, point_id: str) -> Optional[RotationReason]:
         """Zeichnet einen Fehler auf.
 
@@ -183,6 +194,8 @@ class IntroPointManager:
                 self.stats["rotations_health"] += 1
             elif reason == RotationReason.AGE:
                 self.stats["rotations_age"] += 1
+            elif reason == RotationReason.USAGE:
+                self.stats["rotations_usage"] += 1
             elif reason == RotationReason.INTERSECTION:
                 self.stats["rotations_intersection"] += 1
             elif reason == RotationReason.SCHEDULED:
@@ -200,6 +213,8 @@ class IntroPointManager:
                 to_rotate.append((point_id, RotationReason.HEALTH))
             elif point.age_seconds > self.config.max_age_seconds:
                 to_rotate.append((point_id, RotationReason.AGE))
+            elif point.introductions_handled >= self.config.max_introductions:
+                to_rotate.append((point_id, RotationReason.USAGE))
 
         # Scheduled rotation
         if now >= self._next_rotation:
@@ -287,6 +302,7 @@ class IntroPointManager:
                 "min_rotation_hours": self.config.min_rotation_seconds / 3600,
                 "max_rotation_hours": self.config.max_rotation_seconds / 3600,
                 "max_failures": self.config.max_consecutive_failures,
+                "max_introductions": self.config.max_introductions,
                 "intersection_threshold": self.config.intersection_threshold,
             },
         }
