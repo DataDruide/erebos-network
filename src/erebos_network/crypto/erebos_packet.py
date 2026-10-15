@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .pq_kem import PostQuantumKEM, KEMKeyPair
-from .threefish import ThreefishCipher
+from .threefish import ThreefishAEAD
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ class ErebosPacketFormat:
     - Explizite MAC pro Layer
     """
 
-    VERSION = 1
+    VERSION = 2
     MAGIC = b"EREBOS"
     MAX_HOPS = 7
     MIN_HOPS = 2
@@ -150,29 +150,19 @@ class ErebosPacketFormat:
         for hop in reversed(hops):
             ciphertext, shared_secret = self.kem.encapsulate(hop.public_key)
 
-            threefish_key = self._derive_threefish_key(
-                shared_secret, b"erebos-packet-layer"
+            # ThreefishAEAD: CTR + HMAC-SHA256 (Layer-Integritaet)
+            aead = ThreefishAEAD.from_secret(
+                shared_secret, info=b"erebos-packet-layer-v2",
             )
-            tweak = self._derive_tweak(shared_secret)
+            encrypted = aead.encrypt(current)
 
-            cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
-
-            padded = self._pad(current)
-            encrypted = cipher.encrypt(padded)
-
-            mac_key = self._derive_mac_key(shared_secret)
-            layer_mac = hmac.new(
-                mac_key,
-                ciphertext + encrypted + hop.routing_info,
-                hashlib.sha256,
-            ).digest()
-
+            # Layer-Format v2: kem_ct || ri_len(2B) || routing_info || aead_ct
+            # (aead_ct enthaelt nonce + ciphertext + tag)
             layer = (
                 ciphertext
                 + struct.pack(">H", len(hop.routing_info))
                 + hop.routing_info
                 + encrypted
-                + layer_mac
             )
             layers.append(layer)
             current = layer
@@ -227,30 +217,20 @@ class ErebosPacketFormat:
         ri_start = kem_ct_size + 2
         routing_info = layer[ri_start:ri_start+ri_len]
 
-        layer_mac = layer[-32:]
-        encrypted = layer[ri_start+ri_len:-32]
+        # Layer-Format v2: aead_ct = nonce(16) || ciphertext || tag(32)
+        encrypted = layer[ri_start+ri_len:]
 
         shared_secret = self.kem.decapsulate(
             self._make_ciphertext(kem_ct), keypair
         )
 
-        mac_key = self._derive_mac_key(shared_secret)
-        expected_mac = hmac.new(
-            mac_key,
-            kem_ct + encrypted + routing_info,
-            hashlib.sha256,
-        ).digest()
-
-        if not hmac.compare_digest(layer_mac, expected_mac):
-            raise PacketError("Layer-MAC ungueltig")
-
-        threefish_key = self._derive_threefish_key(
-            shared_secret, b"erebos-packet-layer"
+        aead = ThreefishAEAD.from_secret(
+            shared_secret, info=b"erebos-packet-layer-v2",
         )
-        tweak = self._derive_tweak(shared_secret)
-
-        cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
-        decrypted = cipher.decrypt(encrypted)
+        try:
+            decrypted = aead.decrypt(encrypted)
+        except ValueError as e:
+            raise PacketError(f"Layer-AEAD ungueltig: {e}")
 
         next_layer = None
         if layer_index + 1 < len(packet.layers):
