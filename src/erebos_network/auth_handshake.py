@@ -28,7 +28,7 @@ from .crypto.hybrid_kem import (
 )
 from .crypto.pq_kem import PostQuantumKEM
 from .crypto.pq_sig import PostQuantumSignature, SignatureKeyPair
-from .crypto.threefish import ThreefishCipher
+from .crypto.threefish import ThreefishAEAD
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ class AuthenticatedSession:
     initiator_id: str
     responder_id: str
     session_key: bytes
-    cipher: ThreefishCipher
+    aead: ThreefishAEAD
     state: HandshakeState
     created_at: float = field(default_factory=time.time)
     confirmed_at: Optional[float] = None
@@ -359,17 +359,11 @@ class AuthenticatedHandshake:
                 raise ValueError("MAC ungueltig")
             self.stats["macs_verified"] += 1
 
-        # Threefish-512 benötigt 64-Byte-Key, session_key ist 32 Byte.
-        # Wir leiten den Threefish-Key separat per HKDF ab (Domain Separation).
-        threefish_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=64,
-            salt=None,
-            info=b"erebos-threefish-key-v1",
-        ).derive(session_key)
-
-        tweak = hashlib.sha256(session_key + b"tweak").digest()[:16]
-        cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
+        # ThreefishAEAD: CTR + HMAC-SHA256, HKDF-basierte Key-Ableitung.
+        # (kein separates ThreefishCipher mehr — ECB war unsicher)
+        aead = ThreefishAEAD.from_secret(
+            session_key, info=b"erebos-auth-aead-v1",
+        )
 
         session_id = hashlib.sha256(
             session_key + str(time.time()).encode()
@@ -380,7 +374,7 @@ class AuthenticatedHandshake:
             initiator_id=initiator_state["initiator_id"],
             responder_id=responder_msg.sender_id,
             session_key=session_key,
-            cipher=cipher,
+            aead=aead,
             state=HandshakeState.CONFIRMED,
             confirmed_at=time.time(),
         )

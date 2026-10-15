@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .pq_kem import PostQuantumKEM, KEMKeyPair
-from .threefish import ThreefishCipher
+from .threefish import ThreefishAEAD
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 class HybridSession:
     """Eine Hybrid-Session."""
 
-    cipher: ThreefishCipher
+    aead: ThreefishAEAD
     kem_keypair: KEMKeyPair
     session_id: str
 
     @property
     def session_key_fingerprint(self) -> str:
         """Fingerprint des Session-Keys."""
-        return hashlib.sha256(self.cipher.key).hexdigest()[:16]
+        return hashlib.sha256(self.aead.key).hexdigest()[:16]
 
 
 class HybridCrypto:
@@ -52,22 +52,12 @@ class HybridCrypto:
             kem_keypair.public_key
         )
 
-        # Threefish-Key + Tweak + Session-ID per HKDF (RFC 5869)
-        # Domain Separation via info-String.
-        threefish_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=64,
-            salt=None,
-            info=b"erebos-hybrid-threefish-key-v1",
-        ).derive(shared_secret)
+        # ThreefishAEAD: CTR + HMAC-SHA256, HKDF-basierte Key-Ableitung.
+        aead = ThreefishAEAD.from_secret(
+            shared_secret, info=b"erebos-hybrid-aead-v1",
+        )
 
-        tweak = HKDF(
-            algorithm=hashes.SHA256(),
-            length=16,
-            salt=None,
-            info=b"erebos-hybrid-threefish-tweak-v1",
-        ).derive(shared_secret)
-
+        # Session-ID separat (Domain Separation)
         session_id_bytes = HKDF(
             algorithm=hashes.SHA256(),
             length=16,
@@ -76,10 +66,8 @@ class HybridCrypto:
         ).derive(shared_secret)
         session_id = session_id_bytes.hex()
 
-        cipher = ThreefishCipher(key=threefish_key, tweak=tweak)
-
         session = HybridSession(
-            cipher=cipher,
+            aead=aead,
             kem_keypair=kem_keypair,
             session_id=session_id,
         )
@@ -89,23 +77,21 @@ class HybridCrypto:
         return session
 
     def encrypt(self, session_id: str, plaintext: bytes) -> bytes:
-        """Verschlüsselt mit Threefish-512."""
+        """Verschlüsselt mit ThreefishAEAD (CTR + HMAC).
+
+        Kein Padding nötig — CTR arbeitet mit beliebiger Länge.
+        """
         session = self._sessions.get(session_id)
         if not session:
             raise ValueError(f"Session nicht gefunden: {session_id}")
-
-        # Padding auf 64-Byte-Blöcke
-        padded = self._pad(plaintext)
-        return session.cipher.encrypt(padded)
+        return session.aead.encrypt(plaintext)
 
     def decrypt(self, session_id: str, ciphertext: bytes) -> bytes:
-        """Entschlüsselt mit Threefish-512."""
+        """Entschlüsselt mit ThreefishAEAD und verifiziert HMAC."""
         session = self._sessions.get(session_id)
         if not session:
             raise ValueError(f"Session nicht gefunden: {session_id}")
-
-        padded = session.cipher.decrypt(ciphertext)
-        return self._unpad(padded)
+        return session.aead.decrypt(ciphertext)
 
     @staticmethod
     def _pad(data: bytes) -> bytes:
@@ -126,7 +112,7 @@ class HybridCrypto:
         """Gibt Größen zurück."""
         return {
             "kem": PostQuantumKEM.sizes(),
-            "cipher": ThreefishCipher.sizes(),
+            "aead": ThreefishAEAD.sizes(),
             "hybrid": {
                 "name": "ML-KEM-1024 + Threefish-512",
                 "nist_level": 5,
