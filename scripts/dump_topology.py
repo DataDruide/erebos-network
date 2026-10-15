@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Exportiert die aktuelle Peer-Topologie aus der DHT.
 
+Dieses Skript verbindet sich über Bootstrap-Peers mit dem Netzwerk,
+liest die Routing-Tabelle aus und schreibt die Kantenliste in eine
+Datei, die von analyze_topology.py gelesen werden kann.
+
 Usage:
     python scripts/dump_topology.py --output peer_list.txt
     python scripts/dump_topology.py --bootstrap 127.0.0.1:9999
