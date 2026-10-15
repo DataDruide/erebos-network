@@ -14,6 +14,7 @@ from urllib.parse import urlparse, parse_qs
 
 from .discovery import PeerDiscovery
 from .naming import NamingService
+from .reputation import ReputationSystem
 from .router import ErebosRouter
 from .sectors import SectorType
 
@@ -27,6 +28,7 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
     router = ErebosRouter()
     discovery = PeerDiscovery("127.0.0.1:9050")
     naming = NamingService()
+    reputation = ReputationSystem()
 
     def _send_json(self, data: dict, status: int = 200) -> None:
         """Sendet JSON-Antwort."""
@@ -59,6 +61,8 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             self._handle_resolve(params)
         elif path == "/stats":
             self._handle_stats()
+        elif path == "/api/community/members":
+            self._handle_community_members()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -131,6 +135,30 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             "default_sector": self.router.default_sector.value,
         })
 
+    def _handle_community_members(self) -> None:
+        """Community-Endpoint: Liste aller Peers mit Reputation."""
+        peers = self.discovery.list_all_peers()
+        reps = {r.peer_id: r for r in self.reputation.list_all()}
+
+        members = []
+        for peer in peers[:50]:  # Limit 50
+            rep = reps.get(peer.peer_id)
+            members.append({
+                "peer_id": peer.peer_id[:16],
+                "full_id": peer.peer_id,
+                "address": peer.address,
+                "reputation": round(rep.score if rep else peer.reputation, 2),
+                "is_trusted": bool(rep and rep.score >= 0.7),
+                "is_online": peer.is_online,
+                "last_seen": int(peer.last_seen),
+            })
+
+        self._send_json({
+            "success": True,
+            "count": len(members),
+            "members": members,
+        })
+
     def log_message(self, format, *args) -> None:
         """Unterdrückt Standard-Logging."""
         logger.debug(format, *args)
@@ -145,7 +173,7 @@ def run_server(host: str = "127.0.0.1", port: int = 9050) -> None:
     """
     server = HTTPServer((host, port), ErebosAPIHandler)
     logger.info(f"Erebos API Server gestartet auf http://{host}:{port}")
-    logger.info("Endpoints: /status, /route, /resolve, /stats")
+    logger.info("Endpoints: /status, /route, /resolve, /stats, /api/community/members")
 
     try:
         server.serve_forever()

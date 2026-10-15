@@ -104,6 +104,15 @@ class PeerDiscovery:
             return True
         return False
 
+    def list_all_peers(self) -> list[PeerInfo]:
+        """Gibt alle bekannten Peers zurueck (sortiert nach Reputation).
+
+        Fuer Community-Endpoints: Liste aller Peers mit ihren Metadaten.
+        """
+        peers = list(self._known_peers.values())
+        peers.sort(key=lambda p: p.reputation, reverse=True)
+        return peers
+
     def lookup(self, target_id: str) -> list[PeerInfo]:
         """Sucht Peers nahe einer Ziel-ID."""
         self.stats["lookups"] += 1

@@ -64,6 +64,12 @@ class ReputationSystem:
         self._reputations: dict[str, Reputation] = {}
         self._ratings: list[Rating] = []
 
+    def list_all(self) -> list[Reputation]:
+        """Gibt alle Reputation-Objekte zurueck (sortiert nach Score)."""
+        reps = list(self._reputations.values())
+        reps.sort(key=lambda r: r.score, reverse=True)
+        return reps
+
     def get_reputation(self, peer_id: str) -> Reputation:
         """Gibt Reputation zurück (erstellt falls nicht vorhanden)."""
         if peer_id not in self._reputations:
