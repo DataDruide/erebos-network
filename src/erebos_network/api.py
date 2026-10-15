@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs
 from .discovery import PeerDiscovery
 from .naming import NamingService
 from .reputation import ReputationSystem
+from .governance import Governance
 from .router import ErebosRouter
 from .sectors import SectorType
 
@@ -29,6 +30,7 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
     discovery = PeerDiscovery("127.0.0.1:9050")
     naming = NamingService()
     reputation = ReputationSystem()
+    governance = Governance()
 
     def _send_json(self, data: dict, status: int = 200) -> None:
         """Sendet JSON-Antwort."""
@@ -63,6 +65,8 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             self._handle_stats()
         elif path == "/api/community/members":
             self._handle_community_members()
+        elif path == "/api/community/governance":
+            self._handle_community_governance()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -159,6 +163,15 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             "members": members,
         })
 
+    def _handle_community_governance(self) -> None:
+        """Community-Endpoint: Governance-Proposals."""
+        proposals = self.governance.list_all()
+        self._send_json({
+            "success": True,
+            "count": len(proposals),
+            "proposals": proposals,
+        })
+
     def log_message(self, format, *args) -> None:
         """Unterdrückt Standard-Logging."""
         logger.debug(format, *args)
@@ -173,7 +186,7 @@ def run_server(host: str = "127.0.0.1", port: int = 9050) -> None:
     """
     server = HTTPServer((host, port), ErebosAPIHandler)
     logger.info(f"Erebos API Server gestartet auf http://{host}:{port}")
-    logger.info("Endpoints: /status, /route, /resolve, /stats, /api/community/members")
+    logger.info("Endpoints: /status, /route, /resolve, /stats, /api/community/members, /api/community/governance")
 
     try:
         server.serve_forever()

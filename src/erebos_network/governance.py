@@ -126,3 +126,28 @@ class Governance:
             "reputation": self.reputation.get_stats(),
             "consensus": self.consensus.get_stats(),
         }
+
+
+    def list_all(self) -> list[dict]:
+        """Gibt alle Proposals als serialisierbare Dicts zurueck."""
+        proposals = []
+        for prop in self.consensus._proposals.values():
+            total = prop.total_votes
+            proposals.append({
+                "id": prop.proposal_id,
+                "title": prop.title,
+                "description": prop.description,
+                "parameter": prop.parameter,
+                "new_value": prop.new_value,
+                "proposer_id": prop.proposer_id,
+                "status": "open" if prop.is_open else "closed",
+                "votes_yes": prop.yes_votes,
+                "votes_no": prop.no_votes,
+                "votes_abstain": prop.abstain_votes,
+                "total_votes": total,
+                "approval_ratio": round(prop.approval_ratio, 2),
+                "created_at": int(prop.created_at),
+                "deadline": int(prop.deadline),
+            })
+        proposals.sort(key=lambda p: p["created_at"], reverse=True)
+        return proposals
