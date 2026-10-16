@@ -84,6 +84,20 @@ Nicht abgedeckt:
 - **Empfänger:** erkennt `FRAME_COVER`, verwirft Payload, antwortet nicht
 - **Modul:** `src/erebos_network/cover.py` (`TunnelCoverInjector`)
 
+### P1.3 — Reactive Drop-Cover (seit `v0.3.7`)
+
+- **Idee:** Zusaetzlich zum regulaeren Cover sendet der Injector einen
+  kurzen Frame-Burst, wenn Downlink-Traffic ankommt.
+- **Mechanik:** `notify_downlink(size)` sammelt eingehende Frames in
+  einem Sliding Window (Default 100 ms). Der Loop spiegelt die Anzahl
+  (max `reactive_max_match`) und die Durchschnittsgroesse (+/- Jitter).
+- **Grund:** Nym-Lehre — die Asymmetrie zwischen Uplink- und
+  Downlink-Form ist selbst ein Korrelations-Signal. Wer beide Seiten
+  sieht, erkennt "Client empfaengt, sendet aber nicht".
+- **Wirkung:** Ein Beobachter sieht auf beiden Seiten gleichmaessiges
+  Rauschen — die Formkorrelation sinkt.
+- **Modul:** `src/erebos_network/cover.py` (`_send_reactive_burst`)
+
 ### P1.2 — Adaptiver Cover-Traffic
 
 - **Drei Phasen:** `normal` (100 %), `quiet` (20 %), `boost` (200 %)
