@@ -53,6 +53,7 @@ FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
 FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
 FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
 FRAME_COVER = 0x04  # payload = Cover-Traffic (verwerfen)
+FRAME_COVER_ACK = 0x05  # payload = Downlink-Cover-ACK (verwerfen)
 
 # Handshake-Versionen (erstes Byte im Handshake-Frame)
 HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF
@@ -355,10 +356,35 @@ class ErebosTunnelClient:
         await self.send(bytes([frame_type]) + payload)
 
     async def receive(self) -> bytes:
-        frame = await _recv_frame(self.reader)
-        nonce, ct = frame[:12], frame[12:]
-        padded = self.cipher.decrypt(nonce, ct, None)
-        return _strip_padding(padded)
+        """Liest einen Datenframe; verwirft Cover + Cover-ACK.
+
+        Datenframes haben Format [FRAME_DATA][payload]. Cover-Frames
+        ([FRAME_COVER], [FRAME_COVER_ACK]) werden verworfen, ohne an
+        den Aufrufer zurueckgegeben zu werden. Unbekannte Typen werden
+        mit Warnung verworfen.
+        """
+        while True:
+            frame = await _recv_frame(self.reader)
+            nonce, ct = frame[:12], frame[12:]
+            padded = self.cipher.decrypt(nonce, ct, None)
+            if not padded:
+                return b""
+            data = _strip_padding(padded)
+            if not data:
+                continue
+            frame_type = data[0]
+            payload = data[1:]
+            if frame_type == FRAME_DATA:
+                return payload
+            if frame_type == FRAME_COVER:
+                logger.debug(f"Cover-Frame empfangen: {len(payload)}B (verworfen)")
+                continue
+            if frame_type == FRAME_COVER_ACK:
+                logger.debug(f"Cover-ACK empfangen: {len(payload)}B (verworfen)")
+                continue
+            logger.warning(f"Unbekannter Frame-Typ im receive(): {frame_type:#x}")
+            # Fallback: alles nach dem ersten Byte zurueckgeben
+            return payload
 
     async def close(self):
         if self.writer:
@@ -381,12 +407,23 @@ async def _handle_exit(reader, writer, cipher, host, port):
     async def peer_to_target():
         while True:
             frame = await _recv_frame(reader)
-            data = cipher.decrypt(frame[:12], frame[12:], None)
-            if not data:
+            padded = cipher.decrypt(frame[:12], frame[12:], None)
+            if not padded:
                 break
-            logger.debug(f"Peer -> Ziel: {len(data)}B")
-            remote_writer.write(data)
-            await remote_writer.drain()
+            data = _strip_padding(padded)
+            if not data:
+                continue
+            frame_type = data[0]
+            payload = data[1:]
+            if frame_type == FRAME_COVER:
+                logger.debug(f"Uplink-Cover: {len(payload)}B (verworfen)")
+                continue
+            if frame_type == FRAME_DATA:
+                logger.debug(f"Peer -> Ziel: {len(payload)}B")
+                remote_writer.write(payload)
+                await remote_writer.drain()
+            else:
+                logger.warning(f"Unbekannter Uplink-Typ: {frame_type:#x} (verworfen)")
 
     async def target_to_peer():
         while True:
@@ -394,7 +431,8 @@ async def _handle_exit(reader, writer, cipher, host, port):
             if not data:
                 break
             logger.debug(f"Ziel -> Peer: {len(data)}B")
-            padded = _apply_padding(data)
+            typed = bytes([FRAME_DATA]) + data
+            padded = _apply_padding(typed)
             nonce = os.urandom(12)
             ct = cipher.encrypt(nonce, padded, None)
             await _send_frame(writer, nonce + ct)
@@ -466,21 +504,31 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
             try:
                 while True:
                     frame = await _recv_frame(reader)
-                    data = cipher.decrypt(frame[:12], frame[12:], None)
-                    if not data:
+                    padded = cipher.decrypt(frame[:12], frame[12:], None)
+                    if not padded:
                         break
-                    await tunnel2.send(data)
+                    data = _strip_padding(padded)
+                    if not data:
+                        continue
+                    frame_type = data[0]
+                    payload = data[1:]
+                    if frame_type == FRAME_COVER:
+                        logger.debug(f"Relay-Uplink-Cover: {len(payload)}B (verworfen)")
+                        continue
+                    await tunnel2.send_typed(frame_type, payload)
             except Exception:
                 pass
 
         async def next_to_client():
             try:
                 while True:
+                    # tunnel2.receive() filtert Cover + strippt Typ bereits
                     data = await tunnel2.receive()
                     if not data:
                         break
+                    typed = bytes([FRAME_DATA]) + data
                     nonce = os.urandom(12)
-                    padded = _apply_padding(data)
+                    padded = _apply_padding(typed)
                     ct = cipher.encrypt(nonce, padded, None)
                     await _send_frame(writer, nonce + ct)
             except Exception:

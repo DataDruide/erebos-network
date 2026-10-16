@@ -11,7 +11,7 @@ from typing import Optional
 
 from .router import ErebosRouter, RouteType
 from .sectors import SectorType
-from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY, FRAME_COVER
+from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY, FRAME_COVER, FRAME_DATA
 from .cover import CoverConfig, TunnelCoverInjector
 from .onion import seal_for
 from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
@@ -470,7 +470,7 @@ class ErebosSocks5Server:
                         delay = self.shaper.delay_for_next()
                         if delay > 0:
                             await asyncio.sleep(delay)
-                    await tunnel.send(data)
+                    await tunnel.send_typed(FRAME_DATA, data)
                     # Adaptiver Cover-Traffic: echten Traffic melden
                     if cover is not None:
                         cover.notify_real_traffic()
