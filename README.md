@@ -15,6 +15,31 @@ erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
 
 ---
 
+## What is Erebos?
+
+Erebos is a research prototype for an anonymous network that combines
+onion routing, mixnet-style timing obfuscation, and post-quantum
+cryptography. It is **not** a Tor replacement and **not** a VPN. It is
+an experiment in what a 2026-era anonymity system could look like if
+it learned from the failure modes of Tor, Nym, and I2P.
+
+**Core ideas:**
+
+- **Hybrid post-quantum handshake** — X25519 + ML-KEM-1024, NIST Level 5
+- **Calibrated cover traffic** — parameters measured against real HTTP
+  bursts (v0.4.2), not guessed. See ```scripts/analyze_traffic.py```
+- **Bidirectional chaff** — reactive drop-cover mirrors downlink bursts,
+  ```FRAME_COVER_ACK``` adds symmetric downlink noise
+- **Bucket padding on all peer frames** — 256-byte buckets, every
+  direction
+- **Reproducible builds** — ```make verify``` builds the wheel twice and
+  compares content hashes
+- **Published threat model** — ```SECURITY.md``` lists defenses, known
+  limits, and what an external audit should check
+
+**Status:** Beta (v0.4.2), 700 tests green. Not production-ready.
+
+---
 ## Was macht Erebos anders?
 
 | Feature | Tor | I2P | Nym | Erebos |
