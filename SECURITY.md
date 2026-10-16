@@ -84,6 +84,26 @@ Nicht abgedeckt:
 - **Empfänger:** erkennt `FRAME_COVER`, verwirft Payload, antwortet nicht
 - **Modul:** `src/erebos_network/cover.py` (`TunnelCoverInjector`)
 
+### P5 — Cover-Kalibrierung aus echten Traffic-Daten (seit `v0.4.2`)
+
+- **Datenquelle:** 115 MB pcap, aufgenommen über `tcpdump` auf Port 9052
+  (Tor), 38744 Frames, 1138 Bursts, ~10 Minuten normales Surfen.
+- **Kalibrierte Defaults:**
+  - `min_size=64` (p10), `max_size=7008` (p90) — vorher 256/1024
+  - `burst_size=4` (Median), `burst_pause_seconds=0.108` (Median) —
+    vorher 3/2.0 (Pause war 18x zu lang)
+  - `inter_packet_ms=1` (neu) — vorher hartkodiert 20 ms
+  - `reactive_window_ms=276`, `reactive_max_match=86`,
+    `reactive_size_jitter=0.5`
+- **Werkzeuge:** `scripts/analyze_traffic.py` (pcap -> JSON),
+  `scripts/calibrate_cover.py` (JSON -> Vorschlag)
+- **Rationale (Nym-Lehre):** Cover, das die echte Burst-Form nicht
+  nachahmt, ist wirkungslos oder schaedlich. Die frueheren Defaults lagen
+  auf jeder Dimension 10x-80x daneben.
+- **Was noch fehlt:** Die Werte stammen aus einer einzigen Session.
+  Multiple Sessions zu verschiedenen Tageszeiten und Traffic-Profilen
+  waeren fuer statistische Stabilitaet noetig.
+
 ### P4b — FRAME_COVER_ACK (seit `v0.4.0`)
 
 - **Idee:** Nach jedem echten Downlink-Frame sendet der Peer optional
@@ -173,6 +193,10 @@ ist **nicht** geschützt.
 - **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
   SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
   die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
+- **Cover-Kalibrierung seit `v0.4.2`, aber Single-Session.** Die
+  aktuellen Defaults stammen aus einer 10-Minuten-Messung. Weitere
+  Sessions waeren noetig fuer statistische Stabilitaet ueber Traffic-
+  Profile und Tageszeiten.
 - **FRAME_COVER_ACK seit `v0.4.0`, aber opt-in und unkalibriert.** Der
   Peer sendet Downlink-Rauschen nur, wenn er mit `ack_cover=True`
   gestartet wird. Die Parameter (delay 0-50 ms, size 64-256) sind
@@ -292,3 +316,9 @@ Forschungsprojekt, kein kommerzielles Produkt.
 | `v0.3.5-hosting-monitor` | 2026-10-16 | Hosting-Konzentration in traffic-stats |
 | `v0.3.6-anonymity-threshold` | 2026-10-16 | small_set-Phase, quiet deaktiviert |
 | `v0.2.1-client-unpadding` (browser) | 2026-10-16 | Client entpaddet API-Antworten |
+| `v0.3.7-reactive-cover` | 2026-10-16 | Downlink-getriebener Cover-Burst |
+| `v0.3.8-downlink-padding` | 2026-10-16 | Bucket-Padding auf allen Peer-Frames |
+| `v0.3.9-typing-fix` | 2026-10-16 | Symmetrische Frame-Typisierung, Cover-Leak behoben |
+| `v0.4.0-cover-ack` | 2026-10-16 | FRAME_COVER_ACK auf Downlink |
+| `v0.4.1-ack-cover-cli` | 2026-10-16 | `--ack-cover` CLI-Flag |
+| `v0.4.2-cover-calibration` | 2026-10-16 | Cover-Defaults aus echten Traffic-Daten |
