@@ -44,7 +44,7 @@ MAX_FRAME = 65536
 #   1024 = Padding auf 1024-Byte-Grenzen (empfohlen)
 # Kann per Environment-Variable überschrieben werden:
 #   EREBOS_PADDING_BLOCK=1024 python -m erebos_network --proxy
-PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "0"))
+PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "256"))
 
 # Frame-Typen (erstes Byte im entschluesselten Frame einer Tunnel-Session)
 
@@ -394,8 +394,9 @@ async def _handle_exit(reader, writer, cipher, host, port):
             if not data:
                 break
             logger.debug(f"Ziel -> Peer: {len(data)}B")
+            padded = _apply_padding(data)
             nonce = os.urandom(12)
-            ct = cipher.encrypt(nonce, data, None)
+            ct = cipher.encrypt(nonce, padded, None)
             await _send_frame(writer, nonce + ct)
 
     try:
@@ -479,7 +480,8 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
                     if not data:
                         break
                     nonce = os.urandom(12)
-                    ct = cipher.encrypt(nonce, data, None)
+                    padded = _apply_padding(data)
+                    ct = cipher.encrypt(nonce, padded, None)
                     await _send_frame(writer, nonce + ct)
             except Exception:
                 pass
