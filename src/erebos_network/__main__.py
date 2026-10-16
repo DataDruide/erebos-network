@@ -100,6 +100,12 @@ def main() -> int:
         help="Port fuer den Peer-Server (default: 9999)",
     )
     parser.add_argument(
+        "--ack-cover",
+        action="store_true",
+        help="Peer-Server sendet FRAME_COVER_ACK nach echtem Downlink "
+             "(Default: aus)",
+    )
+    parser.add_argument(
         "--proxy",
         action="store_true",
         help="Startet den SOCKS5-Proxy auf 127.0.0.1:4447",
@@ -160,7 +166,10 @@ def main() -> int:
     if args.peer:
         from .tunnel import run_peer_server
         try:
-            asyncio.run(run_peer_server(port=args.peer_port))
+            asyncio.run(run_peer_server(
+                port=args.peer_port,
+                ack_cover=args.ack_cover,
+            ))
         except KeyboardInterrupt:
             print("\nPeer beendet.")
         return 0
