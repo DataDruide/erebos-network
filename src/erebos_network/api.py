@@ -229,6 +229,7 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
                 else {"running": False, "messages_sent": 0, "bytes_sent": 0}
             ),
             "mixnet": self._mixnet_config_dict(),
+            "hosting_concentration": self.discovery.as_distribution(),
         }
         self._send_json({"success": True, "traffic": stats})
 

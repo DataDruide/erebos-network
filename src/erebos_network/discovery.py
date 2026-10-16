@@ -148,12 +148,61 @@ class PeerDiscovery:
         """
         return self.routing_table.to_edges(use_addresses=use_addresses)
 
+    def as_distribution(self, top_n: int = 5) -> dict:
+        """Zaehlt Peers pro Subnetz als Proxy fuer Hosting-Konzentration.
+
+        Ein Hoster, der viele Erebos-Peers hostet, vergibt diese oft aus
+        wenigen zusammenhaengenden IP-Bloecken. Wenn viele Peers im selben
+        /24 (oder nahen /24) liegen, ist das ein Signal fuer Konzentration.
+
+        Bewusster Trade-off: echtes AS-Lookup wuerde eine externe DB
+        (MaxMind GeoLite2 ASN) und Netzwerkzugriff erfordern. Die /24-Metrik
+        ist eine lokale Proxy-Metrik — nicht perfekt, aber ehrlich.
+
+        Returns:
+            {
+              "peer_count": int,
+              "unique_subnets": int,
+              "top_subnets": [{"prefix": str, "count": int, "share": float}, ...],
+            }
+        """
+        from collections import Counter
+        from .eclipse_protection import extract_subnet
+
+        buckets: Counter = Counter()
+        unparseable = 0
+
+        for peer in self._known_peers.values():
+            prefix = extract_subnet(peer.address)
+            if prefix is None:
+                unparseable += 1
+                continue
+            buckets[prefix] += 1
+
+        total = sum(buckets.values())
+        top = buckets.most_common(top_n)
+
+        return {
+            "peer_count": total,
+            "unique_subnets": len(buckets),
+            "unparseable_addresses": unparseable,
+            "top_subnets": [
+                {
+                    "prefix": p,
+                    "count": c,
+                    "share": round(c / total, 3) if total else 0.0,
+                }
+                for p, c in top
+            ],
+        }
+
     def get_stats(self) -> dict:
         """Statistiken."""
         result = {
             **self.stats,
             "peer_count": self.peer_count,
             "dht": self.routing_table.get_stats(),
+            "as_distribution": self.as_distribution(),
         }
         if self.eclipse:
             result["eclipse"] = self.eclipse.get_stats()
