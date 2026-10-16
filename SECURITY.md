@@ -165,7 +165,11 @@ ist **nicht** geschützt.
   - `tests/test_traffic_integration.py` — API-Padding + Jitter
   - `tests/test_cover_injection.py` — `FRAME_COVER`-Mechanik
   - `tests/test_adaptive_cover.py` — Quiet/Boost-Phasen
-- **Reproduzierbare Builds:** nicht implementiert (offener Punkt)
+- **Reproduzierbare Builds:** implementiert seit `v0.3.4-reproducible-builds`.
+  `make verify` baut das Wheel zweimal und vergleicht die Inhalts-Hashes.
+  Einschränkung: `liboqs-python` lädt die liboqs-C-Bibliothek zur Laufzeit
+  nach — bei unterschiedlichen liboqs-Systemversionen kann das Wheel
+  abweichen. Reproduzierbarkeit ist für die Python-Ebene garantiert.
 
 ### Was ein externer Audit prüfen müsste
 
@@ -209,3 +213,5 @@ Forschungsprojekt, kein kommerzielles Produkt.
 | `v0.3.0-topic1-integration` | 2026-10-16 | API-Padding + Jitter, PQC-Endpoint |
 | `v0.3.1-topic1b-cover-injection` | 2026-10-16 | `FRAME_COVER` + Burst-Modus |
 | `v0.3.2-topic1c-adaptive-cover` | 2026-10-16 | Quiet/Boost-Phasen |
+| `v0.3.3-security-doc` | 2026-10-16 | SECURITY.md mit Bedrohungsmodell |
+| `v0.3.4-reproducible-builds` | 2026-10-16 | `make verify` + requirements.lock |
