@@ -28,12 +28,18 @@ class CoverConfig:
 
     enabled: bool = True
     rate_per_second: float = 0.5
-    min_size: int = 256
-    max_size: int = 1024
+    # Kalibriert aus echten HTTP-Burst-Daten (v0.4.2):
+    #   Frame-Groessen: p10=27B, p90=7008B, Median=2928B
+    #   Burst-Groessen: Median=4, p95=86
+    #   Burst-Pausen: Median=108ms
+    #   Intra-Burst: Median=0.24ms (wir runden auf 1ms fuer asyncio)
+    min_size: int = 64         # p10 (auf 64 gerundet)
+    max_size: int = 7008       # p90
     constant: bool = False
     mode: str = "poisson"
-    burst_size: int = 5
-    burst_pause_seconds: float = 2.0
+    burst_size: int = 4        # Median frames/burst
+    burst_pause_seconds: float = 0.108  # Median inter-burst pause
+    inter_packet_ms: int = 1   # Intra-Burst-Intervall (Median=0.24ms, gerundet)
 
     # Adaptive Steuerung (P1.2)
     adaptive: bool = False
@@ -53,9 +59,9 @@ class CoverConfig:
     # Ziel: Downlink-Uplink-Asymmetrie verwischen, damit ein Beobachter,
     # der beide Seiten sieht, nicht "Stille = Client" ableiten kann.
     reactive: bool = False
-    reactive_window_ms: int = 100     # Sliding Window fuer Downlink-Events
-    reactive_max_match: int = 10      # max Cover-Frames pro Downlink-Burst
-    reactive_size_jitter: float = 0.3 # +/-30% Groessenabweichung erlaubt
+    reactive_window_ms: int = 276     # 2x mittlere Burst-Dauer (138ms)
+    reactive_max_match: int = 86      # p95 frames/burst
+    reactive_size_jitter: float = 0.5 # aus p90/Median-Verhaeltnis
 
 
 def generate_cover_message(
@@ -329,7 +335,7 @@ class TunnelCoverInjector:
                 logger.debug(f"Reactive cover send error: {e}")
                 return
             # 5ms zwischen Reactive-Frames — schneller als Basis-Burst
-            await asyncio.sleep(0.005)
+            await asyncio.sleep(self.config.inter_packet_ms / 1000.0)
 
         # Window leeren, damit der naechste Burst nicht doppelt reagiert
         self._downlink_events.clear()
@@ -366,7 +372,7 @@ class TunnelCoverInjector:
                             self.stats["errors"] += 1
                             logger.debug(f"Cover send error: {e}")
                             return
-                        await asyncio.sleep(0.02)
+                        await asyncio.sleep(self.config.inter_packet_ms / 1000.0)
                     # Pause skaliert invers zur Rate
                     base_pause = self.config.burst_pause_seconds
                     if rate > 0:
