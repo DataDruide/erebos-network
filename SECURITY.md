@@ -84,6 +84,19 @@ Nicht abgedeckt:
 - **Empfänger:** erkennt `FRAME_COVER`, verwirft Payload, antwortet nicht
 - **Modul:** `src/erebos_network/cover.py` (`TunnelCoverInjector`)
 
+### P4a — Downlink-Bucket-Padding (seit `v0.3.8`)
+
+- **Idee:** Jeder Frame im Peer-Transport (Handshake, Uplink, Downlink)
+  wird auf 256-Byte-Buckets genormt.
+- **Format:** `[2B padding_len (BE)][original data][random padding]`
+- **Default:** Padding ist **an** (Blockgroesse 256). Deaktivierbar per
+  `EREBOS_PADDING_BLOCK=0` in der Umgebung.
+- **Wirkung:** Ein Beobachter sieht keine Frame-Groessen-Varianz mehr.
+  Die Groessen-Seite des Shape-Signals ist eliminiert.
+- **Was nicht passiert:** Kein zusaetzlicher Timing-Jitter, kein Cover.
+  Die Anzahl und der Zeitpunkt der Frames bleiben sichtbar.
+- **Modul:** `src/erebos_network/tunnel.py` (`_apply_padding`/`_strip_padding`)
+
 ### P1.3 — Reactive Drop-Cover (seit `v0.3.7`)
 
 - **Idee:** Zusaetzlich zum regulaeren Cover sendet der Injector einen
