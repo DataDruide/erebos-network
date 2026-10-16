@@ -8,6 +8,7 @@ Beantwortet Anfragen vom Browser:
 """
 
 import json
+import time
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -18,6 +19,11 @@ from .reputation import ReputationSystem
 from .governance import Governance
 from .router import ErebosRouter
 from .sectors import SectorType
+from .padding import pad_message
+from .delay import DelayConfig
+from .cover import ConstantCoverTraffic, CoverConfig
+from .mixnet import get_mixnet_config
+from .crypto.hybrid_kem import HybridKEM
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +38,43 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
     reputation = ReputationSystem()
     governance = Governance()
 
+    # Traffic-Härtung (Thema 1)
+    _cover_traffic = None
+    _hybrid_kem_sizes = None
+
+    # Traffic-Härtung (Thema 1)
+    _padding_block = 256
+    _delay_cfg = DelayConfig(min_ms=0, max_ms=30, distribution="uniform")
+
     def _send_json(self, data: dict, status: int = 200) -> None:
-        """Sendet JSON-Antwort."""
+        """Sendet JSON-Antwort mit Bucket-Padding + Timing-Jitter.
+
+        Padding erfolgt als trailing whitespace INNERHALB des JSON-Strings —
+        JSON-Parser ignorieren das, aber die Paketgroesse ist trotzdem
+        auf Bucket-Grenzen normalisiert. So bleibt der Body valide UTF-8.
+        """
+        body = json.dumps(data).encode()
+        original_size = len(body)
+
+        # Naechste Bucket-Grenze
+        block = self._padding_block
+        target_size = ((original_size // block) + 1) * block
+        padding_len = target_size - original_size
+
+        # Whitespace-Padding (JSON-kompatibel)
+        padded = body + (b" " * padding_len)
+
+        # Timing-Jitter (max 30 ms — UI-tauglich)
+        time.sleep(self._delay_cfg.sample())
+
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("X-Erebos-Original-Size", str(original_size))
+        self.send_header("X-Erebos-Padded-Size", str(target_size))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        self.wfile.write(padded)
 
     def do_OPTIONS(self) -> None:
         """CORS-Preflight."""
@@ -67,6 +102,10 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             self._handle_community_members()
         elif path == "/api/community/governance":
             self._handle_community_governance()
+        elif path == "/api/network/traffic-stats":
+            self._handle_traffic_stats()
+        elif path == "/api/network/pqc-status":
+            self._handle_pqc_status()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -172,6 +211,58 @@ class ErebosAPIHandler(BaseHTTPRequestHandler):
             "proposals": proposals,
         })
 
+    def _handle_traffic_stats(self) -> None:
+        """Aggregierte Traffic-Haertungs-Statistiken."""
+        stats = {
+            "padding": {
+                "block_size": self._padding_block,
+                "active": True,
+            },
+            "delay": {
+                "min_ms": self._delay_cfg.min_ms,
+                "max_ms": self._delay_cfg.max_ms,
+                "distribution": self._delay_cfg.distribution,
+            },
+            "cover": (
+                self._cover_traffic.get_stats()
+                if self._cover_traffic is not None
+                else {"running": False, "messages_sent": 0, "bytes_sent": 0}
+            ),
+            "mixnet": self._mixnet_config_dict(),
+        }
+        self._send_json({"success": True, "traffic": stats})
+
+    @staticmethod
+    def _mixnet_config_dict() -> dict:
+        """MixnetConfig als JSON-serialisierbares Dict."""
+        cfg = get_mixnet_config("standard")
+        out = {}
+        for key, val in vars(cfg).items():
+            if isinstance(val, (str, int, float, bool, type(None))):
+                out[key] = val
+            elif isinstance(val, (list, tuple)):
+                out[key] = [
+                    v if isinstance(v, (str, int, float, bool, type(None)))
+                    else repr(v)
+                    for v in val
+                ]
+            elif hasattr(val, "__dict__"):
+                # verschachtelte Dataclass (z.B. DelayConfig)
+                out[key] = {
+                    k: v for k, v in vars(val).items()
+                    if isinstance(v, (str, int, float, bool, type(None)))
+                }
+            else:
+                out[key] = repr(val)
+        return out
+
+    def _handle_pqc_status(self) -> None:
+        """Aktive Hybrid-PQC-Konfiguration."""
+        self._send_json({
+            "success": True,
+            "pqc": HybridKEM.sizes(),
+        })
+
     def log_message(self, format, *args) -> None:
         """Unterdrückt Standard-Logging."""
         logger.debug(format, *args)
@@ -186,7 +277,29 @@ def run_server(host: str = "127.0.0.1", port: int = 9050) -> None:
     """
     server = HTTPServer((host, port), ErebosAPIHandler)
     logger.info(f"Erebos API Server gestartet auf http://{host}:{port}")
-    logger.info("Endpoints: /status, /route, /resolve, /stats, /api/community/members, /api/community/governance")
+    logger.info("Endpoints: /status, /route, /resolve, /stats, /api/community/members, /api/community/governance, /api/network/traffic-stats, /api/network/pqc-status")
+
+    # Cover-Traffic in Daemon-Thread starten (async-Loop)
+    import threading
+    import asyncio
+
+    cover = ConstantCoverTraffic(CoverConfig())
+    ErebosAPIHandler._cover_traffic = cover
+
+    def _cover_runner():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(cover.start())
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            loop.close()
+
+    cover_thread = threading.Thread(target=_cover_runner, daemon=True, name="erebos-cover")
+    cover_thread.start()
+    logger.info("Cover-Traffic-Thread gestartet")
 
     try:
         server.serve_forever()
