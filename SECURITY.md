@@ -84,6 +84,18 @@ Nicht abgedeckt:
 - **Empfänger:** erkennt `FRAME_COVER`, verwirft Payload, antwortet nicht
 - **Modul:** `src/erebos_network/cover.py` (`TunnelCoverInjector`)
 
+### P4b — FRAME_COVER_ACK (seit `v0.4.0`)
+
+- **Idee:** Nach jedem echten Downlink-Frame sendet der Peer optional
+  einen `FRAME_COVER_ACK` mit zufaelliger Verzoegerung (0-50 ms) und
+  Groesse (64-256 Byte). Der Client filtert ihn in `receive()`.
+- **Wirkung:** Beide Richtungen tragen jetzt Rauschen. Die Form-Korrelation
+  zwischen Uplink und Downlink ist nicht mehr 1:1.
+- **Default:** Aus (`ack_cover=False`). Aktivierung per `run_peer_server(
+  ack_cover=True)` oder CLI-Flag (folgt).
+- **Was nicht passiert:** Kein symmetrisches Volumen — der Client sendet
+  nicht die gleiche Menge zurueck. Nur die Form wird verwischt.
+
 ### P4a — Downlink-Bucket-Padding (seit `v0.3.8`)
 
 - **Idee:** Jeder Frame im Peer-Transport (Handshake, Uplink, Downlink)
@@ -161,6 +173,10 @@ ist **nicht** geschützt.
 - **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
   SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
   die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
+- **FRAME_COVER_ACK seit `v0.4.0`, aber opt-in und unkalibriert.** Der
+  Peer sendet Downlink-Rauschen nur, wenn er mit `ack_cover=True`
+  gestartet wird. Die Parameter (delay 0-50 ms, size 64-256) sind
+  plausible Defaults, nicht aus Messdaten abgeleitet.
 - **Downlink-Padding seit `v0.3.8` — nur Groessen.** Alle Peer-Frames
   sind auf 256-Byte-Buckets genormt. Anzahl und Timing der Frames
   bleiben sichtbar. Fuer echte Shape-Glaettung braucht es `FRAME_COVER_ACK`
