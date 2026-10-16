@@ -423,7 +423,16 @@ class ErebosSocks5Server:
             # im Burst-Modus, um Timing-Fingerprinting zu verwischen.
             cover = TunnelCoverInjector(
                 tunnel,
-                CoverConfig(mode="burst", burst_size=3, burst_pause_seconds=2.0),
+                CoverConfig(
+                    mode="burst",
+                    burst_size=3,
+                    burst_pause_seconds=2.0,
+                    adaptive=True,
+                    quiet_seconds_after_real=3.0,
+                    quiet_rate_factor=0.2,
+                    boost_when_idle_seconds=10.0,
+                    boost_factor=2.0,
+                ),
             )
             await cover.start()
 
@@ -446,6 +455,9 @@ class ErebosSocks5Server:
                         if delay > 0:
                             await asyncio.sleep(delay)
                     await tunnel.send(data)
+                    # Adaptiver Cover-Traffic: echten Traffic melden
+                    if cover is not None:
+                        cover.notify_real_traffic()
 
             await asyncio.gather(
                 tunnel_to_client(), client_to_tunnel(), return_exceptions=True

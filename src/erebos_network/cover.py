@@ -35,6 +35,16 @@ class CoverConfig:
     burst_size: int = 5
     burst_pause_seconds: float = 2.0
 
+    # Adaptive Steuerung (P1.2)
+    adaptive: bool = False
+    # Nach echtem Traffic: drosseln statt pausieren (Beobachter darf
+    # keinen "Traffic = Stille"-Zusammenhang erkennen)
+    quiet_seconds_after_real: float = 3.0
+    quiet_rate_factor: float = 0.2  # 20% der Basisrate während Quiet-Phase
+    # Nach langer Idle-Phase: leicht beschleunigen
+    boost_when_idle_seconds: float = 10.0
+    boost_factor: float = 2.0  # max. 2.0 — höher wäre selbst ein Fingerprint
+
 
 def generate_cover_message(
     min_size: int = 256,
@@ -164,11 +174,14 @@ class TunnelCoverInjector:
         self.config = config or CoverConfig()
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._last_real_traffic_at = 0.0
         self.stats = {
             "frames_sent": 0,
             "bytes_sent": 0,
             "errors": 0,
             "started_at": 0.0,
+            "quiet_phases": 0,
+            "boost_phases": 0,
         }
 
     async def start(self) -> None:
@@ -203,12 +216,46 @@ class TunnelCoverInjector:
         self.stats["frames_sent"] += 1
         self.stats["bytes_sent"] += len(msg)
 
+    def _effective_rate(self) -> tuple[float, str]:
+        """Berechnet die aktuelle Rate je nach adaptivem Zustand.
+
+        Returns:
+            (rate, phase) — phase ist "normal", "quiet" oder "boost"
+        """
+        if not self.config.adaptive:
+            return self.config.rate_per_second, "normal"
+
+        now = time.time()
+        if self._last_real_traffic_at == 0.0:
+            # Noch nie echter Traffic — normales Verhalten
+            return self.config.rate_per_second, "normal"
+
+        since_real = now - self._last_real_traffic_at
+
+        if since_real < self.config.quiet_seconds_after_real:
+            # Echter Traffic lief kuerzlich — drosseln, nicht stoppen
+            return (
+                self.config.rate_per_second * self.config.quiet_rate_factor,
+                "quiet",
+            )
+        if since_real > self.config.boost_when_idle_seconds:
+            # Lange idle — beschleunigen (max. boost_factor)
+            factor = min(self.config.boost_factor, 2.0)
+            return self.config.rate_per_second * factor, "boost"
+        return self.config.rate_per_second, "normal"
+
     async def _run_loop(self) -> None:
         mode = self.config.mode
         try:
             while self._running:
+                rate, phase = self._effective_rate()
+
+                if phase == "quiet" and self.config.adaptive:
+                    self.stats["quiet_phases"] += 1
+                elif phase == "boost" and self.config.adaptive:
+                    self.stats["boost_phases"] += 1
+
                 if mode == "burst":
-                    # Burst: N Frames schnell, dann Pause
                     for _ in range(self.config.burst_size):
                         if not self._running:
                             return
@@ -218,10 +265,18 @@ class TunnelCoverInjector:
                             self.stats["errors"] += 1
                             logger.debug(f"Cover send error: {e}")
                             return
-                        await asyncio.sleep(0.02)  # 20ms zwischen Burst-Frames
-                    await asyncio.sleep(self.config.burst_pause_seconds)
+                        await asyncio.sleep(0.02)
+                    # Pause skaliert invers zur Rate
+                    base_pause = self.config.burst_pause_seconds
+                    if rate > 0:
+                        pause = base_pause * (
+                            self.config.rate_per_second / rate
+                        )
+                    else:
+                        pause = base_pause
+                    await asyncio.sleep(pause)
                 elif mode == "constant":
-                    interval = 1.0 / max(self.config.rate_per_second, 0.001)
+                    interval = 1.0 / max(rate, 0.001)
                     await asyncio.sleep(interval)
                     try:
                         await self._send_one()
@@ -230,9 +285,7 @@ class TunnelCoverInjector:
                         logger.debug(f"Cover send error: {e}")
                         return
                 else:  # poisson
-                    delay = random.expovariate(
-                        max(self.config.rate_per_second, 0.001)
-                    )
+                    delay = random.expovariate(max(rate, 0.001))
                     await asyncio.sleep(delay)
                     try:
                         await self._send_one()
@@ -253,12 +306,27 @@ class TunnelCoverInjector:
             return 0.0
         return time.time() - self.stats["started_at"]
 
+    def notify_real_traffic(self) -> None:
+        """Signalisiert echten Traffic — Injector drosselt temporaer.
+
+        Wird vom Proxy nach jedem echten tunnel.send() aufgerufen.
+        Im adaptiven Modus fuehrt das zu einer reduzierten Cover-Rate
+        (nicht zu Null — sonst waere "Stille" selbst ein Fingerprint).
+        """
+        self._last_real_traffic_at = time.time()
+
     def get_stats(self) -> dict:
         return {
             **self.stats,
             "running": self._running,
             "mode": self.config.mode,
+            "adaptive": self.config.adaptive,
             "uptime_seconds": round(self.uptime_seconds, 2),
             "rate_per_second": self.config.rate_per_second,
+            "seconds_since_real_traffic": (
+                round(time.time() - self._last_real_traffic_at, 2)
+                if self._last_real_traffic_at > 0
+                else None
+            ),
         }
 
