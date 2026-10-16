@@ -125,9 +125,9 @@ ist **nicht** geschützt.
 
 ### API
 
-- **Client entpaddet nicht.** Die Browser-UI ignoriert die
-  `X-Erebos-Original-Size`-Header. JSON parst trotzdem korrekt, weil
-  Whitespace toleriert wird — aber sauber ist das nicht.
+- **Client entpaddet seit `v0.2.1`.** Die Browser-UI liest den
+  `X-Erebos-Original-Size`-Header und schneidet den Body vor `JSON.parse`.
+  Fallback auf vollen Text, falls der Header fehlt (aeltere Daemon-Version).
 - **API-Endpoints haben kein Rate-Limiting.** Ein lokaler Angreifer kann
   den Daemon mit Anfragen fluten.
 
@@ -215,3 +215,4 @@ Forschungsprojekt, kein kommerzielles Produkt.
 | `v0.3.2-topic1c-adaptive-cover` | 2026-10-16 | Quiet/Boost-Phasen |
 | `v0.3.3-security-doc` | 2026-10-16 | SECURITY.md mit Bedrohungsmodell |
 | `v0.3.4-reproducible-builds` | 2026-10-16 | `make verify` + requirements.lock |
+| `v0.2.1-client-unpadding` (browser) | 2026-10-16 | Client entpaddet API-Antworten |
