@@ -440,6 +440,10 @@ class ErebosSocks5Server:
                     boost_when_idle_seconds=10.0,
                     boost_factor=2.0,
                     anonymity_threshold=10,
+                    reactive=True,
+                    reactive_window_ms=100,
+                    reactive_max_match=10,
+                    reactive_size_jitter=0.3,
                 ),
                 anonymity_provider=self._anonymity_provider,
             )
@@ -452,6 +456,9 @@ class ErebosSocks5Server:
                         break
                     writer.write(data)
                     await writer.drain()
+                    # Reactive Drop-Cover: Downlink-Burst melden
+                    if cover is not None:
+                        cover.notify_downlink(len(data))
 
             async def client_to_tunnel():
                 while True:

@@ -48,6 +48,15 @@ class CoverConfig:
     # (Quiet-Phase waere selbst ein Signal — siehe Zcash-Erfahrung)
     anonymity_threshold: int = 10
 
+    # Reactive Drop-Cover (P1.3 / Nym-Lehre):
+    # Zusaetzlicher Cover-Burst als Reaktion auf Downlink-Traffic.
+    # Ziel: Downlink-Uplink-Asymmetrie verwischen, damit ein Beobachter,
+    # der beide Seiten sieht, nicht "Stille = Client" ableiten kann.
+    reactive: bool = False
+    reactive_window_ms: int = 100     # Sliding Window fuer Downlink-Events
+    reactive_max_match: int = 10      # max Cover-Frames pro Downlink-Burst
+    reactive_size_jitter: float = 0.3 # +/-30% Groessenabweichung erlaubt
+
 
 def generate_cover_message(
     min_size: int = 256,
@@ -192,6 +201,9 @@ class TunnelCoverInjector:
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_real_traffic_at = 0.0
+        # Downlink-Events fuer reactive Drop-Cover: deque[(timestamp, size)]
+        from collections import deque
+        self._downlink_events = deque(maxlen=256)
         self.stats = {
             "frames_sent": 0,
             "bytes_sent": 0,
@@ -200,6 +212,8 @@ class TunnelCoverInjector:
             "quiet_phases": 0,
             "boost_phases": 0,
             "small_set_phases": 0,
+            "reactive_frames": 0,
+            "reactive_bursts": 0,
         }
 
     async def start(self) -> None:
@@ -284,10 +298,55 @@ class TunnelCoverInjector:
             return self.config.rate_per_second * factor, "boost"
         return self.config.rate_per_second, "normal"
 
+    async def _send_reactive_burst(self) -> None:
+        """Sendet Cover-Frames in Antwort auf einen Downlink-Burst.
+
+        Anzahl und Groesse spiegeln den beobachteten Downlink, begrenzt
+        durch reactive_max_match. Groesse mit +/-reactive_size_jitter
+        Abweichung, damit kein 1:1-Muster entsteht.
+        """
+        count, avg_size = self._downlink_burst_stats()
+        if count == 0:
+            return
+
+        n = min(count, self.config.reactive_max_match)
+        jitter = max(0.0, min(1.0, self.config.reactive_size_jitter))
+
+        for _ in range(n):
+            # Groesse um avg_size mit Jitter
+            lo = max(1, int(avg_size * (1.0 - jitter)))
+            hi = max(lo, int(avg_size * (1.0 + jitter)))
+            size = random.randint(lo, hi)
+            msg = secrets.token_bytes(size)
+            try:
+                from .tunnel import FRAME_COVER
+                await self.tunnel.send_typed(FRAME_COVER, msg)
+                self.stats["frames_sent"] += 1
+                self.stats["bytes_sent"] += size
+                self.stats["reactive_frames"] += 1
+            except Exception as e:
+                self.stats["errors"] += 1
+                logger.debug(f"Reactive cover send error: {e}")
+                return
+            # 5ms zwischen Reactive-Frames — schneller als Basis-Burst
+            await asyncio.sleep(0.005)
+
+        # Window leeren, damit der naechste Burst nicht doppelt reagiert
+        self._downlink_events.clear()
+        self.stats["reactive_bursts"] += 1
+
     async def _run_loop(self) -> None:
         mode = self.config.mode
         try:
             while self._running:
+                # Reactive Drop-Cover: hat Vorrang vor dem normalen Loop.
+                # Wenn Downlink-Burst vorliegt, senden wir die Antwort und
+                # fahren dann mit dem normalen Rhythmus fort.
+                if self.config.reactive and self._running:
+                    cnt, _ = self._downlink_burst_stats()
+                    if cnt > 0:
+                        await self._send_reactive_burst()
+
                 rate, phase = self._effective_rate()
 
                 if phase == "quiet" and self.config.adaptive:
@@ -356,6 +415,36 @@ class TunnelCoverInjector:
         (nicht zu Null — sonst waere "Stille" selbst ein Fingerprint).
         """
         self._last_real_traffic_at = time.time()
+
+    def notify_downlink(self, size: int) -> None:
+        """Signalisiert eingehenden Downlink-Traffic.
+
+        Wird vom tunnel_to_client-Loop des Proxys nach jedem
+        tunnel.receive() aufgerufen. Im reactive-Modus loest das
+        einen Cover-Burst aus, der die Downlink-Form spiegelt.
+        """
+        self._downlink_events.append((time.time(), max(0, int(size))))
+
+    def _trim_downlink_window(self, now: float) -> None:
+        """Entfernt Events ausserhalb des Sliding Windows."""
+        window_s = self.config.reactive_window_ms / 1000.0
+        cutoff = now - window_s
+        while self._downlink_events and self._downlink_events[0][0] < cutoff:
+            self._downlink_events.popleft()
+
+    def _downlink_burst_stats(self) -> tuple[int, int]:
+        """Gibt (count, avg_size) der Downlink-Events im aktuellen Window.
+
+        Leert dabei das Window NICHT — der Aufrufer entscheidet, ob er
+        cleart. Fuer den Reactive-Burst nutzen wir den Snapshot und
+        leeren danach.
+        """
+        self._trim_downlink_window(time.time())
+        events = list(self._downlink_events)
+        if not events:
+            return 0, 0
+        total_size = sum(s for _, s in events)
+        return len(events), total_size // len(events)
 
     def get_stats(self) -> dict:
         return {
