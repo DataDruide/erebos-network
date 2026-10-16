@@ -138,9 +138,40 @@ ist **nicht** geschützt.
   Peer-Verbindungen von selbst. Der 3-Hop-Onion-Pfad wird nur vom
   SOCKS5-Proxy aufgebaut, wenn der Browser Traffic sendet. Im Idle-Zustand
   gibt es **keinen** Cover-Traffic zwischen Peers.
-- **Hoster-Konzentrations-Monitoring fehlt.** Wenn viele Peers bei
-  einem Anbieter liegen, ist der Anonymitäts-Gewinn reduziert. Wir messen
-  das aktuell nicht.
+- **Cover-Traffic ist unidirektional (Uplink).** Der Empfänger antwortet
+  nicht mit eigenem Cover. Seit `v0.3.7` reagiert der Client auf Downlink
+  (Reactive Drop-Cover), aber die Peer-Seite sendet keinen symmetrischen
+  Gegentakt. Ein Beobachter, der die Downlink-Form exakt kennt, kann die
+  Nachbildung durch Jitter unterscheiden.
+- **Burst-Parameter sind nicht empirisch kalibriert.** Die Reactive- und
+  Basis-Burst-Parameter (`3×20 ms/2 s` bzw. `reactive_window_ms=100`,
+  `reactive_max_match=10`, `reactive_size_jitter=0.3`) sind plausible
+  Defaults, aber nicht aus echten Traffic-Daten abgeleitet. Die
+  Nym-Forschung zeigt: Cover-Traffic wirkt gegen Website-Fingerprinting
+  nur, wenn die Burst-Struktur echter Web-Requests nahekommt.
+- **Kein aktives Netzwerk-Peering im Daemon.** Der Daemon öffnet keine
+  Peer-Verbindungen von selbst. Der 3-Hop-Onion-Pfad wird nur vom
+  SOCKS5-Proxy aufgebaut, wenn der Browser Traffic sendet. Im Idle-Zustand
+  gibt es **keinen** Cover-Traffic zwischen Peers.
+- **Hosting-Konzentrations-Monitoring seit `v0.3.5`.** `PeerDiscovery.
+  as_distribution()` zählt Peers pro /24-Subnetz als Proxy. Sichtbar in
+  `/api/network/traffic-stats` als `hosting_concentration`. Bewusster
+  Trade-off: /24 ist eine lokale Proxy-Metrik, kein echtes AS-Lookup.
+  **Sichtbarkeit, kein Schutz.**
+- **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
+  SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
+  die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
+- **Downlink-Padding seit `v0.3.8` — nur Groessen.** Alle Peer-Frames
+  sind auf 256-Byte-Buckets genormt. Anzahl und Timing der Frames
+  bleiben sichtbar. Fuer echte Shape-Glaettung braucht es `FRAME_COVER_ACK`
+  (Stufe 4b, in Arbeit).
+- **Bugfix `v0.3.9`: Cover-Traffic-Leak behoben.** Bis `v0.3.8` schrieb
+  `peer_to_target` **jeden** entschluesselten Frame ans Ziel — inklusive
+  der `FRAME_COVER`-Frames des Injectors. Bei aktivem Cover haette das
+  Ziel `[0x04][Dummy-Bytes]` als Daten empfangen. Mit `v0.3.9` wird der
+  Frame-Typ auf allen vier Peer-Pfaden ausgewertet.
+- **Reactive Drop-Cover seit `v0.3.7`, unkalibriert.** Der Client spiegelt
+  Downlink-Bursts im Uplink, aber Timing und Groesse sind feste Defaults.
 
 ### Kryptographie
 
@@ -242,4 +273,6 @@ Forschungsprojekt, kein kommerzielles Produkt.
 | `v0.3.2-topic1c-adaptive-cover` | 2026-10-16 | Quiet/Boost-Phasen |
 | `v0.3.3-security-doc` | 2026-10-16 | SECURITY.md mit Bedrohungsmodell |
 | `v0.3.4-reproducible-builds` | 2026-10-16 | `make verify` + requirements.lock |
+| `v0.3.5-hosting-monitor` | 2026-10-16 | Hosting-Konzentration in traffic-stats |
+| `v0.3.6-anonymity-threshold` | 2026-10-16 | small_set-Phase, quiet deaktiviert |
 | `v0.2.1-client-unpadding` (browser) | 2026-10-16 | Client entpaddet API-Antworten |
