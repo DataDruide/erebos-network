@@ -52,6 +52,7 @@ PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "0"))
 FRAME_RELAY = 0x01  # payload = onion-layer, bitte weiterleiten
 FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
 FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
+FRAME_COVER = 0x04  # payload = Cover-Traffic (verwerfen)
 
 # Handshake-Versionen (erstes Byte im Handshake-Frame)
 HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF
@@ -607,6 +608,10 @@ async def run_peer_server(port: int = PEER_PORT):
             frame_type = first[0]
             payload = first[1:]
 
+            if frame_type == FRAME_COVER:
+                # Cover-Traffic: verwerfen, kein Log (sonst Log-Flooding)
+                logger.debug(f"Cover-Frame empfangen: {len(payload)}B (verworfen)")
+                return
             if frame_type == FRAME_RELAY:
                 logger.info("Relay-Modus aktiv (kein Ziel sichtbar)")
                 await _handle_relay(reader, writer, cipher, peer_name, payload)

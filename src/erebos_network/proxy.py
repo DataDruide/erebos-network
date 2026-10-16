@@ -11,7 +11,8 @@ from typing import Optional
 
 from .router import ErebosRouter, RouteType
 from .sectors import SectorType
-from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY
+from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY, FRAME_COVER
+from .cover import CoverConfig, TunnelCoverInjector
 from .onion import seal_for
 from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
 from .topology_utils import select_three_hops
@@ -306,6 +307,7 @@ class ErebosSocks5Server:
     async def _handle_client(self, reader, writer):
         self._connections += 1
         conn_id = self._connections
+        cover = None
         try:
             version = await reader.readexactly(1)
             if version[0] != SOCKS5_VERSION:
@@ -417,6 +419,14 @@ class ErebosSocks5Server:
             await self._send_reply(writer, SOCKS5_REP_SUCCESS)
             logger.info(f"[{conn_id}] Tunnel steht, leite Traffic weiter")
 
+            # Cover-Traffic-Injector (P1.1b): sendet FRAME_COVER-Frames
+            # im Burst-Modus, um Timing-Fingerprinting zu verwischen.
+            cover = TunnelCoverInjector(
+                tunnel,
+                CoverConfig(mode="burst", burst_size=3, burst_pause_seconds=2.0),
+            )
+            await cover.start()
+
             async def tunnel_to_client():
                 while True:
                     data = await tunnel.receive()
@@ -440,12 +450,19 @@ class ErebosSocks5Server:
             await asyncio.gather(
                 tunnel_to_client(), client_to_tunnel(), return_exceptions=True
             )
+            if cover is not None:
+                await cover.stop()
             await tunnel.close()
         except asyncio.IncompleteReadError:
             pass
         except Exception as e:
             logger.error(f"[{conn_id}] Fehler: {e}")
         finally:
+            if cover is not None:
+                try:
+                    await cover.stop()
+                except Exception:
+                    pass
             try:
                 writer.close()
                 await writer.wait_closed()
