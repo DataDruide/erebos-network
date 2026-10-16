@@ -12,6 +12,8 @@ Frame-Typen:
 import asyncio
 import logging
 import os
+import random
+import secrets
 import struct
 from pathlib import Path
 
@@ -395,7 +397,27 @@ class ErebosTunnelClient:
                 pass
 
 
-async def _handle_exit(reader, writer, cipher, host, port):
+async def _send_cover_ack(writer, cipher, size_min: int, size_max: int) -> None:
+    """Sendet einen FRAME_COVER_ACK-Frame an den Client.
+
+    Wird optional nach echten Downlink-Frames gesendet, um die
+    Uplink-Downlink-Asymmetrie zu verwischen. Der Client filtert
+    FRAME_COVER_ACK in receive() automatisch heraus.
+    """
+    size = random.randint(size_min, size_max)
+    ack_payload = secrets.token_bytes(size)
+    typed = bytes([FRAME_COVER_ACK]) + ack_payload
+    padded = _apply_padding(typed)
+    nonce = os.urandom(12)
+    ct = cipher.encrypt(nonce, padded, None)
+    await _send_frame(writer, nonce + ct)
+
+
+async def _handle_exit(reader, writer, cipher, host, port,
+                       ack_cover: bool = False,
+                       ack_delay_max_ms: int = 50,
+                       ack_size_min: int = 64,
+                       ack_size_max: int = 256):
     """Exit-Modus: Ziel oeffnen und Klartext-Strom durchleiten.
 
     Wird von Peer-2 aufgerufen. `host:port` kommt hier NICHT mehr aus
@@ -437,6 +459,14 @@ async def _handle_exit(reader, writer, cipher, host, port):
             ct = cipher.encrypt(nonce, padded, None)
             await _send_frame(writer, nonce + ct)
 
+            # Optional: Cover-ACK nach echtem Downlink-Frame
+            if ack_cover:
+                await asyncio.sleep(random.uniform(0, ack_delay_max_ms / 1000.0))
+                try:
+                    await _send_cover_ack(writer, cipher, ack_size_min, ack_size_max)
+                except Exception as e:
+                    logger.debug(f"Cover-ACK send error: {e}")
+
     try:
         await asyncio.gather(
             peer_to_target(), target_to_peer(), return_exceptions=True
@@ -449,7 +479,11 @@ async def _handle_exit(reader, writer, cipher, host, port):
             pass
 
 
-async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: bytes):
+async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: bytes,
+                        ack_cover: bool = False,
+                        ack_delay_max_ms: int = 50,
+                        ack_size_min: int = 64,
+                        ack_size_max: int = 256):
     """Relay-Modus: entschluesselt die eingehende Onion-Layer, liest
     naechsten Hop aus dem Relay-Header und baut einen verschluesselten
     Transport-Tunnel dorthin.
@@ -531,6 +565,14 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
                     padded = _apply_padding(typed)
                     ct = cipher.encrypt(nonce, padded, None)
                     await _send_frame(writer, nonce + ct)
+
+                    # Optional: Cover-ACK nach echtem Downlink
+                    if ack_cover:
+                        await asyncio.sleep(random.uniform(0, ack_delay_max_ms / 1000.0))
+                        try:
+                            await _send_cover_ack(writer, cipher, ack_size_min, ack_size_max)
+                        except Exception as e:
+                            logger.debug(f"Relay Cover-ACK send error: {e}")
             except Exception:
                 pass
 
@@ -544,7 +586,11 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
             pass
 
 
-async def run_peer_server(port: int = PEER_PORT):
+async def run_peer_server(port: int = PEER_PORT,
+                          ack_cover: bool = False,
+                          ack_delay_max_ms: int = 50,
+                          ack_size_min: int = 64,
+                          ack_size_max: int = 256):
     """Startet den Peer-Server, der Tunnel-Verbindungen annimmt."""
 
     peer_name = PORT_TO_PEER_NAME.get(port)
@@ -664,7 +710,11 @@ async def run_peer_server(port: int = PEER_PORT):
                 return
             if frame_type == FRAME_RELAY:
                 logger.info("Relay-Modus aktiv (kein Ziel sichtbar)")
-                await _handle_relay(reader, writer, cipher, peer_name, payload)
+                await _handle_relay(reader, writer, cipher, peer_name, payload,
+                                    ack_cover=ack_cover,
+                                    ack_delay_max_ms=ack_delay_max_ms,
+                                    ack_size_min=ack_size_min,
+                                    ack_size_max=ack_size_max)
             elif frame_type == FRAME_OPEN:
                 # payload ist die gesealte l3, adressiert an DIESEN Peer.
                 # Der Klartext ist direkt "host:port" (kein Frame-Marker
@@ -682,7 +732,11 @@ async def run_peer_server(port: int = PEER_PORT):
                 host, port = target.rsplit(":", 1)
                 port = int(port)
                 logger.info(f"Ziel: {host}:{port}")
-                await _handle_exit(reader, writer, cipher, host, port)
+                await _handle_exit(reader, writer, cipher, host, port,
+                                   ack_cover=ack_cover,
+                                   ack_delay_max_ms=ack_delay_max_ms,
+                                   ack_size_min=ack_size_min,
+                                   ack_size_max=ack_size_max)
             else:
                 logger.error(f"Unbekannter Frame-Typ: {frame_type:#x}")
         except Exception as e:
