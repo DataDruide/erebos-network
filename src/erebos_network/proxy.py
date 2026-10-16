@@ -211,11 +211,18 @@ class ErebosSocks5Server:
         host: str = "127.0.0.1",
         port: int = 4447,
         config: Optional[Socks5Config] = None,
+        anonymity_provider=None,
     ):
         self.proxy = proxy
         self.host = host
         self.port = port
         self.config = config or Socks5Config()
+        # Anonymitaets-Provider: Default = len(peer_pool) als Proxy
+        # fuer die Netzwerkgroesse (der Proxy kennt nur seine Hop-Kandidaten).
+        if anonymity_provider is None:
+            self._anonymity_provider = lambda: len(self.config.peer_pool)
+        else:
+            self._anonymity_provider = anonymity_provider
         self._server = None
         self._connections = 0
         # Offset für round_robin-Strategie
@@ -432,7 +439,9 @@ class ErebosSocks5Server:
                     quiet_rate_factor=0.2,
                     boost_when_idle_seconds=10.0,
                     boost_factor=2.0,
+                    anonymity_threshold=10,
                 ),
+                anonymity_provider=self._anonymity_provider,
             )
             await cover.start()
 

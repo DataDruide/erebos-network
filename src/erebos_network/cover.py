@@ -44,6 +44,9 @@ class CoverConfig:
     # Nach langer Idle-Phase: leicht beschleunigen
     boost_when_idle_seconds: float = 10.0
     boost_factor: float = 2.0  # max. 2.0 — höher wäre selbst ein Fingerprint
+    # Anonymitaets-Schwelle: unter dieser Menge laeuft Cover immer im Boost
+    # (Quiet-Phase waere selbst ein Signal — siehe Zcash-Erfahrung)
+    anonymity_threshold: int = 10
 
 
 def generate_cover_message(
@@ -169,9 +172,23 @@ class TunnelCoverInjector:
       - constant: konstantes Intervall (1/rate)
     """
 
-    def __init__(self, tunnel, config: Optional[CoverConfig] = None):
+    def __init__(
+        self,
+        tunnel,
+        config: Optional[CoverConfig] = None,
+        anonymity_provider=None,
+    ):
+        """
+        Args:
+            tunnel: ErebosTunnelClient, ueber den gesendet wird.
+            config: CoverConfig (Default: neu).
+            anonymity_provider: Optional Callable[[], int]. Liefert die
+                aktuelle Anonymitaetsmenge. Wenn None oder Exception,
+                wird 0 angenommen -> small_set-Phase.
+        """
         self.tunnel = tunnel
         self.config = config or CoverConfig()
+        self.anonymity_provider = anonymity_provider
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_real_traffic_at = 0.0
@@ -182,6 +199,7 @@ class TunnelCoverInjector:
             "started_at": 0.0,
             "quiet_phases": 0,
             "boost_phases": 0,
+            "small_set_phases": 0,
         }
 
     async def start(self) -> None:
@@ -216,14 +234,36 @@ class TunnelCoverInjector:
         self.stats["frames_sent"] += 1
         self.stats["bytes_sent"] += len(msg)
 
+    def _current_anonymity_set_size(self) -> int:
+        """Liest die aktuelle Anonymitaetsmenge.
+
+        Fehlt ein Provider oder wirft er, wird 0 zurueckgegeben — das
+        bedeutet small_set. Ehrlich: der SOCKS5-Proxy kennt momentan
+        nur len(peer_pool) als Proxy fuer die Netzwerkgroesse.
+        """
+        if self.anonymity_provider is None:
+            return 0
+        try:
+            return max(0, int(self.anonymity_provider()))
+        except Exception:
+            return 0
+
     def _effective_rate(self) -> tuple[float, str]:
         """Berechnet die aktuelle Rate je nach adaptivem Zustand.
 
         Returns:
-            (rate, phase) — phase ist "normal", "quiet" oder "boost"
+            (rate, phase) — phase ist "normal", "quiet", "boost"
+            oder "small_set".
         """
         if not self.config.adaptive:
             return self.config.rate_per_second, "normal"
+
+        # Anonymitaetsmenge zu klein → kein Quiet-Modus.
+        # Bei kleiner Menge waere die Drosselung selbst ein Fingerprint
+        # (Zcash-Erfahrung: 20-25% Shielded-Pool reicht fuer Korrelation).
+        if self._current_anonymity_set_size() < self.config.anonymity_threshold:
+            factor = min(self.config.boost_factor, 2.0)
+            return self.config.rate_per_second * factor, "small_set"
 
         now = time.time()
         if self._last_real_traffic_at == 0.0:
@@ -254,6 +294,8 @@ class TunnelCoverInjector:
                     self.stats["quiet_phases"] += 1
                 elif phase == "boost" and self.config.adaptive:
                     self.stats["boost_phases"] += 1
+                elif phase == "small_set" and self.config.adaptive:
+                    self.stats["small_set_phases"] += 1
 
                 if mode == "burst":
                     for _ in range(self.config.burst_size):
@@ -323,6 +365,8 @@ class TunnelCoverInjector:
             "adaptive": self.config.adaptive,
             "uptime_seconds": round(self.uptime_seconds, 2),
             "rate_per_second": self.config.rate_per_second,
+            "anonymity_set_size": self._current_anonymity_set_size(),
+            "anonymity_threshold": self.config.anonymity_threshold,
             "seconds_since_real_traffic": (
                 round(time.time() - self._last_real_traffic_at, 2)
                 if self._last_real_traffic_at > 0

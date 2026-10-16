@@ -21,14 +21,14 @@ class TestEffectiveRate:
 
     def test_non_adaptive_returns_normal(self):
         cfg = CoverConfig(adaptive=False, rate_per_second=1.0)
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         rate, phase = inj._effective_rate()
         assert phase == "normal"
         assert rate == 1.0
 
     def test_adaptive_no_traffic_yet_is_normal(self):
         cfg = CoverConfig(adaptive=True, rate_per_second=1.0)
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         rate, phase = inj._effective_rate()
         assert phase == "normal"
 
@@ -39,7 +39,7 @@ class TestEffectiveRate:
             quiet_seconds_after_real=5.0,
             quiet_rate_factor=0.2,
         )
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         inj.notify_real_traffic()
         rate, phase = inj._effective_rate()
         assert phase == "quiet"
@@ -53,7 +53,7 @@ class TestEffectiveRate:
             boost_when_idle_seconds=1.0,
             boost_factor=2.0,
         )
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         # Traffic vor 5 s
         inj._last_real_traffic_at = time.time() - 5.0
         rate, phase = inj._effective_rate()
@@ -67,7 +67,7 @@ class TestEffectiveRate:
             boost_when_idle_seconds=0.1,
             boost_factor=10.0,  # sollte auf 2.0 begrenzt werden
         )
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         inj._last_real_traffic_at = time.time() - 5.0
         rate, phase = inj._effective_rate()
         assert rate == pytest.approx(2.0)
@@ -80,7 +80,7 @@ class TestEffectiveRate:
             quiet_seconds_after_real=1.0,
             boost_when_idle_seconds=10.0,
         )
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         inj._last_real_traffic_at = time.time() - 3.0
         rate, phase = inj._effective_rate()
         assert phase == "normal"
@@ -89,13 +89,13 @@ class TestEffectiveRate:
 
 class TestNotifyRealTraffic:
     def test_notify_sets_timestamp(self):
-        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True))
+        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True), anonymity_provider=lambda: 100)
         assert inj._last_real_traffic_at == 0.0
         inj.notify_real_traffic()
         assert inj._last_real_traffic_at > 0.0
 
     def test_notify_updates_timestamp(self):
-        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True))
+        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True), anonymity_provider=lambda: 100)
         inj.notify_real_traffic()
         t1 = inj._last_real_traffic_at
         time.sleep(0.05)
@@ -107,7 +107,7 @@ class TestNotifyRealTraffic:
 class TestStatsIncludeAdaptive:
     def test_stats_have_adaptive_fields(self):
         cfg = CoverConfig(adaptive=True)
-        inj = TunnelCoverInjector(MockTunnel(), cfg)
+        inj = TunnelCoverInjector(MockTunnel(), cfg, anonymity_provider=lambda: 100)
         stats = inj.get_stats()
         assert "adaptive" in stats
         assert "quiet_phases" in stats
@@ -115,12 +115,12 @@ class TestStatsIncludeAdaptive:
         assert "seconds_since_real_traffic" in stats
 
     def test_stats_seconds_since_real_when_never(self):
-        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True))
+        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True), anonymity_provider=lambda: 100)
         stats = inj.get_stats()
         assert stats["seconds_since_real_traffic"] is None
 
     def test_stats_seconds_since_real_after_notify(self):
-        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True))
+        inj = TunnelCoverInjector(MockTunnel(), CoverConfig(adaptive=True), anonymity_provider=lambda: 100)
         inj.notify_real_traffic()
         stats = inj.get_stats()
         assert stats["seconds_since_real_traffic"] is not None
@@ -139,7 +139,7 @@ class TestAdaptiveLoop:
             quiet_rate_factor=0.1,  # 10/s statt 100/s
         )
         tunnel = MockTunnel()
-        inj = TunnelCoverInjector(tunnel, cfg)
+        inj = TunnelCoverInjector(tunnel, cfg, anonymity_provider=lambda: 100)
         inj.notify_real_traffic()  # → sofort quiet
 
         await inj.start()
@@ -161,7 +161,7 @@ class TestAdaptiveLoop:
             boost_factor=2.0,
         )
         tunnel = MockTunnel()
-        inj = TunnelCoverInjector(tunnel, cfg)
+        inj = TunnelCoverInjector(tunnel, cfg, anonymity_provider=lambda: 100)
         # Traffic vor 5s → boost
         inj._last_real_traffic_at = time.time() - 5.0
 
