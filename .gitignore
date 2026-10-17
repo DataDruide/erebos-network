@@ -33,6 +33,6 @@ dist/
 *.whl
 
 # ===== Traffic calibration artifacts =====
-traffic-stats.json
 cover-calibration.json
 *.pcap
+traffic-stats*.json

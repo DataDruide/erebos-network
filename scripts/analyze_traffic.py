@@ -148,7 +148,11 @@ if __name__ == "__main__":
         sys.exit(1)
     pcap = sys.argv[1]
     result = analyze(pcap)
-    out = Path.home() / "Documents/GitHub/erebos-network/traffic-stats.json"
+    # Output-Pfad: ableiten aus pcap-Name
+    # /tmp/erebos-traffic-2.pcap -> traffic-stats-2.json
+    stem = Path(pcap).stem  # "erebos-traffic-2"
+    suffix = stem.replace("erebos-traffic", "").lstrip("-") or "1"
+    out = Path.home() / f"Documents/GitHub/erebos-network/traffic-stats-{suffix}.json"
     out.write_text(json.dumps(result, indent=2))
     print()
     print(f"JSON gespeichert: {out}")

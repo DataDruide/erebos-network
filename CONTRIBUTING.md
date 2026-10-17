@@ -90,3 +90,20 @@ contribution is made under the same license. There is no separate CLA.
 
 Open a GitHub Discussion or contact the maintainer via the address in
 the repository profile.
+
+## Using Erebos Browser with a different SOCKS proxy
+
+The Erebos browser is configured by default to use i2pd (ports 4444/4447).
+To use Tor (or another SOCKS5 proxy) instead:
+
+1. Open `about:config`
+2. Set `network.proxy.socks_port` to your proxy port (e.g. `9052` for Tor)
+3. Set `network.proxy.socks_remote_dns` to `true`
+4. Set `network.trr.mode` to `5` (disable DoH)
+5. Clear the DNS cache in `about:networking#dns`
+6. Restart the browser
+
+**Note:** The branding defaults in `browser/branding/erebos/pref/firefox-branding.js`
+override `prefs.js` and `user.js` on every start. Only `about:config` changes persist.
+This is a known limitation of the current build.
+

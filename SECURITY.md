@@ -193,10 +193,14 @@ ist **nicht** geschützt.
 - **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
   SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
   die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
-- **Cover-Kalibrierung seit `v0.4.2`, aber Single-Session.** Die
-  aktuellen Defaults stammen aus einer 10-Minuten-Messung. Weitere
-  Sessions waeren noetig fuer statistische Stabilitaet ueber Traffic-
-  Profile und Tageszeiten.
+- **Cover-Kalibrierung seit `v0.4.2`, drei Sessions.** Die Defaults
+  (`burst_size=4`, `burst_pause=0.108`, `max_size=7008`) sind ein
+  Kompromiss aus drei Messungen: Browser/Text (S1: 4 Frames/Burst,
+  ~2900 B), Browser/Video (S2: 10 Frames/Burst, ~1200 B), curl/HTTP
+  (S3: 3 Frames/Burst, ~3100 B). Die Varianz ist **systematisch** --
+  Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
+  Ein einziger Default kann nicht beide abdecken. Presets oder
+  Adaptive-Kalibrierung waeren der naechste Schritt.
 - **FRAME_COVER_ACK seit `v0.4.0`, aber opt-in und unkalibriert.** Der
   Peer sendet Downlink-Rauschen nur, wenn er mit `ack_cover=True`
   gestartet wird. Die Parameter (delay 0-50 ms, size 64-256) sind
