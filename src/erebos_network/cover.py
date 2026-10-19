@@ -241,29 +241,46 @@ class CoverProfileDetector:
     def __init__(self, window_size: int = 50):
         from collections import deque
         self._sizes = deque(maxlen=window_size)
+        self._last_detected = None
 
     def notify_downlink(self, size: int) -> None:
         """Meldet einen Downlink-Frame (Groesse in Bytes)."""
         self._sizes.append(size)
 
     def detect(self) -> str:
-        """Gibt das erkannte Profil zurueck: 'web', 'video' oder 'api'."""
+        """Gibt das erkannte Profil zurueck: 'web', 'video' oder 'api'.
+
+        Schwellen (angepasst nach example.com-Test, 933 B -> web):
+          - video: < 800 B
+          - web:   800-2000 B
+          - api:   > 2000 B
+        """
         from statistics import median as _median
         if len(self._sizes) < 10:
-            return "web"
+            changed = False  # Kein Wechsel, solange zu wenig Daten
+            self._last_detected = "web"
+            return "web", changed
         m = _median(self._sizes)
-        if m < 1500:
-            return "video"
-        if m > 3000:
-            return "api"
-        return "web"
+        if m < 800:
+            result = "video"
+        elif m > 2000:
+            result = "api"
+        else:
+            result = "web"
+        changed = (result != self._last_detected)
+        self._last_detected = result
+        return result, changed
+
+    def last_detected(self) -> str:
+        """Gibt das zuletzt erkannte Profil zurueck (oder 'web')."""
+        return self._last_detected or "web"
 
     def stats(self) -> dict:
         from statistics import median as _median
         return {
             "window_size": len(self._sizes),
             "median_size": int(_median(self._sizes)) if self._sizes else 0,
-            "detected": self.detect(),
+            "detected": self.detect()[0],
         }
 
 
@@ -287,6 +304,7 @@ class TunnelCoverInjector:
         config: Optional[CoverConfig] = None,
         anonymity_provider=None,
         auto_profile: bool = False,
+        detector=None,
     ):
         """
         Args:
@@ -300,8 +318,11 @@ class TunnelCoverInjector:
         self.config = config or CoverConfig()
         self.anonymity_provider = anonymity_provider
         self.auto_profile = auto_profile
-        self._detector = CoverProfileDetector() if auto_profile else None
-        self._current_profile = None
+        self._detector = detector or (CoverProfileDetector() if auto_profile else None)
+        if self._detector is not None:
+            self._current_profile = self._detector.last_detected()
+        else:
+            self._current_profile = "web"
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_real_traffic_at = 0.0
@@ -447,9 +468,8 @@ class TunnelCoverInjector:
                 # Wenn --auto-profile gesetzt ist, pruefen wir bei jedem
                 # Zyklus, ob der Detector ein anderes Profil erkennt.
                 if self._detector is not None:
-                    detected = self._detector.detect()
-                    if detected != self._current_profile:
-                        self._current_profile = detected
+                    detected, changed = self._detector.detect()
+                    if changed:
                         logger.info(
                             f"Auto-Profil gewechselt: {detected} "
                             f"(window={self._detector.stats()['window_size']}, "

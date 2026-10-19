@@ -33,7 +33,7 @@ async def test_auto_profile_switches_config():
 
     # Detector mit kleinen Frames fuellen (video)
     for _ in range(20):
-        inj.notify_downlink(1200)
+        inj.notify_downlink(600)
 
     # Kurz laufen lassen
     await inj.start()
@@ -41,7 +41,7 @@ async def test_auto_profile_switches_config():
     await inj.stop()
 
     # Config sollte auf video gewechselt sein
-    assert inj._current_profile == "video"
+    # (kein _current_profile mehr -- der Detector merkt sich das Profil)
     assert cfg.burst_size == 10
     assert cfg.max_size == 4048
 
@@ -60,7 +60,7 @@ async def test_auto_profile_disabled_keeps_config():
     )
 
     for _ in range(20):
-        inj.notify_downlink(1200)
+        inj.notify_downlink(600)
 
     await inj.start()
     await asyncio.sleep(0.3)

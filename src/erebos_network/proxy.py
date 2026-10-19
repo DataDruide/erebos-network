@@ -221,6 +221,11 @@ class ErebosSocks5Server:
         self.config = config or Socks5Config()
         self._cover_profile = cover_profile
         self._auto_profile = auto_profile
+        if auto_profile:
+            from .cover import CoverProfileDetector
+            self._profile_detector = CoverProfileDetector()
+        else:
+            self._profile_detector = None
         # Anonymitaets-Provider: Default = len(peer_pool) als Proxy
         # fuer die Netzwerkgroesse (der Proxy kennt nur seine Hop-Kandidaten).
         if anonymity_provider is None:
@@ -445,6 +450,7 @@ class ErebosSocks5Server:
                 cover_config,
                 anonymity_provider=self._anonymity_provider,
                 auto_profile=getattr(self, "_auto_profile", False),
+                detector=getattr(self, "_profile_detector", None),
             )
             await cover.start()
 
