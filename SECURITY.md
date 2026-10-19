@@ -193,6 +193,17 @@ ist **nicht** geschützt.
 - **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
   SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
   die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
+- **Cover-Presets seit `v0.4.4`, live verifiziert.** Drei Profile sind
+  direkt waehlbar: `web` (Text/Nachrichten), `video` (Streaming),
+  `api` (HTTP-only/curl). Auswahl per CLI: `--cover-profile
+  web|video|api`. Ohne Angabe verwendet der Proxy `web`. Die Profile
+  sind aus den drei Messungen abgeleitet (S1/S2/S3).
+  **Live-Test (19.10.2026):** 3-Hop-Tunnel (peer1 -> peer2 -> peer3)
+  mit `--cover-profile video`. 8495 Frames in ~5 Sekunden, Frame-p90
+  bei 3872 B (innerhalb des `video`-Profils `max_size=4048`).
+  `TunnelCoverInjector gestartet (mode=burst, rate=0.5/s)` im Proxy-Log.
+  `curl: 200` durch den Tunnel. Damit ist bewiesen: kalibrierte
+  Cover-Frames fliessen durch den echten Tunnel.
 - **Cover-Presets seit `v0.4.4`.** Drei Profile sind direkt waehlbar:
   `web` (Text/Nachrichten), `video` (Streaming), `api` (HTTP-only/curl).
   Auswahl per CLI: `--cover-profile web|video|api`. Ohne Angabe
