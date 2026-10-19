@@ -106,6 +106,13 @@ def main() -> int:
              "(Default: aus)",
     )
     parser.add_argument(
+        "--cover-profile",
+        choices=["web", "video", "api"],
+        default=None,
+        help="Cover-Traffic-Profil: web (Text), video (Streaming), "
+             "api (HTTP-only). Default: web",
+    )
+    parser.add_argument(
         "--proxy",
         action="store_true",
         help="Startet den SOCKS5-Proxy auf 127.0.0.1:4447",
@@ -184,6 +191,7 @@ def main() -> int:
                     traffic_shaping=args.traffic_shaping,
                     entry_strategy=args.entry_strategy,
                 ),
+                cover_profile=args.cover_profile,
             )
             await server.start()
             try:

@@ -212,11 +212,13 @@ class ErebosSocks5Server:
         port: int = 4447,
         config: Optional[Socks5Config] = None,
         anonymity_provider=None,
+        cover_profile: Optional[str] = None,
     ):
         self.proxy = proxy
         self.host = host
         self.port = port
         self.config = config or Socks5Config()
+        self._cover_profile = cover_profile
         # Anonymitaets-Provider: Default = len(peer_pool) als Proxy
         # fuer die Netzwerkgroesse (der Proxy kennt nur seine Hop-Kandidaten).
         if anonymity_provider is None:
@@ -428,23 +430,17 @@ class ErebosSocks5Server:
 
             # Cover-Traffic-Injector (P1.1b): sendet FRAME_COVER-Frames
             # im Burst-Modus, um Timing-Fingerprinting zu verwischen.
+            # Cover-Traffic-Injector (P1.1b): sendet FRAME_COVER-Frames
+            # im Burst-Modus, um Timing-Fingerprinting zu verwischen.
+            # Die Werte kommen aus CoverConfig.for_profile() -- kalibriert
+            # aus echten HTTP-Burst-Daten (v0.4.2/v0.4.4).
+            profile = getattr(self, "_cover_profile", None) or "web"
+            cover_config = CoverConfig.for_profile(profile)
+            cover_config.adaptive = True
+            cover_config.reactive = True
             cover = TunnelCoverInjector(
                 tunnel,
-                CoverConfig(
-                    mode="burst",
-                    burst_size=3,
-                    burst_pause_seconds=2.0,
-                    adaptive=True,
-                    quiet_seconds_after_real=3.0,
-                    quiet_rate_factor=0.2,
-                    boost_when_idle_seconds=10.0,
-                    boost_factor=2.0,
-                    anonymity_threshold=10,
-                    reactive=True,
-                    reactive_window_ms=100,
-                    reactive_max_match=10,
-                    reactive_size_jitter=0.3,
-                ),
+                cover_config,
                 anonymity_provider=self._anonymity_provider,
             )
             await cover.start()

@@ -54,6 +54,60 @@ class CoverConfig:
     # (Quiet-Phase waere selbst ein Signal — siehe Zcash-Erfahrung)
     anonymity_threshold: int = 10
 
+    @classmethod
+    def for_profile(cls, profile: str) -> "CoverConfig":
+        """Erzeugt eine CoverConfig fuer ein Traffic-Profil.
+
+        Profile basieren auf drei Messungen (siehe SECURITY.md):
+          - "web":   Text/Nachrichten (S1: 4 Frames/Burst, 7008 B p90)
+          - "video": Video/Social   (S2: 10 Frames/Burst, 4048 B p90)
+          - "api":   HTTP-only/curl (S3: 3 Frames/Burst, 8609 B p90)
+
+        Raises:
+            ValueError: bei unbekanntem Profil.
+        """
+        profiles = {
+            "web": dict(
+                mode="burst",
+                burst_size=4,
+                burst_pause_seconds=0.108,
+                min_size=64,
+                max_size=7008,
+                inter_packet_ms=1,
+                reactive_window_ms=276,
+                reactive_max_match=86,
+                reactive_size_jitter=0.5,
+            ),
+            "video": dict(
+                mode="burst",
+                burst_size=10,
+                burst_pause_seconds=0.073,
+                min_size=64,
+                max_size=4048,
+                inter_packet_ms=1,
+                reactive_window_ms=468,
+                reactive_max_match=207,
+                reactive_size_jitter=0.5,
+            ),
+            "api": dict(
+                mode="burst",
+                burst_size=3,
+                burst_pause_seconds=0.156,
+                min_size=64,
+                max_size=8609,
+                inter_packet_ms=1,
+                reactive_window_ms=74,
+                reactive_max_match=20,
+                reactive_size_jitter=0.5,
+            ),
+        }
+        if profile not in profiles:
+            raise ValueError(
+                f"Unbekanntes Profil: {profile!r}. "
+                f"Bekannt: {sorted(profiles)}"
+            )
+        return cls(**profiles[profile])
+
     # Reactive Drop-Cover (P1.3 / Nym-Lehre):
     # Zusaetzlicher Cover-Burst als Reaktion auf Downlink-Traffic.
     # Ziel: Downlink-Uplink-Asymmetrie verwischen, damit ein Beobachter,
