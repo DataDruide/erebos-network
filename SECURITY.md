@@ -217,6 +217,14 @@ ist **nicht** geschützt.
   Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
   Ein einziger Default kann nicht beide abdecken. Presets oder
   Adaptive-Kalibrierung waeren der naechste Schritt.
+- **Cover-Burst-Analyse seit 19.10.2026.** `scripts/analyze_cover.py`
+  misst die tatsaechlichen Pausen zwischen Frames (nicht die
+  kalibrierten) und leitet daraus Burst-Groessen ab. Live-Test mit
+  `--cover-profile video`: 284 Bursts, `Frames/Burst median = 10.0`
+  (exakt wie kalibriert), gemessene Pause 39.0 ms. Die Pause ist
+  kuerzer als die kalibrierten 73 ms, weil `small_set` greift:
+  `len(peer_pool)=3 < anonymity_threshold=10` halbiert die Pause.
+  Damit ist bewiesen: Das `video`-Profil greift im echten Tunnel.
 - **FRAME_COVER_ACK seit `v0.4.0`, live verifiziert (19.10.2026).**
   Der Exit-Peer sendet nach echtem Downlink einen `FRAME_COVER_ACK`
   (Typ 0x05) mit zufaelliger Groesse (reactive_size_jitter). Live-Test
