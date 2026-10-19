@@ -217,6 +217,14 @@ ist **nicht** geschützt.
   Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
   Ein einziger Default kann nicht beide abdecken. Presets oder
   Adaptive-Kalibrierung waeren der naechste Schritt.
+- **Auto-Profil-Erkennung seit `v0.4.6` (experimentell).** Der
+  `TunnelCoverInjector` kann mit `--auto-profile` das Traffic-Profil
+  anhand der Downlink-Frame-Groessen erkennen: `median < 1500 B` ->
+  `video`, `median > 3000 B` -> `api`, sonst `web`. Die Heuristik ist
+  aus den drei Messungen abgeleitet, aber **nicht gegen gemischten
+  Browser-Traffic validiert**. Sie ist ein Experiment: Korreliert die
+  Median-Frame-Groesse wirklich mit dem Profil? Ohne echte Sessions
+  bleibt das offen. Default ist `--cover-profile` (manuell).
 - **Cover-Burst-Analyse seit 19.10.2026.** `scripts/analyze_cover.py`
   misst die tatsaechlichen Pausen zwischen Frames (nicht die
   kalibrierten) und leitet daraus Burst-Groessen ab. Live-Test mit
