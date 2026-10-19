@@ -217,6 +217,13 @@ ist **nicht** geschützt.
   Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
   Ein einziger Default kann nicht beide abdecken. Presets oder
   Adaptive-Kalibrierung waeren der naechste Schritt.
+- **FRAME_COVER_ACK seit `v0.4.0`, live verifiziert (19.10.2026).**
+  Der Exit-Peer sendet nach echtem Downlink einen `FRAME_COVER_ACK`
+  (Typ 0x05) mit zufaelliger Groesse (reactive_size_jitter). Live-Test
+  mit drei Peers (`--ack-cover -v`) und einem Proxy
+  (`--cover-profile video -v`): ACKs mit 81 B, 141 B und 219 B
+  empfangen und in `receive()` verworfen. Die Groessen liegen im
+  erwarteten Jitter-Bereich (64-256 B).
 - **FRAME_COVER_ACK seit `v0.4.0`, aber opt-in und unkalibriert.** Der
   Peer sendet Downlink-Rauschen nur, wenn er mit `ack_cover=True`
   gestartet wird. Die Parameter (delay 0-50 ms, size 64-256) sind
