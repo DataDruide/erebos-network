@@ -36,3 +36,4 @@ dist/
 cover-calibration.json
 *.pcap
 traffic-stats*.json
+cover-analysis*.json
