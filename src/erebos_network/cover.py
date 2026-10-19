@@ -227,6 +227,46 @@ class ConstantCoverTraffic:
             "rate_per_second": self.config.rate_per_second,
         }
 
+class CoverProfileDetector:
+    """Erkennt das Traffic-Profil anhand von Downlink-Frame-Groessen.
+
+    Heuristik (aus den drei Messungen S1/S2/S3):
+      - video: median_size < 1500 B (viele kleine Frames)
+      - api:   median_size > 3000 B (wenige grosse Frames)
+      - web:   sonst (mittlere Frames)
+
+    Defensiv: Bei weniger als 10 Frames wird "web" zurueckgegeben.
+    """
+
+    def __init__(self, window_size: int = 50):
+        from collections import deque
+        self._sizes = deque(maxlen=window_size)
+
+    def notify_downlink(self, size: int) -> None:
+        """Meldet einen Downlink-Frame (Groesse in Bytes)."""
+        self._sizes.append(size)
+
+    def detect(self) -> str:
+        """Gibt das erkannte Profil zurueck: 'web', 'video' oder 'api'."""
+        from statistics import median as _median
+        if len(self._sizes) < 10:
+            return "web"
+        m = _median(self._sizes)
+        if m < 1500:
+            return "video"
+        if m > 3000:
+            return "api"
+        return "web"
+
+    def stats(self) -> dict:
+        from statistics import median as _median
+        return {
+            "window_size": len(self._sizes),
+            "median_size": int(_median(self._sizes)) if self._sizes else 0,
+            "detected": self.detect(),
+        }
+
+
 class TunnelCoverInjector:
     """Sendet echten Cover-Traffic ueber einen ErebosTunnelClient.
 
@@ -246,6 +286,7 @@ class TunnelCoverInjector:
         tunnel,
         config: Optional[CoverConfig] = None,
         anonymity_provider=None,
+        auto_profile: bool = False,
     ):
         """
         Args:
@@ -258,6 +299,9 @@ class TunnelCoverInjector:
         self.tunnel = tunnel
         self.config = config or CoverConfig()
         self.anonymity_provider = anonymity_provider
+        self.auto_profile = auto_profile
+        self._detector = CoverProfileDetector() if auto_profile else None
+        self._current_profile = None
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_real_traffic_at = 0.0
@@ -399,6 +443,28 @@ class TunnelCoverInjector:
         mode = self.config.mode
         try:
             while self._running:
+                # Auto-Profil-Erkennung (experimentell):
+                # Wenn --auto-profile gesetzt ist, pruefen wir bei jedem
+                # Zyklus, ob der Detector ein anderes Profil erkennt.
+                if self._detector is not None:
+                    detected = self._detector.detect()
+                    if detected != self._current_profile:
+                        self._current_profile = detected
+                        logger.info(
+                            f"Auto-Profil gewechselt: {detected} "
+                            f"(window={self._detector.stats()['window_size']}, "
+                            f"median={self._detector.stats()['median_size']}B)"
+                        )
+                        profile_cfg = CoverConfig.for_profile(detected)
+                        self.config.burst_size = profile_cfg.burst_size
+                        self.config.burst_pause_seconds = profile_cfg.burst_pause_seconds
+                        self.config.min_size = profile_cfg.min_size
+                        self.config.max_size = profile_cfg.max_size
+                        self.config.reactive_max_match = profile_cfg.reactive_max_match
+                        self.stats["auto_profile_changes"] = (
+                            self.stats.get("auto_profile_changes", 0) + 1
+                        )
+
                 # Reactive Drop-Cover: hat Vorrang vor dem normalen Loop.
                 # Wenn Downlink-Burst vorliegt, senden wir die Antwort und
                 # fahren dann mit dem normalen Rhythmus fort.
@@ -484,6 +550,8 @@ class TunnelCoverInjector:
         einen Cover-Burst aus, der die Downlink-Form spiegelt.
         """
         self._downlink_events.append((time.time(), max(0, int(size))))
+        if self._detector is not None:
+            self._detector.notify_downlink(size)
 
     def _trim_downlink_window(self, now: float) -> None:
         """Entfernt Events ausserhalb des Sliding Windows."""
@@ -514,6 +582,9 @@ class TunnelCoverInjector:
             "adaptive": self.config.adaptive,
             "uptime_seconds": round(self.uptime_seconds, 2),
             "rate_per_second": self.config.rate_per_second,
+            "auto_profile": self.auto_profile,
+            "auto_profile_current": self._current_profile,
+            "auto_profile_changes": self.stats.get("auto_profile_changes", 0),
             "anonymity_set_size": self._current_anonymity_set_size(),
             "anonymity_threshold": self.config.anonymity_threshold,
             "seconds_since_real_traffic": (

@@ -113,6 +113,12 @@ def main() -> int:
              "api (HTTP-only). Default: web",
     )
     parser.add_argument(
+        "--auto-profile",
+        action="store_true",
+        help="Erkennt das Traffic-Profil automatisch anhand der "
+             "Downlink-Frame-Groessen (experimentell)",
+    )
+    parser.add_argument(
         "--proxy",
         action="store_true",
         help="Startet den SOCKS5-Proxy auf 127.0.0.1:4447",
@@ -192,6 +198,7 @@ def main() -> int:
                     entry_strategy=args.entry_strategy,
                 ),
                 cover_profile=args.cover_profile,
+                auto_profile=args.auto_profile,
             )
             await server.start()
             try:
