@@ -217,6 +217,17 @@ ist **nicht** geschützt.
   Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
   Ein einziger Default kann nicht beide abdecken. Presets oder
   Adaptive-Kalibrierung waeren der naechste Schritt.
+- **Auto-Profil-Erkennung seit `v0.4.6`, kalibriert in `v0.4.7`.**
+  Der `TunnelCoverInjector` erkennt mit `--auto-profile` das Profil
+  anhand der Downlink-Frame-Groessen: `median < 800 B` -> `video`,
+  `800-2000 B` -> `web`, `> 2000 B` -> `api`. Die Schwellen wurden
+  nach dem ersten Live-Test angepasst (example.com mit 933 B wurde
+  faelschlich als video erkannt). Live-Test (19.10.2026): 10 Requests
+  auf Wikipedia, **genau ein** Log-Eintrag:
+  `Auto-Profil gewechselt: video (window=10, median=190B)`.
+  Die Heuristik ist **einfach** (Median ueber 50 Frames) und
+  **nicht gegen gemischten Browser-Traffic validiert** -- sie ist
+  ein erster Schritt, kein Ersatz fuer manuelle Auswahl.
 - **Auto-Profil-Erkennung seit `v0.4.6` (experimentell).** Der
   `TunnelCoverInjector` kann mit `--auto-profile` das Traffic-Profil
   anhand der Downlink-Frame-Groessen erkennen: `median < 1500 B` ->
