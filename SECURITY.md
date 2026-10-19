@@ -193,6 +193,11 @@ ist **nicht** geschützt.
 - **Anonymitaets-Schwelle seit `v0.3.6`, aber Proxy-Metrik.** Der
   SOCKS5-Proxy nutzt `len(peer_pool)` (derzeit 3 Peers) als Proxy fuer
   die Netzwerkgroesse. Das ist eine Untergrenze, keine echte Zahl.
+- **Cover-Presets seit `v0.4.4`.** Drei Profile sind direkt waehlbar:
+  `web` (Text/Nachrichten), `video` (Streaming), `api` (HTTP-only/curl).
+  Auswahl per CLI: `--cover-profile web|video|api`. Ohne Angabe
+  verwendet der Proxy `web`. Die Profile sind aus den drei Messungen
+  abgeleitet (S1/S2/S3).
 - **Cover-Kalibrierung seit `v0.4.2`, drei Sessions.** Die Defaults
   (`burst_size=4`, `burst_pause=0.108`, `max_size=7008`) sind ein
   Kompromiss aus drei Messungen: Browser/Text (S1: 4 Frames/Burst,
