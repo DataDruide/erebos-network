@@ -100,6 +100,12 @@ def main() -> int:
         help="Port fuer den Peer-Server (default: 9999)",
     )
     parser.add_argument(
+        "--peer-host",
+        default=None,
+        help="Bind-Adresse fuer den Peer-Server (default: 127.0.0.1). "
+             "Fuer oeffentlich erreichbare Peers: 0.0.0.0",
+    )
+    parser.add_argument(
         "--ack-cover",
         action="store_true",
         help="Peer-Server sendet FRAME_COVER_ACK nach echtem Downlink "
@@ -182,6 +188,7 @@ def main() -> int:
             asyncio.run(run_peer_server(
                 port=args.peer_port,
                 ack_cover=args.ack_cover,
+                host=args.peer_host,
             ))
         except KeyboardInterrupt:
             print("\nPeer beendet.")

@@ -35,7 +35,7 @@ from .crypto.hybrid_kem import derive_hybrid_key
 logger = logging.getLogger(__name__)
 
 KEYS_DIR = Path(__file__).parent.parent.parent / "erebos_keys"
-PEER_HOST = "127.0.0.1"
+PEER_HOST = os.environ.get("EREBOS_PEER_HOST", "127.0.0.1")
 PEER_PORT = 9999
 
 MAX_FRAME = 65536
@@ -590,8 +590,16 @@ async def run_peer_server(port: int = PEER_PORT,
                           ack_cover: bool = False,
                           ack_delay_max_ms: int = 50,
                           ack_size_min: int = 64,
-                          ack_size_max: int = 256):
-    """Startet den Peer-Server, der Tunnel-Verbindungen annimmt."""
+                          ack_size_max: int = 256,
+                          host: str = None):
+    """Startet den Peer-Server, der Tunnel-Verbindungen annimmt.
+
+    Args:
+        host: Bind-Adresse. None -> PEER_HOST (127.0.0.1 oder aus
+              EREBOS_PEER_HOST). "0.0.0.0" fuer oeffentlich erreichbare Peers.
+    """
+    if host is None:
+        host = PEER_HOST
 
     peer_name = PORT_TO_PEER_NAME.get(port)
     if peer_name is None:
@@ -744,7 +752,7 @@ async def run_peer_server(port: int = PEER_PORT,
         finally:
             writer.close()
 
-    server = await asyncio.start_server(handle, PEER_HOST, port)
-    logger.info(f"Peer-Server laeuft auf {PEER_HOST}:{port}")
+    server = await asyncio.start_server(handle, host, port)
+    logger.info(f"Peer-Server laeuft auf {host}:{port}")
     async with server:
         await server.serve_forever()
