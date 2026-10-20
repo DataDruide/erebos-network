@@ -217,6 +217,12 @@ ist **nicht** geschützt.
   Text-Traffic und Video-Traffic haben unterschiedliche Burst-Formen.
   Ein einziger Default kann nicht beide abdecken. Presets oder
   Adaptive-Kalibrierung waeren der naechste Schritt.
+- **Peer-Host konfigurierbar seit `v0.4.8`.** `PEER_HOST` liest
+  `EREBOS_PEER_HOST` (Default `127.0.0.1`). Neuer CLI-Flag
+  `--peer-host` erlaubt `0.0.0.0` fuer oeffentlich erreichbare Peers.
+  `PEER_SETUP.md` beschreibt das Setup auf einem VPS (git clone,
+  venv, Firewall, systemd). Live-Test: Peer bindet auf `*:9997`,
+  `nc` von `192.168.0.246` erfolgreich.
 - **Auto-Profil-Erkennung seit `v0.4.6`, kalibriert in `v0.4.7`.**
   Der `TunnelCoverInjector` erkennt mit `--auto-profile` das Profil
   anhand der Downlink-Frame-Groessen: `median < 800 B` -> `video`,
