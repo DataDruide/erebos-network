@@ -1,5 +1,11 @@
 # Erebos Network
 
+## 📊 Visuelle Dokumentation
+
+- [Architektur](docs/ARCHITECTURE.md) — 3-Hop-Onion-Netzwerk mit PQC
+- [Kryptographie](docs/crypto.md) — Hybrid-Handshake (X25519 + ML-KEM-1024)
+- [Cover-Traffic](docs/cover-traffic.md) — Timing-Schutz durch kalibriertes Padding
+
 > **Ein neuartiges anonymes Netzwerk mit adaptiven Sektoren, Mixnet, dezentraler Governance und Post-Quanten-Kryptographie**
 
 [![Tests](https://github.com/DataDruide/erebos-network/actions/workflows/test.yml/badge.svg)](https://github.com/DataDruide/erebos-network/actions/workflows/test.yml)
