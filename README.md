@@ -1,4 +1,3 @@
-# Erebos Network
 
 ## 📊 Visuelle Dokumentation
 
