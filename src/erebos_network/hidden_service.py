@@ -1,237 +1,110 @@
-"""Hidden Services fuer Erebos Network.
-
-Beidseitig anonyme Dienste - weder Client noch Server
-kennen die Identitaet des anderen.
-
-Erweitert um Descriptor-Hardening (Anti-Flood).
-
-WICHTIG: Forschungsprototyp.
-  - shared_secret = secrets.token_bytes(32) (kein KEM-Handshake)
-  - Service-IDs sind 128-Bit-Hashes (Truncation)
-  - Fuer produktive Hidden Services siehe tunnel.py
-"""
+"""Erebos-eigene Hidden Services: Adressformat und Descriptor-Struktur."""
 
 import hashlib
-import logging
-import secrets
+import base64
+import json
 import time
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from dataclasses import dataclass, asdict, field
+from typing import List, Optional
 
-from .hs_hardening import HSDescriptorHardening
-
-logger = logging.getLogger(__name__)
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 
-class HSState(Enum):
-    """Zustand eines Hidden Service."""
-
-    OFFLINE = "offline"
-    PUBLISHED = "published"
-    DESCRIPTOR_UPLOADED = "descriptor_uploaded"
-    AVAILABLE = "available"
+def derive_erebos_address(public_key_bytes: bytes) -> str:
+    digest = hashlib.sha256(public_key_bytes).digest()
+    encoded = base64.b32encode(digest).decode("ascii").rstrip("=").lower()
+    return encoded + ".erebos"
 
 
 @dataclass
-class HSDescriptor:
-    """Ein Hidden-Service-Descriptor."""
-
-    service_id: str
+class IntroPoint:
+    peer_id: str
+    address: str
     public_key: bytes
-    introduction_points: list[str] = field(default_factory=list)
-    created_at: float = field(default_factory=time.time)
-    ttl_seconds: int = 86400
-
-    @property
-    def is_expired(self) -> bool:
-        return (time.time() - self.created_at) > self.ttl_seconds
-
-    @property
-    def address(self) -> str:
-        return f"{self.service_id}.erebos"
 
 
 @dataclass
-class HSSession:
-    """Eine Client-Service-Session."""
+class HiddenServiceDescriptor:
+    address: str
+    public_key: bytes
+    intro_points: List[IntroPoint]
+    created_at: float
+    ttl_seconds: int
+    signature: bytes = b""
 
-    session_id: str
-    client_id: str
-    service_id: str
-    rendezvous_point: str
-    shared_secret: bytes
-    created_at: float = field(default_factory=time.time)
-    bytes_sent: int = 0
-    bytes_received: int = 0
+    def signable_payload(self) -> bytes:
+        data = {
+            "address": self.address,
+            "public_key": self.public_key.hex(),
+            "intro_points": [
+                {"peer_id": ip.peer_id, "address": ip.address, "public_key": ip.public_key.hex()}
+                for ip in self.intro_points
+            ],
+            "created_at": self.created_at,
+            "ttl_seconds": self.ttl_seconds,
+        }
+        return json.dumps(data, sort_keys=True).encode("utf-8")
 
-
-class HiddenService:
-    """Hidden Service mit Descriptor-Hardening."""
-
-    def __init__(self):
-        self._services: dict[str, HSDescriptor] = {}
-        self._sessions: dict[str, HSSession] = {}
-        self.hardening = HSDescriptorHardening()
-        self.stats = {
-            "services_created": 0,
-            "descriptors_published": 0,
-            "descriptors_rejected": 0,
-            "sessions_established": 0,
-            "bytes_transferred": 0,
+    def to_dict(self) -> dict:
+        return {
+            "address": self.address,
+            "public_key": self.public_key.hex(),
+            "intro_points": [
+                {"peer_id": ip.peer_id, "address": ip.address, "public_key": ip.public_key.hex()}
+                for ip in self.intro_points
+            ],
+            "created_at": self.created_at,
+            "ttl_seconds": self.ttl_seconds,
+            "signature": self.signature.hex(),
         }
 
-    def create_service(
-        self,
-        introduction_points: Optional[list[str]] = None,
-    ) -> HSDescriptor:
-        """Erstellt einen neuen Hidden Service."""
-        key_seed = secrets.token_bytes(32)
-        # Domain Separation (RFC 5869-Stil): service_id ist nicht nur
-        # ein Hash des Seeds, sondern explizit als HS-ID markiert.
-        service_id = hashlib.sha256(
-            b"erebos-hs-id-v1:" + key_seed
-        ).hexdigest()[:16]
-
-        descriptor = HSDescriptor(
-            service_id=service_id,
-            public_key=key_seed,
-            introduction_points=introduction_points or [
-                f"intro-{i}.erebos" for i in range(3)
-            ],
+    @classmethod
+    def from_dict(cls, data: dict) -> "HiddenServiceDescriptor":
+        intro_points = [
+            IntroPoint(peer_id=ip["peer_id"], address=ip["address"], public_key=bytes.fromhex(ip["public_key"]))
+            for ip in data["intro_points"]
+        ]
+        return cls(
+            address=data["address"],
+            public_key=bytes.fromhex(data["public_key"]),
+            intro_points=intro_points,
+            created_at=data["created_at"],
+            ttl_seconds=data["ttl_seconds"],
+            signature=bytes.fromhex(data["signature"]),
         )
-        self._services[service_id] = descriptor
-        self.stats["services_created"] += 1
 
-        logger.info(f"Hidden Service erstellt: {descriptor.address}")
-        return descriptor
+    def is_expired(self) -> bool:
+        return time.time() > self.created_at + self.ttl_seconds
 
-    def publish_descriptor(
-        self,
-        service_id: str,
-        data: Optional[bytes] = None,
-    ) -> bool:
-        """Veroeffentlicht einen Descriptor (mit Hardening).
 
-        Args:
-            service_id: Service-ID
-            data: Optional - Descriptor-Daten (default: public_key)
+def sign_descriptor(descriptor: HiddenServiceDescriptor, private_key: ed25519.Ed25519PrivateKey) -> HiddenServiceDescriptor:
+    payload = descriptor.signable_payload()
+    descriptor.signature = private_key.sign(payload)
+    return descriptor
 
-        Returns:
-            True wenn akzeptiert
-        """
-        service = self._services.get(service_id)
-        if not service:
-            return False
 
-        # Descriptor-Daten
-        descriptor_data = data or service.public_key
-
-        # Descriptor-ID
-        descriptor_id = hashlib.sha256(
-            f"erebos-hs-descriptor-v1:{service_id}:{time.time()}".encode()
-        ).hexdigest()[:16]
-
-        # PoW berechnen
-        try:
-            pow_hash, pow_nonce = self.hardening.compute_pow(
-                service_id,
-                descriptor_id,
-                self.hardening.config.pow_difficulty,
-            )
-        except RuntimeError:
-            logger.error(f"PoW fehlgeschlagen fuer {service_id}")
-            return False
-
-        # Publizieren mit Hardening
-        if self.hardening.publish(
-            service_id,
-            descriptor_id,
-            descriptor_data,
-            pow_hash,
-            pow_nonce,
-        ):
-            self.stats["descriptors_published"] += 1
-            return True
-
-        self.stats["descriptors_rejected"] += 1
+def verify_descriptor(descriptor: HiddenServiceDescriptor) -> bool:
+    try:
+        public_key = ed25519.Ed25519PublicKey.from_public_bytes(descriptor.public_key)
+        public_key.verify(descriptor.signature, descriptor.signable_payload())
+        return True
+    except Exception:
         return False
 
-    def lookup(self, address: str) -> Optional[HSDescriptor]:
-        """Sucht einen Hidden Service."""
-        if not address.endswith(".erebos"):
-            return None
-        service_id = address[:-7]
-        return self._services.get(service_id)
 
-    def establish_session(
-        self,
-        client_id: str,
-        service_id: str,
-    ) -> Optional[HSSession]:
-        """Etabliert eine Session mit einem Hidden Service."""
-        service = self._services.get(service_id)
-        if not service:
-            return None
+def publish_descriptor(dht, descriptor: HiddenServiceDescriptor) -> None:
+    key = hashlib.sha256(descriptor.address.encode()).digest()
+    dht.put(key, descriptor.to_dict())
 
-        session_id = hashlib.sha256(
-            f"erebos-hs-session-v1:{client_id}:{service_id}:{time.time()}".encode()
-        ).hexdigest()[:16]
 
-        # Direkt 128 Bit Zufall als Hex (kein doppeltes Hashing).
-        rendezvous = secrets.token_bytes(16).hex()
-
-        session = HSSession(
-            session_id=session_id,
-            client_id=client_id,
-            service_id=service_id,
-            rendezvous_point=rendezvous,
-            shared_secret=secrets.token_bytes(32),
-        )
-        self._sessions[session_id] = session
-        self.stats["sessions_established"] += 1
-
-        logger.info(
-            f"HS-Session etabliert: {session_id} "
-            f"(Rendezvous: {rendezvous})"
-        )
-        return session
-
-    def send(self, session_id: str, payload: bytes) -> bool:
-        """Sendet Daten ueber HS-Session."""
-        session = self._sessions.get(session_id)
-        if not session:
-            return False
-        session.bytes_sent += len(payload)
-        self.stats["bytes_transferred"] += len(payload)
-        return True
-
-    def receive(self, session_id: str, size: int) -> bool:
-        """Empfaengt Daten ueber HS-Session."""
-        session = self._sessions.get(session_id)
-        if not session:
-            return False
-        session.bytes_received += size
-        self.stats["bytes_transferred"] += size
-        return True
-
-    def cleanup(self, force: bool = False) -> int:
-        """Cleanup abgelaufener Descriptors."""
-        return self.hardening.cleanup(force)
-
-    @property
-    def service_count(self) -> int:
-        return len(self._services)
-
-    @property
-    def session_count(self) -> int:
-        return len(self._sessions)
-
-    def get_stats(self) -> dict:
-        """Statistiken."""
-        return {
-            **self.stats,
-            "services": self.service_count,
-            "sessions": self.session_count,
-            "hardening": self.hardening.get_stats(),
-        }
+def lookup_descriptor(dht, address: str) -> Optional[HiddenServiceDescriptor]:
+    key = hashlib.sha256(address.encode()).digest()
+    data = dht.get(key)
+    if data is None:
+        return None
+    descriptor = HiddenServiceDescriptor.from_dict(data)
+    if not verify_descriptor(descriptor):
+        return None
+    if descriptor.is_expired():
+        return None
+    return descriptor
