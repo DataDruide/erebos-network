@@ -818,6 +818,54 @@ async def run_peer_server(port: int = PEER_PORT,
                     logger.debug(f"Rendezvous-Response gesendet: {len(response_payload)}B")
                 except Exception as e:
                     logger.error(f"Fehler bei Rendezvous-Request: {e}")
+            elif frame_type == FRAME_DHT_PUT:
+                logger.info(f"DHT-PUT empfangen ({len(payload)}B)")
+                try:
+                    import json as _json
+                    data = _json.loads(payload.decode("utf-8"))
+                    key_hex = data.get("key")
+                    value = data.get("value")
+                    if key_hex and value:
+                        # Speichere lokal (in einer echten DHT: verteile weiter)
+                        if not hasattr(self, "_dht_store"):
+                            self._dht_store = {}
+                        self._dht_store[bytes.fromhex(key_hex)] = value
+                        logger.info(f"DHT-PUT gespeichert: {key_hex[:16]}...")
+                        # Sende Bestätigung
+                        import struct
+                        ack_payload = _json.dumps({"status": "ok", "key": key_hex}).encode("utf-8")
+                        typed = bytes([FRAME_DHT_PUT]) + ack_payload
+                        padded = _apply_padding(typed)
+                        nonce = __import__("os").urandom(12)
+                        ct = cipher.encrypt(nonce, padded, None)
+                        frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                        writer.write(frame)
+                        await writer.drain()
+                except Exception as e:
+                    logger.error(f"Fehler bei DHT-PUT: {e}")
+            elif frame_type == FRAME_DHT_GET:
+                logger.info(f"DHT-GET empfangen ({len(payload)}B)")
+                try:
+                    import json as _json
+                    data = _json.loads(payload.decode("utf-8"))
+                    key_hex = data.get("key")
+                    if key_hex:
+                        store = getattr(self, "_dht_store", {})
+                        value = store.get(bytes.fromhex(key_hex))
+                        response = {"status": "ok", "key": key_hex, "value": value}
+                    else:
+                        response = {"status": "error", "message": "kein key"}
+                    import struct
+                    response_payload = _json.dumps(response).encode("utf-8")
+                    typed = bytes([FRAME_DHT_GET]) + response_payload
+                    padded = _apply_padding(typed)
+                    nonce = __import__("os").urandom(12)
+                    ct = cipher.encrypt(nonce, padded, None)
+                    frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                    writer.write(frame)
+                    await writer.drain()
+                except Exception as e:
+                    logger.error(f"Fehler bei DHT-GET: {e}")
             else:
                 logger.error(f"Unbekannter Frame-Typ: {frame_type:#x}")
         except Exception as e:
