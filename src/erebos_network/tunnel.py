@@ -60,6 +60,7 @@ FRAME_RENDEZVOUS_REQUEST = 0x10  # payload = Rendezvous-Anfrage
 FRAME_RENDEZVOUS_RESPONSE = 0x11  # payload = Rendezvous-Antwort
 FRAME_DHT_PUT = 0x12  # payload = JSON {key, value}
 FRAME_DHT_GET = 0x13  # payload = JSON {key}
+FRAME_RENDEZVOUS_REGISTER = 0x14  # payload = Peer-ID des Hidden Service
 
 # Handshake-Versionen (erstes Byte im Handshake-Frame)
 HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF
@@ -400,6 +401,9 @@ class ErebosTunnelClient:
             if frame_type == FRAME_DHT_GET:
                 logger.debug(f"DHT-GET empfangen: {len(payload)}B")
                 return payload
+            if frame_type == FRAME_RENDEZVOUS_REGISTER:
+                logger.debug(f"Rendezvous-Register empfangen: {len(payload)}B")
+                return payload
             logger.warning(f"Unbekannter Frame-Typ im receive(): {frame_type:#x}")
             # Fallback: alles nach dem ersten Byte zurueckgeben
             return payload
@@ -416,6 +420,7 @@ class ErebosTunnelClient:
         """Sendet eine Rendezvous-Anfrage durch den Tunnel."""
         import json
         payload = json.dumps(request).encode('utf-8')
+        logger.debug(f"Sende Rendezvous-Request: {len(payload)}B an {self.host}:{self.port}")
         await self.send_typed(FRAME_RENDEZVOUS_REQUEST, payload)
 
     async def send_rendezvous_response(self, response: dict) -> None:
@@ -639,6 +644,7 @@ async def run_peer_server(port: int = PEER_PORT,
     logger.info(f"Peer-Identitaet: {peer_name} (Port {port})")
 
     dht_store = {}  # Lokaler DHT-Speicher für diesen Peer
+    rendezvous_pairs = {}  # Key -> {"hidden": (reader, writer), "client": (reader, writer)}
 
     async def handle(reader, writer):
         logger.info("Eingehende Tunnel-Verbindung")
@@ -854,6 +860,8 @@ async def run_peer_server(port: int = PEER_PORT,
                     writer.write(frame)
                     await writer.drain()
                     logger.debug(f"Rendezvous-Response gesendet: {len(response_payload)}B")
+                    # Kurz warten, damit der Client die Antwort lesen kann
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logger.error(f"Fehler bei Rendezvous-Request: {e}")
             elif frame_type == FRAME_DHT_PUT:
@@ -881,6 +889,120 @@ async def run_peer_server(port: int = PEER_PORT,
                         await writer.drain()
                 except Exception as e:
                     logger.error(f"Fehler bei DHT-PUT: {e}")
+            elif frame_type == FRAME_RENDEZVOUS_REGISTER:
+                logger.info(f"Rendezvous-Registrierung empfangen ({len(payload)}B)")
+                try:
+                    import json as _json
+                    data = _json.loads(payload.decode("utf-8"))
+                    role = data.get("role")
+                    key = data.get("key")
+                    if role and key:
+                        if key not in rendezvous_pairs:
+                            rendezvous_pairs[key] = {}
+                        # WICHTIG: Cipher mit speichern, damit FRAME_DATA mit dem
+                        # richtigen Schluessel der Ziel-Verbindung verschluesselt wird.
+                        rendezvous_pairs[key][role] = (reader, writer, cipher)
+                        logger.info(f"Rendezvous-Registrierung: {role} für Key {key[:16]}...")
+                        # Bestätigung senden
+                        import struct
+                        ack = _json.dumps({"status": "ok", "role": role}).encode("utf-8")
+                        typed = bytes([FRAME_RENDEZVOUS_REGISTER]) + ack
+                        padded = _apply_padding(typed)
+                        nonce = __import__("os").urandom(12)
+                        ct = cipher.encrypt(nonce, padded, None)
+                        frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                        writer.write(frame)
+                        await writer.drain()
+
+                        # Sende 'ready' SOFORT an den, der sich gerade registriert hat
+                        import struct
+                        ready_msg = _json.dumps({"status": "ready"}).encode("utf-8")
+                        typed = bytes([FRAME_RENDEZVOUS_REGISTER]) + ready_msg
+                        padded = _apply_padding(typed)
+                        nonce = __import__("os").urandom(12)
+                        ct = cipher.encrypt(nonce, padded, None)
+                        frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                        writer.write(frame)
+                        await writer.drain()
+                        logger.info(f"'ready' an {role} gesendet")
+
+                        # Prüfe, ob beide Rollen da sind
+                        pair = rendezvous_pairs[key]
+                        if "hidden" in pair and "client" in pair:
+                            logger.info(f"Rendezvous-Paar vollständig für Key {key[:16]}...")
+
+                            # Bestaetigung NUR an die ANDERE Rolle senden.
+                            # Die aktuell registrierende Rolle hat ihren 'ready'-Frame
+                            # bereits oben erhalten; ein zweiter 'ready' wuerde den
+                            # Client verwirren (er wuerde ihn als Datenframe sehen).
+                            for role_name, entry in pair.items():
+                                if role_name == role:
+                                    continue  # eigene Rolle ueberspringen
+                                try:
+                                    r, w, target_cipher = entry
+                                    typed_ready = bytes([FRAME_RENDEZVOUS_REGISTER]) + ready_msg
+                                    padded_ready = _apply_padding(typed_ready)
+                                    nonce_ready = __import__("os").urandom(12)
+                                    ct_ready = target_cipher.encrypt(nonce_ready, padded_ready, None)
+                                    frame_ready = struct.pack(">I", len(ct_ready) + 12) + nonce_ready + ct_ready
+                                    w.write(frame_ready)
+                                    await w.drain()
+                                except Exception as e:
+                                    logger.error(f"Fehler beim Senden der Bestaetigung an {role_name}: {e}")
+
+                        # Endlosschleife laeuft IMMER (für hidden UND client).
+                        # 'pair' ist eine Referenz auf das Dict in rendezvous_pairs[key]
+                        # und sieht daher auch Rollen, die erst spaeter hinzukommen.
+                        logger.info("Rendezvous-Verbindung bleibt offen (warte auf Frames)")
+                        while True:
+                            try:
+                                frame_in = await asyncio.wait_for(_recv_frame(reader), timeout=60.0)
+                                if not frame_in:
+                                    break
+                                padded_in = cipher.decrypt(frame_in[:12], frame_in[12:], None)
+                                data_in = _strip_padding(padded_in)
+                                if not data_in:
+                                    continue
+                                ft = data_in[0]
+                                pl = data_in[1:]
+                                if ft == FRAME_DATA:
+                                    logger.info(f"FRAME_DATA empfangen ({len(pl)}B) - leite weiter")
+                                    for role_name, entry in pair.items():
+                                        r, w, target_cipher = entry
+                                        if w is writer:
+                                            continue
+                                        try:
+                                            typed_out = bytes([FRAME_DATA]) + pl
+                                            padded_out = _apply_padding(typed_out)
+                                            nonce_out = __import__("os").urandom(12)
+                                            ct_out = target_cipher.encrypt(nonce_out, padded_out, None)
+                                            frame_out = struct.pack(">I", len(ct_out) + 12) + nonce_out + ct_out
+                                            w.write(frame_out)
+                                            await w.drain()
+                                        except Exception as e:
+                                            logger.error(f"Weiterleitungsfehler an {role_name}: {e}")
+                                else:
+                                    logger.debug(f"Frame {ft:#x} empfangen")
+                            except asyncio.TimeoutError:
+                                continue
+                            except Exception as e:
+                                logger.error(f"Fehler in Rendezvous-Loop: {e}")
+                                break
+                except Exception as e:
+                    logger.error(f"Fehler bei Rendezvous-Registrierung: {e}")
+            elif frame_type == FRAME_DATA:
+                logger.info(f"FRAME_DATA empfangen ({len(payload)}B)")
+                # Leite an die Rendezvous-Verbindung weiter (falls vorhanden)
+                if rendezvous_connections:
+                    for peer_id, (r, w) in rendezvous_connections.items():
+                        try:
+                            w.write(payload)
+                            await w.drain()
+                            logger.debug(f"Daten an {peer_id} weitergeleitet")
+                        except Exception as e:
+                            logger.error(f"Fehler beim Weiterleiten an {peer_id}: {e}")
+                else:
+                    logger.warning("Keine Rendezvous-Verbindung vorhanden")
             elif frame_type == FRAME_DHT_GET:
                 logger.info(f"DHT-GET empfangen ({len(payload)}B)")
                 try:

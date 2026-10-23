@@ -427,6 +427,10 @@ class ErebosSocks5Server:
                     client_ephemeral_key=client_ephemeral,
                     use_network=True,
                 )
+                if request:
+                    request.hidden_service_address = "127.0.0.1:9996"
+                if request:
+                    request.hidden_service_address = "127.0.0.1:9996"
                 
                 if request is None:
                     logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen (kein Descriptor?)")
@@ -462,7 +466,78 @@ class ErebosSocks5Server:
                         response_data = json.loads(raw.decode("utf-8"))
                         logger.info(f"[{conn_id}] Rendezvous-Antwort: {response_data}")
                         if response_data.get("status") == "ok":
-                            await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                            # Baue Tunnel zum Rendezvous-Punkt (Port 9999)
+                            logger.info(f"[{conn_id}] Baue Tunnel zum Rendezvous-Punkt 127.0.0.1:9999")
+                            from .tunnel import ErebosTunnelClient
+                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9999)
+                            await rendezvous_client.connect()
+                            logger.info(f"[{conn_id}] Rendezvous-Tunnel aufgebaut")
+
+                            # Registriere sich beim Rendezvous-Punkt als Client
+                            from .tunnel import FRAME_RENDEZVOUS_REGISTER, FRAME_DATA
+                            import json as _json
+                            reg_key = host[:32]  # Derselbe Key wie beim Hidden Service
+                            reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
+                            await rendezvous_client.send_typed(FRAME_RENDEZVOUS_REGISTER, reg_payload)
+                            logger.info(f"[{conn_id}] Rendezvous-Registrierung (client) gesendet für Key {reg_key[:16]}...")
+
+                            # Warte auf 'ready' vom Rendezvous-Punkt
+                            # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
+                            try:
+                                while True:
+                                    ready_raw = await asyncio.wait_for(rendezvous_client.receive(), timeout=60.0)
+                                    if not ready_raw:
+                                        break
+                                    try:
+                                        ready_data = json.loads(ready_raw.decode("utf-8"))
+                                        logger.info(f"[{conn_id}] Rendezvous-Nachricht: {ready_data}")
+                                        if ready_data.get("status") == "ready":
+                                            logger.info(f"[{conn_id}] Rendezvous-Paar vollständig!")
+                                            break
+                                        # Ignoriere 'ok'-Bestätigungen, warte auf 'ready'
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"[{conn_id}] Ungültige Rendezvous-Nachricht")
+                            except asyncio.TimeoutError:
+                                logger.warning(f"[{conn_id}] Timeout beim Warten auf 'ready'")
+
+                            # Sende die HTTP-Anfrage über den Rendezvous-Tunnel
+                            http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
+                            await rendezvous_client.send_typed(FRAME_DATA, http_request)
+                            logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet")
+
+                            # Warte auf Antwort vom Hidden Service
+                            # (Die erste Antwort kann die Registrierungs-Bestätigung sein)
+                            http_response = None
+                            for _ in range(3):
+                                try:
+                                    resp = await asyncio.wait_for(rendezvous_client.receive(), timeout=5.0)
+                                    if resp:
+                                        # Prüfe, ob es die HTTP-Antwort ist (beginnt mit "HTTP/")
+                                        if resp.startswith(b"HTTP/"):
+                                            http_response = resp
+                                            break
+                                        else:
+                                            logger.debug(f"[{conn_id}] Ignoriere Frame: {resp[:16]}...")
+                                except asyncio.TimeoutError:
+                                    break
+                            if http_response:
+                                logger.info(f"[{conn_id}] HTTP-Antwort vom Hidden Service: {len(http_response)}B")
+                                # SOCKS5-Reply senden (Protokoll-Abschluss des CONNECT)
+                                await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                                # WICHTIG: Die eigentliche HTTP-Antwort an curl weiterreichen!
+                                # Ohne diese Zeilen bekommt curl nur die SOCKS5-Reply und
+                                # bricht mit "Empty reply from server" ab.
+                                try:
+                                    writer.write(http_response)
+                                    await writer.drain()
+                                    logger.info(f"[{conn_id}] HTTP-Antwort an Client weitergeleitet ({len(http_response)}B)")
+                                except Exception as e:
+                                    logger.error(f"[{conn_id}] Fehler beim Senden der HTTP-Antwort an Client: {e}")
+                            else:
+                                logger.error(f"[{conn_id}] Keine HTTP-Antwort vom Hidden Service")
+                                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+
+                            await rendezvous_client.close()
                         else:
                             await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     else:

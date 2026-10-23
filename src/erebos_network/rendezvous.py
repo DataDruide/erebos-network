@@ -14,6 +14,7 @@ class RendezvousRequest:
     rendezvous_peer_id: str
     rendezvous_address: str
     created_at: float
+    hidden_service_address: str = ""
     signature: bytes = b""
 
     def signable_payload(self) -> bytes:
@@ -30,6 +31,7 @@ class RendezvousRequest:
             "client_ephemeral_key": self.client_ephemeral_key.hex(),
             "rendezvous_peer_id": self.rendezvous_peer_id,
             "rendezvous_address": self.rendezvous_address,
+            "hidden_service_address": self.hidden_service_address,
             "created_at": self.created_at,
             "signature": self.signature.hex(),
         }
@@ -40,6 +42,7 @@ class RendezvousRequest:
             client_ephemeral_key=bytes.fromhex(data["client_ephemeral_key"]),
             rendezvous_peer_id=data["rendezvous_peer_id"],
             rendezvous_address=data["rendezvous_address"],
+            hidden_service_address=data.get("hidden_service_address", ""),
             created_at=data["created_at"],
             signature=bytes.fromhex(data["signature"]),
         )
