@@ -72,6 +72,27 @@ Die Klasse `HiddenServiceRuntime` in `hidden_service_runtime.py` ist die produkt
 
 Der Rendezvous-Punkt unterstuetzt mehrere Clients pro Key. Jeder Client vergibt pro SOCKS5-Verbindung eine eindeutige `stream_id` (`conn_id & 0xFFFF`). FRAME_DATA traegt `[stream_id: 2B][payload]`.
 
+## Ende-zu-Ende-Verschluesselung
+
+Seit dem E2E-Patch (B2+B3+B4) handeln Client und Hidden-Service
+einen gemeinsamen Schluessel aus, der peer1 nicht bekannt ist:
+
+1. Client sendet FRAME_DATA mit e2e_flag=0x02 (E2E_KEY_INIT,
+   X25519_pub + ML-KEM_pub).
+2. Hidden-Service antwortet mit e2e_flag=0x03 (E2E_KEY_RESP,
+   X25519_pub + ML-KEM_ct).
+3. Beide leiten e2e_key = HKDF(x25519_shared || mlkem_shared,
+   info=erebos-e2e-key-v1) ab.
+4. HTTP-Anfrage und -Antwort werden mit ChaCha20-Poly1305 und
+   e2e_flag=0x01 verschluesselt.
+
+peer1 leitet die Frames roh weiter (nur Tunnel-Re-Encryption) und
+sieht keinen HTTP-Klartext. Die E2E-Schicht ist undurchsichtig fuer
+den Rendezvous-Punkt.
+
+Beweis: peer1.log enthaelt e2e_flag=0x1-Meldungen, aber keinen
+HTTP-Klartext.
+
 ## Tests
 
 ```bash
@@ -93,4 +114,4 @@ pytest tests/test_proxy_erebos_e2e.py
 - [ ] Persistente Hidden-Service-Schluessel
 - [ ] Echte verteilte DHT
 - [ ] Multi-Intro-Point-Rotation
-- [ ] Ende-zu-Ende-Verschluesselung
+- [x] Ende-zu-Ende-Verschluesselung (E2E_KEY_INIT/RESP, ChaCha20-Poly1305)

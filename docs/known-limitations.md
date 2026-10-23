@@ -50,20 +50,17 @@ koennten Stream-IDs kollidieren.
 **Loesung (offen)**: `conn_id` nach Erreichen von 65535 zuruecksetzen,
 oder auf 4-Byte-Stream-IDs umstellen.
 
-### 4. Rendezvous-Punkt ist Trusted Relay (keine E2E-Verschluesselung)
+### 4. Rendezvous-Punkt ist Trusted Relay (geloest: E2E-Verschluesselung)
 
-Aktuell entschluesselt der Rendezvous-Punkt (peer1) die `FRAME_DATA`,
-weil er sie mit dem Ziel-Cipher neu verschluesseln muss. Das ist
-**kein** Ende-zu-Ende im kryptografischen Sinn — peer1 sieht den
-Klartext.
+**Geloest**: Client und Hidden-Service handeln einen gemeinsamen
+E2E-Schluessel aus (X25519 + ML-KEM-1024, HKDF mit
+Domain-Separation `erebos-e2e-key-v1`). Die FRAME_DATA-Payload
+wird zusaetzlich mit ChaCha20-Poly1305 verschluesselt
+(`e2e_flag=0x01`). peer1 leitet die verschluesselten Blobs roh
+weiter und sieht keinen HTTP-Klartext mehr.
 
-**Auswirkung**: Ein kompromittierter Rendezvous-Punkt kann den
-HTTP-Traffic mitlesen.
-
-**Loesung (offen)**: Onion-Encryption-Layer zwischen Client und
-Hidden-Service. Der Rendezvous-Punkt leitet nur verschluesselte
-Blobs weiter. Erfordert ein eigenes Schluessel-Aushandeln zwischen
-Client und Hidden-Service.
+Beweis: `peer1.log` zeigt `e2e_flag=0x1` und **keinen**
+HTTP-Klartext. Siehe `docs/HIDDEN_SERVICES.md`.
 
 ### 5. Hidden-Service-Schluessel nicht persistent
 
