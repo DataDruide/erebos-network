@@ -56,6 +56,8 @@ FRAME_OPEN  = 0x02  # payload = "host:port", Ziel oeffnen
 FRAME_DATA  = 0x03  # payload = Stream-Nutzdaten
 FRAME_COVER = 0x04  # payload = Cover-Traffic (verwerfen)
 FRAME_COVER_ACK = 0x05  # payload = Downlink-Cover-ACK (verwerfen)
+FRAME_RENDEZVOUS_REQUEST = 0x10  # payload = Rendezvous-Anfrage
+FRAME_RENDEZVOUS_RESPONSE = 0x11  # payload = Rendezvous-Antwort
 
 # Handshake-Versionen (erstes Byte im Handshake-Frame)
 HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF
@@ -756,3 +758,16 @@ async def run_peer_server(port: int = PEER_PORT,
     logger.info(f"Peer-Server laeuft auf {host}:{port}")
     async with server:
         await server.serve_forever()
+
+    async def send_rendezvous_request(self, request: dict) -> None:
+        """Sendet eine Rendezvous-Anfrage durch den Tunnel."""
+        import json
+        payload = json.dumps(request).encode('utf-8')
+        await self.send_typed(FRAME_RENDEZVOUS_REQUEST, payload)
+
+    async def send_rendezvous_response(self, response: dict) -> None:
+        """Sendet eine Rendezvous-Antwort durch den Tunnel."""
+        import json
+        payload = json.dumps(response).encode('utf-8')
+        await self.send_typed(FRAME_RENDEZVOUS_RESPONSE, payload)
+
