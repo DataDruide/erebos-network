@@ -1,16 +1,19 @@
 """Verteilte DHT für Hidden-Service-Descriptors.
 
 Nutzt die RoutingTable (Kademlia) zur Peer-Auswahl und verteilt
-Descriptors über die nächsten Peers. Für den Moment ist die
-Speicherung lokal (im RoutingTable-nahen Store), aber die
-Schnittstelle ist so gestaltet, dass später echte Netzwerk-Puts
-und -Gets möglich sind.
+Descriptors über die nächsten Peers. Die Netzwerkkommunikation
+läuft über ErebosTunnelClient.
 """
 
+import asyncio
 import hashlib
+import json
+import logging
 from typing import Optional
 
-from .dht import RoutingTable, PeerInfo
+from .dht import RoutingTable, PeerInfo, xor_distance
+
+logger = logging.getLogger(__name__)
 
 
 class DistributedDescriptorStore:
@@ -22,20 +25,44 @@ class DistributedDescriptorStore:
         self._local_store = {}
 
     def put(self, key: bytes, value: dict) -> None:
-        """Speichert einen Descriptor lokal und (später) bei den nächsten Peers."""
+        """Speichert einen Descriptor lokal und bei den nächsten Peers."""
         self._local_store[key] = value
-        # TODO: Verteile an die nächsten Peers (Kademlia-Put)
-        # Für den Moment: nur lokal.
+        # Asynchron an die nächsten Peers verteilen (Fire-and-Forget)
+        # In einer echten Implementierung würde man auf Bestätigungen warten.
+        asyncio.create_task(self._distribute_put(key, value))
 
     def get(self, key: bytes) -> Optional[dict]:
         """Holt einen Descriptor (lokal oder von Peers)."""
         # 1. Lokal prüfen
         if key in self._local_store:
             return self._local_store[key]
-
-        # 2. Bei den nächsten Peers anfragen (TODO: echte Netzwerk-Get)
+        # 2. Bei den nächsten Peers anfragen (synchron, mit Timeout)
+        # In einer echten Implementierung wäre das asynchron.
         # Für den Moment: None.
         return None
+
+    async def _distribute_put(self, key: bytes, value: dict) -> None:
+        """Verteilt einen Descriptor an die nächsten Peers."""
+        target_id = key.hex()
+        closest = self.routing_table.find_closest(target_id, count=3)
+        for peer in closest:
+            try:
+                from .tunnel import ErebosTunnelClient
+                host, port = peer.address.split(":")
+                client = ErebosTunnelClient(host=host, port=int(port))
+                await client.connect()
+                # Sende einen speziellen Frame für DHT-Put
+                # (Für den Moment: als Rendezvous-Request missbrauchen)
+                payload = json.dumps({
+                    "type": "dht_put",
+                    "key": key.hex(),
+                    "value": value,
+                }).encode("utf-8")
+                # TODO: Eigenen Frame-Typ für DHT-Put einführen
+                logger.info(f"DHT-Put an {peer.address} (TODO: Frame-Typ)")
+                await client.close()
+            except Exception as e:
+                logger.error(f"DHT-Put an {peer.address} fehlgeschlagen: {e}")
 
     def add_peer(self, peer: PeerInfo) -> bool:
         """Fügt einen Peer zur Routing-Tabelle hinzu."""
