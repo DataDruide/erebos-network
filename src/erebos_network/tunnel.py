@@ -394,6 +394,12 @@ class ErebosTunnelClient:
             if frame_type == FRAME_RENDEZVOUS_RESPONSE:
                 logger.debug(f"Rendezvous-Response empfangen: {len(payload)}B")
                 return payload
+            if frame_type == FRAME_DHT_PUT:
+                logger.debug(f"DHT-PUT empfangen: {len(payload)}B")
+                return payload
+            if frame_type == FRAME_DHT_GET:
+                logger.debug(f"DHT-GET empfangen: {len(payload)}B")
+                return payload
             logger.warning(f"Unbekannter Frame-Typ im receive(): {frame_type:#x}")
             # Fallback: alles nach dem ersten Byte zurueckgeben
             return payload
@@ -632,6 +638,8 @@ async def run_peer_server(port: int = PEER_PORT,
         )
     logger.info(f"Peer-Identitaet: {peer_name} (Port {port})")
 
+    dht_store = {}  # Lokaler DHT-Speicher für diesen Peer
+
     async def handle(reader, writer):
         logger.info("Eingehende Tunnel-Verbindung")
         try:
@@ -827,9 +835,9 @@ async def run_peer_server(port: int = PEER_PORT,
                     value = data.get("value")
                     if key_hex and value:
                         # Speichere lokal (in einer echten DHT: verteile weiter)
-                        if not hasattr(self, "_dht_store"):
-                            self._dht_store = {}
-                        self._dht_store[bytes.fromhex(key_hex)] = value
+                        
+                            
+                        dht_store[bytes.fromhex(key_hex)] = value
                         logger.info(f"DHT-PUT gespeichert: {key_hex[:16]}...")
                         # Sende Bestätigung
                         import struct
@@ -850,7 +858,7 @@ async def run_peer_server(port: int = PEER_PORT,
                     data = _json.loads(payload.decode("utf-8"))
                     key_hex = data.get("key")
                     if key_hex:
-                        store = getattr(self, "_dht_store", {})
+                        store = dht_store
                         value = store.get(bytes.fromhex(key_hex))
                         response = {"status": "ok", "key": key_hex, "value": value}
                     else:

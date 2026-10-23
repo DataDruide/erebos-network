@@ -21,3 +21,6 @@ __all__ = [
     "publish_descriptor",
     "lookup_descriptor",
 ]
+from .hidden_service_client import connect_to_hidden_service
+from .hidden_service_server import handle_rendezvous_request
+from .intro_point import forward_rendezvous_request, receive_rendezvous_response_from_hs
