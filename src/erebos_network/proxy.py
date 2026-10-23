@@ -502,8 +502,9 @@ class ErebosSocks5Server:
 
                             # Sende die HTTP-Anfrage über den Rendezvous-Tunnel
                             http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
-                            # Rendezvous-Pfad: stream_id (2B) vor die Nutzdaten
-                            stream_id = 0  # Schritt 1: immer Stream 0, Verhalten unveraendert
+                            # Rendezvous-Pfad: stream_id (2B) vor die Nutzdaten.
+                            # conn_id ist pro Proxy-Verbindung eindeutig -> als Stream-ID.
+                            stream_id = conn_id & 0xFFFF
                             import struct as _struct
                             framed_request = _struct.pack(">H", stream_id) + http_request
                             await rendezvous_client.send_typed(FRAME_DATA, framed_request)
@@ -523,6 +524,13 @@ class ErebosSocks5Server:
                                         import struct as _struct
                                         resp_stream_id = _struct.unpack(">H", resp[:2])[0]
                                         resp_payload = resp[2:]
+                                        # Nur Antworten fuer die EIGENE Stream-ID akzeptieren
+                                        if resp_stream_id != stream_id:
+                                            logger.debug(
+                                                f"[{conn_id}] Ignoriere Frame fuer fremden Stream "
+                                                f"(stream={resp_stream_id}, erwartet={stream_id})"
+                                            )
+                                            continue
                                         if resp_payload.startswith(b"HTTP/"):
                                             http_response = resp_payload
                                             break
