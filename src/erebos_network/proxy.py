@@ -500,17 +500,53 @@ class ErebosSocks5Server:
                             except asyncio.TimeoutError:
                                 logger.warning(f"[{conn_id}] Timeout beim Warten auf 'ready'")
 
-                            # Sende die HTTP-Anfrage über den Rendezvous-Tunnel
-                            http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
-                            # Rendezvous-Pfad: stream_id (2B) vor die Nutzdaten.
-                            # conn_id ist pro Proxy-Verbindung eindeutig -> als Stream-ID.
-                            stream_id = conn_id & 0xFFFF
+                            # B3: E2E-Schluesselaustausch (optional, fallback Klartext)
                             import struct as _struct
-                            # B1: [stream_id:2B][e2e_flag:1B][payload]
-                            e2e_flag = 0x00  # B1: Klartext (altes Verhalten)
-                            framed_request = _struct.pack(">H", stream_id) + bytes([e2e_flag]) + http_request
+                            from .e2e import (
+                                E2EClient,
+                                E2E_FLAG_KEY_INIT,
+                                E2E_FLAG_KEY_RESP,
+                                E2E_FLAG_ENCRYPTED,
+                            )
+                            stream_id = conn_id & 0xFFFF
+                            e2e_client = E2EClient()
+                            e2e_key = None
+                            try:
+                                # 1) Sende E2E_KEY_INIT
+                                e2e_init = e2e_client.build_key_init()
+                                framed_init = _struct.pack(">H", stream_id) + bytes([E2E_FLAG_KEY_INIT]) + e2e_init
+                                await rendezvous_client.send_typed(FRAME_DATA, framed_init)
+                                logger.info(f"[{conn_id}] E2E_KEY_INIT gesendet (stream={stream_id})")
+
+                                # 2) Warte auf E2E_KEY_RESP
+                                for _ in range(5):
+                                    resp = await asyncio.wait_for(rendezvous_client.receive(), timeout=5.0)
+                                    if len(resp) < 3:
+                                        continue
+                                    sid = _struct.unpack(">H", resp[:2])[0]
+                                    flag = resp[2]
+                                    if sid == stream_id and flag == E2E_FLAG_KEY_RESP:
+                                        e2e_key = e2e_client.process_key_response(resp[3:])
+                                        logger.info(f"[{conn_id}] E2E-Schluessel abgeleitet (stream={stream_id})")
+                                        break
+                                    else:
+                                        logger.debug(f"[{conn_id}] Ignoriere Frame (stream={sid}, flag={flag:#x})")
+                            except Exception as e:
+                                logger.warning(f"[{conn_id}] E2E-Schluesselaustausch fehlgeschlagen: {e}")
+
+                            # 3) Sende HTTP-Anfrage (E2E-verschluesselt, falls Key vorhanden)
+                            http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
+                            if e2e_key is not None:
+                                encrypted = e2e_client.encrypt(http_request)
+                                e2e_flag = E2E_FLAG_ENCRYPTED
+                                payload = encrypted
+                                logger.info(f"[{conn_id}] HTTP-Anfrage E2E-verschluesselt (stream={stream_id})")
+                            else:
+                                e2e_flag = 0x00
+                                payload = http_request
+                            framed_request = _struct.pack(">H", stream_id) + bytes([e2e_flag]) + payload
                             await rendezvous_client.send_typed(FRAME_DATA, framed_request)
-                            logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet (stream={stream_id})")
+                            logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet (stream={stream_id}, e2e_flag={e2e_flag:#x})")
 
                             # Warte auf Antwort vom Hidden Service
                             # (Die erste Antwort kann die Registrierungs-Bestätigung sein)
@@ -527,10 +563,6 @@ class ErebosSocks5Server:
                                         resp_stream_id = _struct.unpack(">H", resp[:2])[0]
                                         resp_e2e_flag = resp[2]
                                         resp_payload = resp[3:]
-                                        # B1: e2e_flag=0 -> Klartext (altes Verhalten)
-                                        # spaeter: 0x01 -> E2E-verschluesselt, entschluesseln
-                                        if resp_e2e_flag != 0x00:
-                                            logger.debug(f"[{conn_id}] Unbekanntes e2e_flag: {resp_e2e_flag:#x}")
                                         # Nur Antworten fuer die EIGENE Stream-ID akzeptieren
                                         if resp_stream_id != stream_id:
                                             logger.debug(
@@ -538,6 +570,16 @@ class ErebosSocks5Server:
                                                 f"(stream={resp_stream_id}, erwartet={stream_id})"
                                             )
                                             continue
+                                        # B3: E2E-entschluesseln, falls verschluesselt
+                                        if resp_e2e_flag == E2E_FLAG_ENCRYPTED and e2e_key is not None:
+                                            try:
+                                                resp_payload = e2e_client.decrypt(resp_payload)
+                                                logger.info(f"[{conn_id}] E2E-Antwort entschluesselt (stream={stream_id})")
+                                            except Exception as e:
+                                                logger.error(f"[{conn_id}] E2E-Entschluesselung fehlgeschlagen: {e}")
+                                                continue
+                                        elif resp_e2e_flag != 0x00:
+                                            logger.debug(f"[{conn_id}] Unbekanntes e2e_flag: {resp_e2e_flag:#x}")
                                         if resp_payload.startswith(b"HTTP/"):
                                             http_response = resp_payload
                                             break

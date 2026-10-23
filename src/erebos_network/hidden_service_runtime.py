@@ -38,6 +38,13 @@ from .tunnel import (
     FRAME_DHT_PUT,
     FRAME_RENDEZVOUS_REGISTER,
 )
+from .e2e import (
+    E2EServer,
+    E2E_FLAG_CLEARTEXT,
+    E2E_FLAG_ENCRYPTED,
+    E2E_FLAG_KEY_INIT,
+    E2E_FLAG_KEY_RESP,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +206,12 @@ class HiddenServiceRuntime:
         ErebosTunnelClient.receive() liefert die Nutzlast OHNE Frame-Typ.
         Wir unterscheiden am Inhalt:
         - JSON-Steuerframes ({"status": ...}) -> ignorieren
-        - HTTP-Anfragen ([stream_id][GET/POST/...]) -> an HTTP-Backend
+        - E2E_KEY_INIT -> E2E-Schluessel aushandeln
+        - HTTP-Anfragen ([stream_id][e2e_flag][GET/POST/...]) -> an HTTP-Backend
         - alles andere -> ignorieren
         """
+        # E2E-Server pro stream_id
+        e2e_servers = {}
         try:
             while True:
                 try:
@@ -230,10 +240,50 @@ class HiddenServiceRuntime:
                 stream_id = struct.unpack(">H", data[:2])[0]
                 e2e_flag = data[2]
                 payload_data = data[3:]
-                # B1: e2e_flag=0 -> Klartext (altes Verhalten)
-                # spaeter: 0x01 -> E2E-verschluesselt, entschluesseln
-                if e2e_flag != 0x00:
+
+                # E2E_KEY_INIT: Schluessel aushandeln
+                if e2e_flag == E2E_FLAG_KEY_INIT:
+                    try:
+                        e2e_server = E2EServer()
+                        resp_payload = e2e_server.process_key_init(payload_data)
+                        e2e_servers[stream_id] = e2e_server
+                        framed_resp = (
+                            struct.pack(">H", stream_id)
+                            + bytes([E2E_FLAG_KEY_RESP])
+                            + resp_payload
+                        )
+                        await client.send_typed(FRAME_DATA, framed_resp)
+                        logger.info(
+                            f"E2E-Schluessel abgeleitet (stream={stream_id})"
+                        )
+                    except Exception as e:
+                        logger.error(f"E2E_KEY_INIT fehlgeschlagen: {e}")
+                    continue
+
+                # E2E-verschluesselte Anfrage: entschluesseln
+                if e2e_flag == E2E_FLAG_ENCRYPTED:
+                    e2e_server = e2e_servers.get(stream_id)
+                    if e2e_server is None:
+                        logger.warning(
+                            f"Verschluesselte Anfrage ohne E2E-Schluessel "
+                            f"(stream={stream_id}) - verworfen"
+                        )
+                        continue
+                    try:
+                        payload_data = e2e_server.decrypt(payload_data)
+                        logger.info(
+                            f"E2E-Anfrage entschluesselt (stream={stream_id}, "
+                            f"{len(payload_data)}B)"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"E2E-Entschluesselung fehlgeschlagen "
+                            f"(stream={stream_id}): {e}"
+                        )
+                        continue
+                elif e2e_flag != E2E_FLAG_CLEARTEXT:
                     logger.debug(f"Unbekanntes e2e_flag (stream={stream_id}): {e2e_flag:#x}")
+
                 if not payload_data.startswith(HTTP_PREFIXES):
                     logger.debug(
                         f"Ignoriere Nicht-HTTP-Daten (stream={stream_id}): "
@@ -256,7 +306,33 @@ class HiddenServiceRuntime:
                     logger.error(f"HTTP-Backend-Fehler: {e}")
                     continue
 
-                framed_response = struct.pack(">H", stream_id) + bytes([0x00]) + http_response
+                # Antwort verschluesseln, falls E2E-Schluessel vorhanden
+                e2e_server = e2e_servers.get(stream_id)
+                if e2e_server is not None:
+                    try:
+                        encrypted_resp = e2e_server.encrypt(http_response)
+                        framed_response = (
+                            struct.pack(">H", stream_id)
+                            + bytes([E2E_FLAG_ENCRYPTED])
+                            + encrypted_resp
+                        )
+                        logger.info(
+                            f"E2E-Antwort verschluesselt (stream={stream_id}, "
+                            f"{len(http_response)}B -> {len(encrypted_resp)}B)"
+                        )
+                    except Exception as e:
+                        logger.error(f"E2E-Verschluesselung fehlgeschlagen: {e}")
+                        framed_response = (
+                            struct.pack(">H", stream_id)
+                            + bytes([E2E_FLAG_CLEARTEXT])
+                            + http_response
+                        )
+                else:
+                    framed_response = (
+                        struct.pack(">H", stream_id)
+                        + bytes([E2E_FLAG_CLEARTEXT])
+                        + http_response
+                    )
                 await client.send_typed(FRAME_DATA, framed_response)
                 logger.info(
                     f"HTTP-Antwort gesendet (stream={stream_id}, "

@@ -1,197 +1,232 @@
-"""End-to-End Modus (Forschungsprototyp).
+"""Ende-zu-Ende-Verschluesselung fuer Erebos Hidden Services.
 
-WICHTIG: Dies ist ein symmetrischer Prototyp.
-  - shared_secret = secrets.token_bytes(32) (kein KEM-Handshake!)
-  - kein Schluesselaustausch zwischen Peers
-  - beide Seiten teilen sich das Secret im gleichen Prozess
+Der Client und der Hidden-Service handeln einen gemeinsamen E2E-Schluessel
+aus (X25519 + ML-KEM-1024), der NICHT vom Rendezvous-Punkt (peer1)
+eingesehen werden kann. peer1 leitet die E2E-verschluesselten Frames
+roh weiter.
 
-Fuer echte E2E-Verschluesselung zwischen Peers siehe:
-  - auth_handshake.py (authentifizierter Hybrid-Handshake)
-  - tunnel.py (verschluesselter Transport)
+Ablauf:
+    1. Client -> Hidden: E2E_KEY_INIT (X25519_pub + ML-KEM_pub)
+    2. Hidden -> Client: E2E_KEY_RESP (X25519_pub + ML-KEM_ct)
+    3. Beide: E2E_KEY = HKDF(X25519_shared || ML-KEM_shared, info=E2E_INFO)
+    4. Ab jetzt: FRAME_DATA mit e2e_flag=0x01 (ChaCha20-Poly1305)
 
-Krypto:
-  - ChaCha20-Poly1305 AEAD (RFC 8439)
-  - shared_secret wird per HKDF abgeleitet (RFC 5869)
+Frame-Format fuer E2E_KEY_INIT:
+    [stream_id:2B][e2e_flag=0x02][X25519_pub:32B][ML-KEM_pub:1568B]
+
+Frame-Format fuer E2E_KEY_RESP:
+    [stream_id:2B][e2e_flag=0x03][X25519_pub:32B][ML-KEM_ct:1568B]
 """
 
 import hashlib
-import logging
 import os
-import secrets
-import time
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
-from cryptography.hazmat.primitives import hashes
+import struct
+from typing import Optional, Tuple
+
+from cryptography.hazmat.primitives.asymmetric.x25519 import (
+    X25519PrivateKey,
+    X25519PublicKey,
+)
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-logger = logging.getLogger(__name__)
+from .crypto.hybrid_kem import derive_hybrid_key
 
-
-class E2EState(Enum):
-    """Zustand einer E2E-Verbindung."""
-
-    INITIATED = "initiated"
-    HANDSHAKE = "handshake"
-    ESTABLISHED = "established"
-    CLOSED = "closed"
+try:
+    import oqs
+except ImportError:
+    oqs = None
 
 
-@dataclass
-class E2ESession:
-    """Eine End-to-End Session."""
+# e2e_flag-Werte
+E2E_FLAG_CLEARTEXT = 0x00
+E2E_FLAG_ENCRYPTED = 0x01
+E2E_FLAG_KEY_INIT = 0x02
+E2E_FLAG_KEY_RESP = 0x03
 
-    session_id: str
-    initiator_id: str
-    responder_id: str
-    shared_secret: bytes
-    state: E2EState = E2EState.INITIATED
-    created_at: float = field(default_factory=time.time)
-    messages_sent: int = 0
-    messages_received: int = 0
+# Domain-Separation fuer den E2E-Schluessel (unabhaengig vom Tunnel)
+E2E_INFO = b"erebos-e2e-key-v1"
 
-    @property
-    def is_established(self) -> bool:
-        return self.state == E2EState.ESTABLISHED
+# ML-KEM-1024 Parameter
+MLKEM_ALG = "ML-KEM-1024"
+MLKEM_PUB_SIZE = 1568
+MLKEM_CT_SIZE = 1568
+MLKEM_SHARED_SIZE = 32
 
-    @property
-    def fingerprint(self) -> str:
-        return hashlib.sha256(self.shared_secret).hexdigest()[:16]
+X25519_KEY_SIZE = 32
 
 
-class EndToEnd:
-    """End-to-End Modus.
+# ---------------------------------------------------------------------------
+# Hilfsfunktionen
+# ---------------------------------------------------------------------------
 
-    Beide Peers sind Erebos-Nodes. Kein Exit-Gateway.
-    """
+def _require_oqs():
+    if oqs is None:
+        raise RuntimeError("liboqs-python (oqs) ist nicht installiert")
+    return oqs
+
+
+def _apply_padding(data: bytes) -> bytes:
+    """Padding auf 256-Byte-Bloecke (analog zum Tunnel-Pfad)."""
+    pad_len = (256 - (len(data) % 256)) % 256
+    if pad_len == 0:
+        pad_len = 256
+    return data + bytes([pad_len - 1]) * pad_len
+
+
+def _strip_padding(data: bytes) -> bytes:
+    if not data:
+        return data
+    pad_len = data[-1] + 1
+    if pad_len > len(data):
+        return data
+    return data[:-pad_len]
+
+
+# ---------------------------------------------------------------------------
+# Client-Seite: Initiiert den E2E-Schluesselaustausch
+# ---------------------------------------------------------------------------
+
+class E2EClient:
+    """Client-Seite des E2E-Schluesselaustauschs."""
 
     def __init__(self):
-        self._sessions: dict[str, E2ESession] = {}
-        self.stats = {
-            "sessions_created": 0,
-            "sessions_established": 0,
-            "sessions_closed": 0,
-            "messages_sent": 0,
-        }
+        self._x25519_priv: Optional[X25519PrivateKey] = None
+        self._x25519_pub: Optional[bytes] = None
+        self._mlkem_pub: Optional[bytes] = None
+        self._mlkem_priv: Optional[bytes] = None
+        self._key: Optional[bytes] = None
 
-    def create_session(
-        self,
-        initiator_id: str,
-        responder_id: str,
-    ) -> E2ESession:
-        """Erstellt eine E2E-Session."""
-        session_id = hashlib.sha256(
-            f"{initiator_id}:{responder_id}:{time.time()}".encode()
-        ).hexdigest()[:16]
+    def build_key_init(self) -> bytes:
+        """Erzeugt die E2E_KEY_INIT-Payload (X25519_pub + ML-KEM_pub).
 
-        shared_secret = secrets.token_bytes(32)
-
-        session = E2ESession(
-            session_id=session_id,
-            initiator_id=initiator_id,
-            responder_id=responder_id,
-            shared_secret=shared_secret,
-        )
-        self._sessions[session_id] = session
-        self.stats["sessions_created"] += 1
-
-        logger.info(
-            f"E2E-Session erstellt: {session_id} "
-            f"({initiator_id[:8]} -> {responder_id[:8]})"
-        )
-        return session
-
-    def establish(self, session_id: str) -> bool:
-        """Markiert Session als etabliert."""
-        session = self._sessions.get(session_id)
-        if not session:
-            return False
-        if session.state != E2EState.INITIATED:
-            return False
-        session.state = E2EState.ESTABLISHED
-        self.stats["sessions_established"] += 1
-        return True
-
-    def send(
-        self,
-        session_id: str,
-        payload: bytes,
-    ) -> bytes:
-        """Verschluesselt eine Nachricht (E2E)."""
-        session = self._sessions.get(session_id)
-        if not session or not session.is_established:
-            raise ValueError("Session nicht etabliert")
-
-        # XOR mit SHA-256-Keystream (Prototyp)
-        encrypted = self._aead_encrypt(payload, session.shared_secret)
-        session.messages_sent += 1
-        self.stats["messages_sent"] += 1
-        return encrypted
-
-    def receive(self, session_id: str, ciphertext: bytes) -> bytes:
-        """Entschluesselt eine Nachricht (E2E)."""
-        session = self._sessions.get(session_id)
-        if not session or not session.is_established:
-            raise ValueError("Session nicht etabliert")
-
-        decrypted = self._aead_decrypt(ciphertext, session.shared_secret)
-        session.messages_received += 1
-        return decrypted
-
-    def close(self, session_id: str) -> bool:
-        """Schliesst eine Session."""
-        session = self._sessions.get(session_id)
-        if not session:
-            return False
-        session.state = E2EState.CLOSED
-        self.stats["sessions_closed"] += 1
-        return True
-
-    @staticmethod
-    def _aead_key_from_secret(shared_secret: bytes) -> bytes:
-        """HKDF-SHA256: leitet einen 32-Byte AEAD-Key ab (RFC 5869)."""
-        return HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=b"erebos-e2e-aead-v1",
-        ).derive(shared_secret)
-
-    @classmethod
-    def _aead_encrypt(cls, data: bytes, shared_secret: bytes) -> bytes:
-        """ChaCha20-Poly1305 AEAD-Verschluesselung (RFC 8439).
-
-        Liefert (nonce(12) || ciphertext || tag(16)).
+        Returns:
+            [X25519_pub:32B][ML-KEM_pub:1568B]
         """
-        key = cls._aead_key_from_secret(shared_secret)
-        nonce = os.urandom(12)
-        ct = ChaCha20Poly1305(key).encrypt(nonce, data, None)
-        return nonce + ct
+        self._x25519_priv = X25519PrivateKey.generate()
+        self._x25519_pub = self._x25519_priv.public_key().public_bytes_raw()
 
-    @classmethod
-    def _aead_decrypt(cls, data: bytes, shared_secret: bytes) -> bytes:
-        """ChaCha20-Poly1305 AEAD-Entschluesselung."""
-        if len(data) < 12 + 16:
-            raise ValueError(f"Zu kurz fuer AEAD: {len(data)} Byte")
-        key = cls._aead_key_from_secret(shared_secret)
-        nonce, ct = data[:12], data[12:]
-        return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+        oqs = _require_oqs()
+        with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+            self._mlkem_pub = kem.generate_keypair()
+            self._mlkem_priv = kem.export_secret_key()
 
-    # Backward-Compat: alter Name (war XOR).
-    _xor_encrypt = _aead_encrypt
+        return self._x25519_pub + self._mlkem_pub
+
+    def process_key_response(self, payload: bytes) -> bytes:
+        """Verarbeitet die E2E_KEY_RESP-Payload und leitet den E2E-Schluessel ab.
+
+        Args:
+            payload: [X25519_pub:32B][ML-KEM_ct:1568B]
+
+        Returns:
+            32-Byte E2E-Schluessel
+        """
+        if len(payload) != X25519_KEY_SIZE + MLKEM_CT_SIZE:
+            raise ValueError(
+                f"E2E_KEY_RESP muss {X25519_KEY_SIZE + MLKEM_CT_SIZE} Byte sein, "
+                f"ist {len(payload)}"
+            )
+        peer_x25519_pub = payload[:X25519_KEY_SIZE]
+        mlkem_ct = payload[X25519_KEY_SIZE:]
+
+        # X25519-Shared
+        peer_pub = X25519PublicKey.from_public_bytes(peer_x25519_pub)
+        x25519_shared = self._x25519_priv.exchange(peer_pub)
+
+        # ML-KEM-Shared
+        oqs = _require_oqs()
+        with oqs.KeyEncapsulation(MLKEM_ALG, secret_key=self._mlkem_priv) as kem:
+            mlkem_shared = kem.decap_secret(mlkem_ct)
+
+        # HKDF
+        self._key = derive_hybrid_key(x25519_shared, mlkem_shared, info=E2E_INFO)
+        return self._key
 
     @property
-    def active_sessions(self) -> int:
-        return sum(
-            1 for s in self._sessions.values()
-            if s.is_established
-        )
+    def key(self) -> Optional[bytes]:
+        return self._key
 
-    def get_stats(self) -> dict:
-        """Statistiken."""
-        return {
-            **self.stats,
-            "active_sessions": self.active_sessions,
-            "total_sessions": len(self._sessions),
-        }
+    def encrypt(self, plaintext: bytes) -> bytes:
+        """Verschluesselt mit dem E2E-Schluessel (ChaCha20-Poly1305)."""
+        if self._key is None:
+            raise RuntimeError("E2E-Schluessel noch nicht abgeleitet")
+        nonce = os.urandom(12)
+        ciphertext = ChaCha20Poly1305(self._key).encrypt(nonce, plaintext, None)
+        return nonce + ciphertext
+
+    def decrypt(self, data: bytes) -> bytes:
+        """Entschluesselt mit dem E2E-Schluessel."""
+        if self._key is None:
+            raise RuntimeError("E2E-Schluessel noch nicht abgeleitet")
+        nonce = data[:12]
+        ciphertext = data[12:]
+        return ChaCha20Poly1305(self._key).decrypt(nonce, ciphertext, None)
+
+
+# ---------------------------------------------------------------------------
+# Server-Seite: Antwortet auf den E2E-Schluesselaustausch
+# ---------------------------------------------------------------------------
+
+class E2EServer:
+    """Server-Seite des E2E-Schluesselaustauschs."""
+
+    def __init__(self):
+        self._x25519_priv: Optional[X25519PrivateKey] = None
+        self._x25519_pub: Optional[bytes] = None
+        self._mlkem_ct: Optional[bytes] = None
+        self._key: Optional[bytes] = None
+
+    def process_key_init(self, payload: bytes) -> bytes:
+        """Verarbeitet die E2E_KEY_INIT-Payload und baut die Antwort.
+
+        Args:
+            payload: [X25519_pub:32B][ML-KEM_pub:1568B]
+
+        Returns:
+            E2E_KEY_RESP-Payload: [X25519_pub:32B][ML-KEM_ct:1568B]
+        """
+        if len(payload) != X25519_KEY_SIZE + MLKEM_PUB_SIZE:
+            raise ValueError(
+                f"E2E_KEY_INIT muss {X25519_KEY_SIZE + MLKEM_PUB_SIZE} Byte sein, "
+                f"ist {len(payload)}"
+            )
+        client_x25519_pub = payload[:X25519_KEY_SIZE]
+        client_mlkem_pub = payload[X25519_KEY_SIZE:]
+
+        # Eigenes X25519-Keypair
+        self._x25519_priv = X25519PrivateKey.generate()
+        self._x25519_pub = self._x25519_priv.public_key().public_bytes_raw()
+
+        # X25519-Shared
+        peer_pub = X25519PublicKey.from_public_bytes(client_x25519_pub)
+        x25519_shared = self._x25519_priv.exchange(peer_pub)
+
+        # ML-KEM-Encapsulation
+        oqs = _require_oqs()
+        with oqs.KeyEncapsulation(MLKEM_ALG) as kem:
+            mlkem_ct, mlkem_shared = kem.encap_secret(client_mlkem_pub)
+
+        self._mlkem_ct = mlkem_ct
+
+        # HKDF
+        self._key = derive_hybrid_key(x25519_shared, mlkem_shared, info=E2E_INFO)
+
+        return self._x25519_pub + mlkem_ct
+
+    @property
+    def key(self) -> Optional[bytes]:
+        return self._key
+
+    def encrypt(self, plaintext: bytes) -> bytes:
+        if self._key is None:
+            raise RuntimeError("E2E-Schluessel noch nicht abgeleitet")
+        nonce = os.urandom(12)
+        ciphertext = ChaCha20Poly1305(self._key).encrypt(nonce, plaintext, None)
+        return nonce + ciphertext
+
+    def decrypt(self, data: bytes) -> bytes:
+        if self._key is None:
+            raise RuntimeError("E2E-Schluessel noch nicht abgeleitet")
+        nonce = data[:12]
+        ciphertext = data[12:]
+        return ChaCha20Poly1305(self._key).decrypt(nonce, ciphertext, None)
