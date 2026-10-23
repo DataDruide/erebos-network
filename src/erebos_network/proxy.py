@@ -502,8 +502,12 @@ class ErebosSocks5Server:
 
                             # Sende die HTTP-Anfrage über den Rendezvous-Tunnel
                             http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
-                            await rendezvous_client.send_typed(FRAME_DATA, http_request)
-                            logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet")
+                            # Rendezvous-Pfad: stream_id (2B) vor die Nutzdaten
+                            stream_id = 0  # Schritt 1: immer Stream 0, Verhalten unveraendert
+                            import struct as _struct
+                            framed_request = _struct.pack(">H", stream_id) + http_request
+                            await rendezvous_client.send_typed(FRAME_DATA, framed_request)
+                            logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet (stream={stream_id})")
 
                             # Warte auf Antwort vom Hidden Service
                             # (Die erste Antwort kann die Registrierungs-Bestätigung sein)
@@ -512,12 +516,18 @@ class ErebosSocks5Server:
                                 try:
                                     resp = await asyncio.wait_for(rendezvous_client.receive(), timeout=5.0)
                                     if resp:
-                                        # Prüfe, ob es die HTTP-Antwort ist (beginnt mit "HTTP/")
-                                        if resp.startswith(b"HTTP/"):
-                                            http_response = resp
+                                        # Rendezvous-Pfad: resp = [stream_id: 2B][nutzdaten]
+                                        if len(resp) < 2:
+                                            logger.debug(f"[{conn_id}] Ignoriere zu kurzen Frame: {resp[:16]!r}...")
+                                            continue
+                                        import struct as _struct
+                                        resp_stream_id = _struct.unpack(">H", resp[:2])[0]
+                                        resp_payload = resp[2:]
+                                        if resp_payload.startswith(b"HTTP/"):
+                                            http_response = resp_payload
                                             break
                                         else:
-                                            logger.debug(f"[{conn_id}] Ignoriere Frame: {resp[:16]}...")
+                                            logger.debug(f"[{conn_id}] Ignoriere Frame (stream={resp_stream_id}): {resp_payload[:16]!r}...")
                                 except asyncio.TimeoutError:
                                     break
                             if http_response:

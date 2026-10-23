@@ -75,19 +75,26 @@ async def keep_alive(client):
             except (json.JSONDecodeError, UnicodeDecodeError):
                 pass
             # 2) Nur echte HTTP-Anfragen weiterleiten
-            if not data.startswith(HTTP_PREFIXES):
-                print(f"Ignoriere Nicht-HTTP-Daten: {data[:60]!r}")
+            # Rendezvous-Pfad: data = [stream_id: 2B][nutzdaten]
+            import struct as _struct
+            if len(data) < 2:
+                print(f"Ignoriere zu kurze Daten: {len(data)}B")
                 continue
-            print(f"HTTP-Anfrage empfangen: {len(data)}B")
+            stream_id = _struct.unpack(">H", data[:2])[0]
+            payload_data = data[2:]
+            if not payload_data.startswith(HTTP_PREFIXES):
+                print(f"Ignoriere Nicht-HTTP-Daten (stream={stream_id}): {payload_data[:60]!r}")
+                continue
+            print(f"HTTP-Anfrage empfangen (stream={stream_id}, {len(payload_data)}B)")
             http_reader, http_writer = await asyncio.open_connection("127.0.0.1", 8080)
-            http_writer.write(data)
+            http_writer.write(payload_data)
             await http_writer.drain()
             http_response = await http_reader.read(4096)
             http_writer.close()
-            # WICHTIG: als FRAME_DATA senden, damit peer1 den Frame als
-            # weiterzuleitenden Datenframe erkennt (sonst Typ 0x48 = 'H').
-            await client.send_typed(FRAME_DATA, http_response)
-            print(f"HTTP-Antwort gesendet: {len(http_response)}B")
+            # Stream-ID wieder voranstellen, damit peer1 den Ziel-Client findet
+            framed_response = _struct.pack(">H", stream_id) + http_response
+            await client.send_typed(FRAME_DATA, framed_response)
+            print(f"HTTP-Antwort gesendet (stream={stream_id}, {len(http_response)}B)")
     except (asyncio.IncompleteReadError, ConnectionResetError):
         print("keep_alive: Verbindung regulaer beendet")
     except asyncio.CancelledError:

@@ -966,13 +966,21 @@ async def run_peer_server(port: int = PEER_PORT,
                                 ft = data_in[0]
                                 pl = data_in[1:]
                                 if ft == FRAME_DATA:
-                                    logger.info(f"FRAME_DATA empfangen ({len(pl)}B) - leite weiter")
+                                    # Rendezvous-Pfad: pl = [stream_id: 2B][nutzdaten]
+                                    if len(pl) < 2:
+                                        logger.warning(f"FRAME_DATA zu kurz fuer Stream-ID ({len(pl)}B) - ignoriert")
+                                        continue
+                                    stream_id = struct.unpack(">H", pl[:2])[0]
+                                    payload_data = pl[2:]
+                                    logger.info(f"FRAME_DATA empfangen (stream={stream_id}, {len(payload_data)}B) - leite weiter")
                                     for role_name, entry in pair.items():
                                         r, w, target_cipher = entry
                                         if w is writer:
                                             continue
                                         try:
-                                            typed_out = bytes([FRAME_DATA]) + pl
+                                            # Stream-ID + Nutzdaten weiterleiten
+                                            forward_payload = pl  # pl enthaelt bereits stream_id + payload_data
+                                            typed_out = bytes([FRAME_DATA]) + forward_payload
                                             padded_out = _apply_padding(typed_out)
                                             nonce_out = __import__("os").urandom(12)
                                             ct_out = target_cipher.encrypt(nonce_out, padded_out, None)
