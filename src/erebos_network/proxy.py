@@ -329,6 +329,10 @@ class ErebosSocks5Server:
 
     async def _handle_client(self, reader, writer):
         self._connections += 1
+        # conn_id waechst monoton; bei 65000 zuruecksetzen, damit
+        # stream_id = conn_id & 0xFFFF nicht ueberlaeuft (65535).
+        if self._connections >= 65000:
+            self._connections = 1
         conn_id = self._connections
         cover = None
         try:
