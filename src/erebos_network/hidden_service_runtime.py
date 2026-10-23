@@ -21,10 +21,12 @@ import hashlib
 import json
 import logging
 import struct
+from pathlib import Path
 import time
 from typing import Callable, List, Optional, Tuple
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
 
 from .hidden_service import (
     derive_erebos_address,
@@ -124,9 +126,51 @@ class HiddenServiceRuntime:
     # ------------------------------------------------------------------
 
     def _generate_keys(self) -> None:
+        """Laedt oder generiert das Ed25519-Schluesselpaar.
+
+        Persistenz: ~/.erebos/hs_key_<bind_port>.pem. Damit bleibt die
+        .erebos-Adresse ueber Neustarts stabil (wichtig fuer Clients,
+        die die Adresse gecacht haben).
+        """
+        key_path = Path.home() / ".erebos" / f"hs_key_{self.bind_port}.pem"
+        if key_path.exists():
+            try:
+                self.private_key = serialization.load_pem_private_key(
+                    key_path.read_bytes(), password=None
+                )
+                self.public_key = self.private_key.public_key().public_bytes_raw()
+                self.address = derive_erebos_address(self.public_key)
+                logger.info(
+                    f"Hidden Service Schluessel geladen: {key_path} "
+                    f"(Adresse: {self.address})"
+                )
+                return
+            except Exception as e:
+                logger.warning(
+                    f"Schluessel-Datei {key_path} konnte nicht geladen werden: {e} "
+                    f"- generiere neu"
+                )
+
+        # Neu generieren
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key().public_bytes_raw()
         self.address = derive_erebos_address(self.public_key)
+
+        # Speichern
+        try:
+            key_path.parent.mkdir(parents=True, exist_ok=True)
+            key_path.write_bytes(
+                self.private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
+            key_path.chmod(0o600)
+            logger.info(f"Hidden Service Schluessel gespeichert: {key_path}")
+        except Exception as e:
+            logger.warning(f"Schluessel konnte nicht gespeichert werden: {e}")
+
         logger.info(f"Hidden Service Adresse: {self.address}")
 
     async def _publish_descriptor(self) -> None:
