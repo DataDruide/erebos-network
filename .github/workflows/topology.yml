@@ -23,9 +23,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        # Nur networkx: analyze_topology.py importiert jetzt
-        # erebos_network.topology_utils (krypto-frei).
-        run: pip install "networkx>=3.0"
+        # networkx fuer Topology-Analyse, cryptography + ed25519 fuer
+        # den Import von erebos_network.topology_utils (zieht
+        # erebos_network/__init__.py -> hidden_service.py -> cryptography).
+        run: pip install "networkx>=3.0" cryptography
 
       - name: Run topology analysis (static)
         run: |
