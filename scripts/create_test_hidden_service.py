@@ -1,179 +1,69 @@
-"""Test-Hidden-Service mit HTTP-Datenkanal.
+"""CLI-Wrapper für den produktiven Erebos Hidden-Service.
 
-Erstellt einen Hidden Service, veröffentlicht den Descriptor,
-und leitet eingehende Daten an einen lokalen HTTP-Server weiter.
+Dieser Test-Treiber startet einen HiddenServiceRuntime mit
+Standard-Parametern, die zum Test-Setup passen (Peers auf 9997/9998/9999,
+HTTP-Backend auf 8080).
+
+Für den produktiven Einsatz: siehe erebos_network.hidden_service_runtime.
 """
 
+import argparse
 import asyncio
-import hashlib
-import json
-import time
-from cryptography.hazmat.primitives.asymmetric import ed25519
+import logging
+import sys
 
-from erebos_network.hidden_service import (
-    derive_erebos_address,
-    HiddenServiceDescriptor,
-    IntroPoint,
-    sign_descriptor,
-)
-from erebos_network.distributed_dht import DistributedDescriptorStore
-from erebos_network.dht import PeerInfo
-from erebos_network.tunnel import (
-    ErebosTunnelClient,
-    FRAME_DHT_PUT,
-    FRAME_DATA,
-)
-from erebos_network.rendezvous import RendezvousRequest
+from erebos_network.hidden_service_runtime import HiddenServiceRuntime
 
 
-async def handle_http(reader, writer):
-    """Einfacher HTTP-Server, der auf Anfragen antwortet."""
-    try:
-        request = await reader.read(4096)
-        response = (
-            b"HTTP/1.1 200 OK\r\n"
-            b"Content-Type: text/plain\r\n"
-            b"Content-Length: 22\r\n"
-            b"\r\n"
-            b"Hidden Service works!\n"
-        )
-        writer.write(response)
-        await writer.drain()
-    except Exception as e:
-        print(f"HTTP-Fehler: {e}")
-    finally:
-        writer.close()
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Erebos Test-Hidden-Service")
+    p.add_argument("--rendezvous-host", default="127.0.0.1")
+    p.add_argument("--rendezvous-port", type=int, default=9999)
+    p.add_argument("--http-host", default="127.0.0.1")
+    p.add_argument("--http-port", type=int, default=8080)
+    p.add_argument("--bind-host", default="127.0.0.1")
+    p.add_argument("--bind-port", type=int, default=8080)
+    p.add_argument("--ttl", type=int, default=3600)
+    p.add_argument("--dht-peers", default="9997,9998,9999",
+                   help="Komma-getrennte Peer-Ports für DHT-Publish")
+    p.add_argument("--intro-points", default="peer1:127.0.0.1:9997",
+                   help="Komma-getrennt, Format: peer_id:host:port")
+    p.add_argument("--log-level", default="INFO",
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    return p.parse_args()
 
 
-async def keep_alive(client):
-    """Hält die Rendezvous-Verbindung offen und verarbeitet eingehende Daten.
-
-    Wichtig: ErebosTunnelClient.receive() liefert die Nutzlast OHNE Frame-Typ.
-    Wir unterscheiden daher am Inhalt:
-    - JSON-Steuerframes ({"status": ...}) -> ignorieren (ACK, ready, ...)
-    - HTTP-Anfragen (GET/POST/...)        -> an lokalen HTTP-Server weiterleiten
-    - alles andere                        -> ignorieren
-    """
-    HTTP_PREFIXES = (b"GET ", b"POST ", b"HEAD ", b"PUT ", b"DELETE ", b"OPTIONS ", b"PATCH ", b"HTTP/")
-    try:
-        while True:
-            try:
-                data = await asyncio.wait_for(client.receive(), timeout=30.0)
-            except asyncio.TimeoutError:
-                continue
-            if not data:
-                break
-            # 1) JSON-Steuerframe? -> ignorieren (aber 'ready' loggen)
-            try:
-                msg = json.loads(data.decode("utf-8"))
-                if isinstance(msg, dict) and "status" in msg:
-                    if msg.get("status") == "ready":
-                        print("Rendezvous-Paar vollständig!")
-                    else:
-                        print(f"Steuerframe ignoriert: {msg}")
-                    continue
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
-            # 2) Nur echte HTTP-Anfragen weiterleiten
-            # Rendezvous-Pfad: data = [stream_id: 2B][nutzdaten]
-            import struct as _struct
-            if len(data) < 2:
-                print(f"Ignoriere zu kurze Daten: {len(data)}B")
-                continue
-            stream_id = _struct.unpack(">H", data[:2])[0]
-            payload_data = data[2:]
-            if not payload_data.startswith(HTTP_PREFIXES):
-                print(f"Ignoriere Nicht-HTTP-Daten (stream={stream_id}): {payload_data[:60]!r}")
-                continue
-            print(f"HTTP-Anfrage empfangen (stream={stream_id}, {len(payload_data)}B)")
-            http_reader, http_writer = await asyncio.open_connection("127.0.0.1", 8080)
-            http_writer.write(payload_data)
-            await http_writer.drain()
-            http_response = await http_reader.read(4096)
-            http_writer.close()
-            # Stream-ID wieder voranstellen, damit peer1 den Ziel-Client findet
-            framed_response = _struct.pack(">H", stream_id) + http_response
-            await client.send_typed(FRAME_DATA, framed_response)
-            print(f"HTTP-Antwort gesendet (stream={stream_id}, {len(http_response)}B)")
-    except (asyncio.IncompleteReadError, ConnectionResetError):
-        print("keep_alive: Verbindung regulaer beendet")
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        print(f"keep_alive Fehler: {type(e).__name__}: {e}")
-
-
-async def main():
-    # 1. Schlüsselpaar generieren
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    public_key = private_key.public_key().public_bytes_raw()
-    address = derive_erebos_address(public_key)
-    print(f"Hidden Service Adresse: {address}")
-
-    # 2. Descriptor erstellen
-    intro = IntroPoint(
-        peer_id="peer1",
-        address="127.0.0.1:9997",
-        public_key=public_key,
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    descriptor = HiddenServiceDescriptor(
-        address=address,
-        public_key=public_key,
-        intro_points=[intro],
-        created_at=time.time(),
-        ttl_seconds=3600,
+
+    intro_points = []
+    for item in args.intro_points.split(","):
+        peer_id, addr = item.split(":", 1)
+        intro_points.append((peer_id, addr))
+
+    runtime = HiddenServiceRuntime(
+        rendezvous_host=args.rendezvous_host,
+        rendezvous_port=args.rendezvous_port,
+        http_backend_host=args.http_host,
+        http_backend_port=args.http_port,
+        intro_points=intro_points,
+        dht_peers=[int(p) for p in args.dht_peers.split(",")],
+        ttl_seconds=args.ttl,
+        bind_host=args.bind_host,
+        bind_port=args.bind_port,
     )
-    sign_descriptor(descriptor, private_key)
 
-    # 3. Descriptor an alle Peers verteilen
-    key = hashlib.sha256(address.encode()).digest()
-    payload = json.dumps({"key": key.hex(), "value": descriptor.to_dict()}).encode("utf-8")
-
-    for port in [9997, 9998, 9999]:
-        try:
-            client = ErebosTunnelClient(host="127.0.0.1", port=port)
-            await client.connect()
-            await client.send_typed(FRAME_DHT_PUT, payload)
-            await client.close()
-            print(f"Descriptor an Peer auf Port {port} gesendet")
-        except Exception as e:
-            print(f"Fehler beim Senden an Port {port}: {e}")
-
-    print(f"Descriptor veröffentlicht in DHT (Key: {key.hex()[:16]}...)")
-
-    # 4. HTTP-Server starten
-    http_server = await asyncio.start_server(handle_http, "127.0.0.1", 8080)
-    print("HTTP-Server läuft auf 127.0.0.1:8080")
-
-    # 5. Beim Rendezvous-Punkt (Port 9999) registrieren
-    print("Registriere Hidden Service beim Rendezvous-Punkt (Port 9999)...")
     try:
-        rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9999)
-        await rendezvous_client.connect()
-        from erebos_network.tunnel import FRAME_RENDEZVOUS_REGISTER
-        import json as _json
-        reg_key = address[:32]
-        reg_payload = _json.dumps({"role": "hidden", "key": reg_key}).encode("utf-8")
-        await rendezvous_client.send_typed(FRAME_RENDEZVOUS_REGISTER, reg_payload)
-        print(f"Rendezvous-Registrierung (hidden) gesendet für Key {reg_key[:16]}...")
-        # Warte NICHT auf 'ready' – starte sofort den Rendezvous-Server
-        # Der keep_alive übernimmt das Warten auf 'ready' und die Datenweiterleitung
-        print("Rendezvous-Registrierung abgeschlossen, starte Rendezvous-Server...")
-        # Behalte die Verbindung offen (für Datenkanal)
-        asyncio.create_task(keep_alive(rendezvous_client))
-    except Exception as e:
-        print(f"Fehler bei Rendezvous-Registrierung: {e}")
-
-    # 6. Auf Rendezvous-Anfragen warten
-    print("Hidden Service läuft. Warte auf Rendezvous-Anfragen...")
-
-    # Hinweis: Der frueher hier befindliche zweite Datenkanal (handle_rendezvous
-    # auf Port 9996) wurde entfernt. Der Datenkanal laeuft ausschliesslich ueber
-    # die Rendezvous-Verbindung zu Port 9999 (siehe keep_alive oben).
-
-    async with http_server:
-        await http_server.serve_forever()
+        asyncio.run(runtime.run())
+    except KeyboardInterrupt:
+        runtime.stop()
+        return 0
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())

@@ -103,7 +103,7 @@ done
 
 echo ""
 echo "=== 10. Adresse aus dem Hidden-Service-Log extrahieren ==="
-ADDRESS=$(grep "Hidden Service Adresse:" /tmp/hidden_service.log | awk '{print $4}')
+ADDRESS=$(grep "Hidden Service Adresse:" /tmp/hidden_service.log | awk '{print $NF}' | tail -1)
 if [ -z "$ADDRESS" ]; then
     echo "❌ Keine Adresse gefunden!"
     echo "--- hidden_service.log ---"
