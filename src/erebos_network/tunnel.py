@@ -731,6 +731,15 @@ async def run_peer_server(port: int = PEER_PORT,
                                     ack_delay_max_ms=ack_delay_max_ms,
                                     ack_size_min=ack_size_min,
                                     ack_size_max=ack_size_max)
+            elif frame_type == FRAME_RENDEZVOUS_REQUEST:
+                logger.info(f"Rendezvous-Request empfangen ({len(payload)}B)")
+                # Der Peer leitet die Anfrage weiter (als Intro-Point) oder
+                # verarbeitet sie selbst (als Hidden Service).
+                # Für den Moment loggen wir nur den Empfang.
+                logger.debug(f"Rendezvous-Request payload: {payload[:64]}...")
+            elif frame_type == FRAME_RENDEZVOUS_RESPONSE:
+                logger.info(f"Rendezvous-Response empfangen ({len(payload)}B)")
+                logger.debug(f"Rendezvous-Response payload: {payload[:64]}...")
             elif frame_type == FRAME_OPEN:
                 # payload ist die gesealte l3, adressiert an DIESEN Peer.
                 # Der Klartext ist direkt "host:port" (kein Frame-Marker
