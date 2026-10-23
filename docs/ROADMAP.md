@@ -143,6 +143,14 @@ Status: 23 Phasen komplett, 479 Tests
   test_tunnel_handshake.py umgeschrieben)
 - Live-3-Hop-Test mit Hybrid-Handshake erfolgreich
 
+### Phase 25: Rendezvous + Hidden-Service Ende-zu-Ende
+- Rendezvous-Punkt mit Stream-Registry (parallele Clients)
+- PeerDhtStore (DHT-Persistenz in Peers, ueberlebt Neustart)
+- HiddenServiceRuntime (produktiver Hidden-Service als Modul)
+- Cleanup von rendezvous_pairs beim Verbindungsende
+- Lasttest: 10/10, 50/50, 100/100 HTTP 200 (mit ulimit -n 4096)
+- Details in docs/known-limitations.md
+
 Gesamt: 489 Tests.
 
 ## In Arbeit

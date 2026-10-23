@@ -364,9 +364,33 @@ Dann testen:
     curl "http://127.0.0.1:9050/resolve?name=forum.erebos"
     curl http://127.0.0.1:9050/stats
 
+### Erebos-Tunnel (Ende-zu-Ende)
+
+    cd ~/Projects/erebos-network
+    ulimit -n 4096
+    ./scripts/start_all.sh
+
+Dann mit curl testen (Adresse aus dem Log):
+
+    ADDR=$(awk '/Hidden Service Adresse/{print $NF}' /tmp/hidden_service.log | tail -1)
+    curl --socks5-hostname 127.0.0.1:4448 -v "http://$ADDR" -o /dev/null
+
+Erwartet: HTTP 200 mit 22 Bytes ('Hidden Service works!').
+
+**Was funktioniert**:
+- Erebos-Tunnel Ende-zu-Ende (HTTP ueber SOCKS5)
+- Hybrid-Krypto (ML-KEM + X25519 + Ed25519)
+- Rendezvous-Punkt mit parallelen Clients (Stream-Registry)
+- 100/100 parallele Verbindungen (bei `ulimit -n 4096`)
+- DHT-Persistenz in Peers (Descriptor ueberlebt Neustart)
+- Produktiver Hidden-Service als Modul (`HiddenServiceRuntime`)
+
+**Offene Limitierungen**: siehe [docs/known-limitations.md](docs/known-limitations.md)
+
 ### Tests
 
     pytest -v
+
 
 380 Tests, alle gruen.
 

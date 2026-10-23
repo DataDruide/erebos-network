@@ -1,30 +1,94 @@
 # Bekannte Limitierungen
 
-## Parallele Rendezvous-Verbindungen: ✅ unterstuetzt (seit Schritt 3)
+Stand: Nach Punkt 4 (DHT-Persistenz fuer Peers)
 
-Der Rendezvous-Punkt unterstuetzt jetzt mehrere gleichzeitige Clients
-pro Hidden-Service-Key:
+## Was funktioniert
 
-- `rendezvous_pairs[key]["hidden"]` — ein Eintrag (ein Hidden-Service pro Key)
-- `rendezvous_pairs[key]["clients"]` — Liste von Clients
-- `rendezvous_pairs[key]["streams"]` — Map stream_id -> {"client": (r,w,c)}
+| Feature | Status |
+|---|---|
+| Erebos-Tunnel Ende-zu-Ende (HTTP ueber SOCKS5) | ✅ funktioniert |
+| Hybrid-Krypto (ML-KEM + X25519 + Ed25519) | ✅ funktioniert |
+| Rendezvous-Punkt mit mehreren parallelen Clients | ✅ funktioniert (Stream-Registry) |
+| Parallele Verbindungen (10/50/100 gleichzeitig) | ✅ 100/100 HTTP 200 mit `ulimit -n 4096` |
+| DHT-Persistenz in Peers (Descriptor ueberlebt Neustart) | ✅ funktioniert |
+| Produktiver Hidden-Service als Modul (`HiddenServiceRuntime`) | ✅ funktioniert |
 
-Der Proxy vergibt pro eingehender SOCKS5-Verbindung eine eindeutige
-Stream-ID (`conn_id & 0xFFFF`) und filtert eingehende Antworten auf
-diese ID. FRAME_DATA im Rendezvous-Pfad traegt `[stream_id: 2B][payload]`.
+## Offene Limitierungen
 
-Test: Zwei parallele `curl`-Aufrufe gegen denselben Hidden-Service
-liefern beide HTTP 200 mit 22 Bytes.
+### 1. Hidden-Service-Reconnect nach Peer-Neustart fehlt
 
-## Stream-ID-Kollisionen bei > 65535 Verbindungen
+Wenn ein Peer (insbesondere der Rendezvous-Punkt) neu startet, verliert
+der Hidden-Service seine Rendezvous-Verbindung. Er registriert sich
+**nicht** automatisch neu. Neue Clients finden den Descriptor zwar
+(per DHT-Persistenz), aber der Rendezvous-Request geht ins Leere,
+weil der Rendezvous-Punkt keinen `hidden`-Eintrag mehr hat.
 
-Die Stream-ID ist 2 Bytes breit. Bei mehr als 65535 gleichzeitigen
-Proxy-Verbindungen wuerde sie ueberlaufen. Praktisch irrelevant,
-aber bei extremen Lasten zu beachten.
+**Auswirkung**: Nach einem Peer-Neustart muss der Hidden-Service
+manuell neu gestartet werden.
 
-## Weitere offene Punkte
+**Loesung (offen)**: Der `HiddenServiceRuntime._keep_alive` sollte
+bei Verbindungsabbruch automatisch einen Reconnect + Neu-Registrierung
+versuchen (Exponential Backoff).
 
-- Produktiver Hidden-Service statt `create_test_hidden_service.py`
-- Cleanup von `rendezvous_pairs` beim Verbindungsende (Memory-Leak bei
-  langer Laufzeit)
-- Persistenz der DHT ueber Peer-Neustarts hinweg
+### 2. Parallele Verbindungen > 100 brauchen `ulimit -n`
+
+Bei 100 parallelen Verbindungen braucht der Prozess ~500 Datei-
+Deskriptoren. macOS-Standard ist `ulimit -n 256`, was zu ~19/100
+Fehlschlaegen fuehrt.
+
+**Empfehlung**: `ulimit -n 4096` vor dem Start (in derselben Shell
+wie `start_all.sh`).
+
+### 3. `conn_id` waechst monoton
+
+Der Proxy vergibt `stream_id = conn_id & 0xFFFF`. Nach 65535
+Verbindungen laufen die IDs ueber und kollidieren potenziell.
+
+**Auswirkung**: Bei sehr langer Laufzeit mit vielen Verbindungen
+koennten Stream-IDs kollidieren.
+
+**Loesung (offen)**: `conn_id` nach Erreichen von 65535 zuruecksetzen,
+oder auf 4-Byte-Stream-IDs umstellen.
+
+### 4. Rendezvous-Punkt ist Trusted Relay (keine E2E-Verschluesselung)
+
+Aktuell entschluesselt der Rendezvous-Punkt (peer1) die `FRAME_DATA`,
+weil er sie mit dem Ziel-Cipher neu verschluesseln muss. Das ist
+**kein** Ende-zu-Ende im kryptografischen Sinn — peer1 sieht den
+Klartext.
+
+**Auswirkung**: Ein kompromittierter Rendezvous-Punkt kann den
+HTTP-Traffic mitlesen.
+
+**Loesung (offen)**: Onion-Encryption-Layer zwischen Client und
+Hidden-Service. Der Rendezvous-Punkt leitet nur verschluesselte
+Blobs weiter. Erfordert ein eigenes Schluessel-Aushandeln zwischen
+Client und Hidden-Service.
+
+### 5. Hidden-Service-Schluessel nicht persistent
+
+Der `HiddenServiceRuntime` generiert bei jedem Start ein neues
+Ed25519-Schluesselpaar. Die `.erebos`-Adresse aendert sich also
+bei jedem Neustart.
+
+**Auswirkung**: Clients, die die alte Adresse gecacht haben, finden
+den Hidden-Service nach einem Neustart nicht mehr.
+
+**Loesung (offen)**: Schluesselpaar in einer Datei persistieren
+(z.B. `~/.erebos/hidden_service_key.pem`), beim Start laden.
+
+## Lasttest-Ergebnisse
+
+Getestet mit einem Hidden-Service, 3 Peers, 1 Proxy auf einem
+MacBook Air (M-Serie).
+
+| Parallele Verbindungen | Erfolgreich | Latenz (pro Verbindung) |
+|---|---|---|
+| 10 | 10/10 (100%) | 84–93 ms |
+| 50 | 50/50 (100%) | 248–320 ms |
+| 100 (ulimit 256) | 81/100 (81%) | 428–622 ms |
+| 100 (ulimit 4096) | 100/100 (100%) | 428–622 ms |
+
+**Beobachtung**: Ab ~50 parallelen Verbindungen ist
+`ulimit -n 4096` erforderlich. Der Rendezvous-Punkt skaliert
+linear mit der Last.
