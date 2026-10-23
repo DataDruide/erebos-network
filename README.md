@@ -4,6 +4,7 @@
 - [Architektur](docs/ARCHITECTURE.md) — 3-Hop-Onion-Netzwerk mit PQC
 - [Kryptographie](docs/crypto.md) — Hybrid-Handshake (X25519 + ML-KEM-1024)
 - [Cover-Traffic](docs/cover-traffic.md) — Timing-Schutz durch kalibriertes Padding
+- [Hidden Services](docs/HIDDEN_SERVICES.md) — .erebos-Adressen, Rendezvous, DHT
 
 > **Ein neuartiges anonymes Netzwerk mit adaptiven Sektoren, Mixnet, dezentraler Governance und Post-Quanten-Kryptographie**
 
@@ -431,6 +432,7 @@ Dann testen:
 - [THREAT_MODEL.md](docs/THREAT_MODEL.md) - Bedrohungsmodell
 - [PQ_CRYPTO.md](docs/PQ_CRYPTO.md) - Post-Quanten-Kryptographie
 - [ROADMAP.md](docs/ROADMAP.md) - Roadmap
+- [HIDDEN_SERVICES.md](docs/HIDDEN_SERVICES.md) - Hidden Services und Rendezvous
 
 ---
 
