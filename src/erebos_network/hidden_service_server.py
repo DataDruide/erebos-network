@@ -33,7 +33,8 @@ async def handle_rendezvous_request(
             created_at=asyncio.get_event_loop().time(),
         )
     except Exception as e:
-        logger.error(f"Fehler beim Tunnel-Aufbau: {e}")
+        import traceback
+        logger.error(f"Fehler beim Tunnel-Aufbau: {e}\n{traceback.format_exc()}")
         return RendezvousResponse(
             status="error",
             message=str(e),

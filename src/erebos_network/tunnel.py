@@ -404,6 +404,19 @@ class ErebosTunnelClient:
             except Exception:
                 pass
 
+    async def send_rendezvous_request(self, request: dict) -> None:
+        """Sendet eine Rendezvous-Anfrage durch den Tunnel."""
+        import json
+        payload = json.dumps(request).encode('utf-8')
+        await self.send_typed(FRAME_RENDEZVOUS_REQUEST, payload)
+
+    async def send_rendezvous_response(self, response: dict) -> None:
+        """Sendet eine Rendezvous-Antwort durch den Tunnel."""
+        import json
+        payload = json.dumps(response).encode('utf-8')
+        await self.send_typed(FRAME_RENDEZVOUS_RESPONSE, payload)
+
+
 
 async def _send_cover_ack(writer, cipher, size_min: int, size_max: int) -> None:
     """Sendet einen FRAME_COVER_ACK-Frame an den Client.
@@ -731,64 +744,6 @@ async def run_peer_server(port: int = PEER_PORT,
                                     ack_delay_max_ms=ack_delay_max_ms,
                                     ack_size_min=ack_size_min,
                                     ack_size_max=ack_size_max)
-            elif frame_type == FRAME_RENDEZVOUS_REQUEST:
-                logger.info(f"Rendezvous-Request empfangen ({len(payload)}B)")
-                try:
-                    import json as _json
-                    request_data = _json.loads(payload.decode("utf-8"))
-                    logger.debug(f"Rendezvous-Request Daten: {request_data}")
-                    
-                    # Prüfe, ob dieser Peer der Hidden Service ist
-                    # (d. h. die Anfrage ist an ihn adressiert).
-                    # In einer vollständigen Implementierung würde hier
-                    # der Descriptor des Hidden Service geprüft.
-                    # Für den Moment: Wir behandeln jeden Peer als Hidden Service,
-                    # wenn die Anfrage einen rendezvous_peer_id enthält.
-                    
-                    from .rendezvous import RendezvousRequest, RendezvousResponse
-                    from .hidden_service_server import handle_rendezvous_request
-                    import time
-                    
-                    request = RendezvousRequest(
-                        client_ephemeral_key=bytes.fromhex(request_data.get("client_ephemeral_key", "00" * 32)),
-                        rendezvous_peer_id=request_data.get("rendezvous_peer_id", "unknown"),
-                        rendezvous_address=request_data.get("rendezvous_address", ""),
-                        created_at=request_data.get("created_at", time.time()),
-                    )
-                    
-                    # Tunnel-Factory: Baut einen Tunnel zum Rendezvous-Punkt auf
-                    async def tunnel_factory(address):
-                        from .tunnel import ErebosTunnelClient
-                        if ":" in address:
-                            host, port = address.split(":")
-                            client = ErebosTunnelClient(int(port))
-                            await client.connect()
-                            return client
-                        raise ValueError(f"Ungültige Adresse: {address}")
-                    
-                    # Verarbeite die Rendezvous-Anfrage (Hidden-Service-Seite)
-                    response = await handle_rendezvous_request(request, tunnel_factory)
-                    logger.info(f"Rendezvous-Verarbeitung: {response.status} - {response.message}")
-                    
-                    # Sende die Antwort zurück
-                    response_payload = _json.dumps({
-                        "status": response.status,
-                        "message": response.message,
-                        "created_at": response.created_at,
-                    }).encode("utf-8")
-                    import struct
-                    typed = bytes([FRAME_RENDEZVOUS_RESPONSE]) + response_payload
-                    nonce = __import__("os").urandom(12)
-                    ct = cipher.encrypt(nonce, typed, None)
-                    frame = struct.pack(">I", len(ct) + 12) + nonce + ct
-                    writer.write(frame)
-                    await writer.drain()
-                    logger.debug(f"Rendezvous-Response gesendet: {len(response_payload)}B")
-                except Exception as e:
-                    logger.error(f"Fehler bei Rendezvous-Request: {e}")
-            elif frame_type == FRAME_RENDEZVOUS_RESPONSE:
-                logger.info(f"Rendezvous-Response empfangen ({len(payload)}B)")
-                logger.debug(f"Rendezvous-Response payload: {payload[:64]}...")
             elif frame_type == FRAME_OPEN:
                 # payload ist die gesealte l3, adressiert an DIESEN Peer.
                 # Der Klartext ist direkt "host:port" (kein Frame-Marker
@@ -811,6 +766,56 @@ async def run_peer_server(port: int = PEER_PORT,
                                    ack_delay_max_ms=ack_delay_max_ms,
                                    ack_size_min=ack_size_min,
                                    ack_size_max=ack_size_max)
+            elif frame_type == FRAME_RENDEZVOUS_REQUEST:
+                logger.info(f"Rendezvous-Request empfangen ({len(payload)}B)")
+                try:
+                    import json as _json
+                    request_data = _json.loads(payload.decode("utf-8"))
+                    logger.debug(f"Rendezvous-Request Daten: {request_data}")
+                    
+                    # Als Hidden Service: Baue Tunnel zum Rendezvous-Punkt auf
+                    # und sende eine Bestätigung.
+                    from .rendezvous import RendezvousRequest, RendezvousResponse
+                    from .hidden_service_server import handle_rendezvous_request
+                    import time
+                    
+                    request = RendezvousRequest(
+                        client_ephemeral_key=bytes.fromhex(request_data.get("client_ephemeral_key", "00" * 32)),
+                        rendezvous_peer_id=str(request_data.get("rendezvous_peer_id", "unknown")),
+                        rendezvous_address=str(request_data.get("rendezvous_address", "")),
+                        created_at=request_data.get("created_at", time.time()),
+                    )
+                    
+                    async def tunnel_factory(address):
+                        from .tunnel import ErebosTunnelClient
+                        address = str(address)
+                        if ":" in address:
+                            host, port = address.split(":")
+                            client = ErebosTunnelClient(host=host, port=int(port))
+                            await client.connect()
+                            return client
+                        raise ValueError(f"Ungültige Adresse: {address}")
+                    
+                    response = await handle_rendezvous_request(request, tunnel_factory)
+                    logger.info(f"Rendezvous-Verarbeitung: {response.status} - {response.message}")
+                    
+                    # Sende Antwort
+                    import struct
+                    response_payload = _json.dumps({
+                        "status": response.status,
+                        "message": response.message,
+                        "created_at": response.created_at,
+                    }).encode("utf-8")
+                    typed = bytes([FRAME_RENDEZVOUS_RESPONSE]) + response_payload
+                    padded = _apply_padding(typed)
+                    nonce = __import__("os").urandom(12)
+                    ct = cipher.encrypt(nonce, padded, None)
+                    frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                    writer.write(frame)
+                    await writer.drain()
+                    logger.debug(f"Rendezvous-Response gesendet: {len(response_payload)}B")
+                except Exception as e:
+                    logger.error(f"Fehler bei Rendezvous-Request: {e}")
             else:
                 logger.error(f"Unbekannter Frame-Typ: {frame_type:#x}")
         except Exception as e:
@@ -822,16 +827,3 @@ async def run_peer_server(port: int = PEER_PORT,
     logger.info(f"Peer-Server laeuft auf {host}:{port}")
     async with server:
         await server.serve_forever()
-
-    async def send_rendezvous_request(self, request: dict) -> None:
-        """Sendet eine Rendezvous-Anfrage durch den Tunnel."""
-        import json
-        payload = json.dumps(request).encode('utf-8')
-        await self.send_typed(FRAME_RENDEZVOUS_REQUEST, payload)
-
-    async def send_rendezvous_response(self, response: dict) -> None:
-        """Sendet eine Rendezvous-Antwort durch den Tunnel."""
-        import json
-        payload = json.dumps(response).encode('utf-8')
-        await self.send_typed(FRAME_RENDEZVOUS_RESPONSE, payload)
-
