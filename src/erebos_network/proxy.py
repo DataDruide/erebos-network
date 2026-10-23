@@ -375,6 +375,53 @@ class ErebosSocks5Server:
             port = int.from_bytes(await reader.readexactly(2), "big")
             logger.info(f"[{conn_id}] SOCKS5 -> {host}:{port}")
 
+            # Prüfe, ob es eine .erebos-Adresse ist
+            if host.endswith(".erebos"):
+                logger.info(f"[{conn_id}] .erebos-Adresse erkannt: {host}")
+                # Rendezvous-Mechanismus für Hidden Services
+                from .hidden_service_client import connect_to_hidden_service
+                from .hidden_service import lookup_descriptor
+                from .rendezvous import RendezvousRequest
+                
+                # DHT aus dem Peer-Pool ableiten (vereinfacht)
+                dht = None  # TODO: DHT-Instanz aus dem Peer-Pool
+                if dht is None:
+                    logger.error(f"[{conn_id}] Keine DHT verfügbar")
+                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    writer.close()
+                    return
+                
+                # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
+                rendezvous_peer = list(self.peer_pubs.keys())[0] if self.peer_pubs else None
+                if rendezvous_peer is None:
+                    logger.error(f"[{conn_id}] Kein Rendezvous-Peer verfügbar")
+                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    writer.close()
+                    return
+                
+                # Rendezvous-Request bauen (vereinfacht)
+                import os
+                client_ephemeral = os.urandom(32)
+                request = await connect_to_hidden_service(
+                    address=host,
+                    dht=dht,
+                    rendezvous_peer_id=rendezvous_peer,
+                    rendezvous_address=f"127.0.0.1:{self.peer_pubs[rendezvous_peer]}",
+                    client_ephemeral_key=client_ephemeral,
+                )
+                
+                if request is None:
+                    logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen")
+                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    writer.close()
+                    return
+                
+                logger.info(f"[{conn_id}] Rendezvous-Request gebaut, sende an Intro-Point")
+                # TODO: Tatsächliche Netzwerkkommunikation über den Tunnel
+                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                writer.close()
+                return
+
             result = await self.proxy.handle_request(f"http://{host}:{port}")
             logger.info(
                 f"[{conn_id}] Route: {result.get('sector')} "
