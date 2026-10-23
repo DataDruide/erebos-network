@@ -738,58 +738,44 @@ async def run_peer_server(port: int = PEER_PORT,
                     request_data = _json.loads(payload.decode("utf-8"))
                     logger.debug(f"Rendezvous-Request Daten: {request_data}")
                     
-                    rendezvous_peer_id = request_data.get("rendezvous_peer_id")
-                    rendezvous_address = request_data.get("rendezvous_address")
+                    # Prüfe, ob dieser Peer der Hidden Service ist
+                    # (d. h. die Anfrage ist an ihn adressiert).
+                    # In einer vollständigen Implementierung würde hier
+                    # der Descriptor des Hidden Service geprüft.
+                    # Für den Moment: Wir behandeln jeden Peer als Hidden Service,
+                    # wenn die Anfrage einen rendezvous_peer_id enthält.
                     
-                    # Intro-Point: Baue einen Tunnel zum Hidden Service auf.
-                    # In einer vollständigen Implementierung würden wir den
-                    # Descriptor des Hidden Service nutzen, um den nächsten
-                    # Peer zu bestimmen. Für den Moment nutzen wir die
-                    # rendezvous_address als Ziel.
-                    logger.info(f"Baue Tunnel zum Hidden Service ({rendezvous_address})")
+                    from .rendezvous import RendezvousRequest, RendezvousResponse
+                    from .hidden_service_server import handle_rendezvous_request
+                    import time
                     
-                    try:
-                        # Versuche, einen Tunnel zum Hidden Service aufzubauen
-                        from .tunnel import ErebosTunnelClient
-                        # Parse die Adresse (host:port)
-                        if rendezvous_address and ":" in rendezvous_address:
-                            hs_host, hs_port = rendezvous_address.split(":")
-                            hs_port = int(hs_port)
-                            hs_client = ErebosTunnelClient(hs_port)
-                            await hs_client.connect()
-                            logger.info(f"Tunnel zum Hidden Service aufgebaut: {rendezvous_address}")
-                            # Sende die Rendezvous-Anfrage weiter
-                            await hs_client.send_rendezvous_request(request_data)
-                            # Warte auf Antwort
-                            response_raw = await asyncio.wait_for(hs_client.receive(), timeout=10.0)
-                            if response_raw:
-                                response_data = _json.loads(response_raw.decode("utf-8"))
-                                status = response_data.get("status", "ok")
-                                message = response_data.get("message", "Weitergeleitet")
-                            else:
-                                status = "ok"
-                                message = "Weitergeleitet (keine Antwort)"
-                            await hs_client.close()
-                        else:
-                            status = "error"
-                            message = f"Ungültige Adresse: {rendezvous_address}"
-                    except Exception as e:
-                        logger.error(f"Fehler beim Tunnel-Aufbau: {e}")
-                        status = "error"
-                        message = f"Tunnel-Aufbau fehlgeschlagen: {e}"
-                    
-                    from .rendezvous import RendezvousResponse
-                    response = RendezvousResponse(
-                        status=status,
-                        message=message,
-                        created_at=__import__("time").time(),
+                    request = RendezvousRequest(
+                        client_ephemeral_key=bytes.fromhex(request_data.get("client_ephemeral_key", "00" * 32)),
+                        rendezvous_peer_id=request_data.get("rendezvous_peer_id", "unknown"),
+                        rendezvous_address=request_data.get("rendezvous_address", ""),
+                        created_at=request_data.get("created_at", time.time()),
                     )
+                    
+                    # Tunnel-Factory: Baut einen Tunnel zum Rendezvous-Punkt auf
+                    async def tunnel_factory(address):
+                        from .tunnel import ErebosTunnelClient
+                        if ":" in address:
+                            host, port = address.split(":")
+                            client = ErebosTunnelClient(int(port))
+                            await client.connect()
+                            return client
+                        raise ValueError(f"Ungültige Adresse: {address}")
+                    
+                    # Verarbeite die Rendezvous-Anfrage (Hidden-Service-Seite)
+                    response = await handle_rendezvous_request(request, tunnel_factory)
+                    logger.info(f"Rendezvous-Verarbeitung: {response.status} - {response.message}")
+                    
+                    # Sende die Antwort zurück
                     response_payload = _json.dumps({
                         "status": response.status,
                         "message": response.message,
                         "created_at": response.created_at,
                     }).encode("utf-8")
-                    # Antwort-Frame bauen und senden
                     import struct
                     typed = bytes([FRAME_RENDEZVOUS_RESPONSE]) + response_payload
                     nonce = __import__("os").urandom(12)
