@@ -58,6 +58,8 @@ FRAME_COVER = 0x04  # payload = Cover-Traffic (verwerfen)
 FRAME_COVER_ACK = 0x05  # payload = Downlink-Cover-ACK (verwerfen)
 FRAME_RENDEZVOUS_REQUEST = 0x10  # payload = Rendezvous-Anfrage
 FRAME_RENDEZVOUS_RESPONSE = 0x11  # payload = Rendezvous-Antwort
+FRAME_DHT_PUT = 0x12  # payload = JSON {key, value}
+FRAME_DHT_GET = 0x13  # payload = JSON {key}
 
 # Handshake-Versionen (erstes Byte im Handshake-Frame)
 HANDSHAKE_V1_CLASSIC = 0x01  # legacy: X25519 + Ed25519 + HKDF

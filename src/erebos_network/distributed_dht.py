@@ -51,15 +51,14 @@ class DistributedDescriptorStore:
                 host, port = peer.address.split(":")
                 client = ErebosTunnelClient(host=host, port=int(port))
                 await client.connect()
-                # Sende einen speziellen Frame für DHT-Put
-                # (Für den Moment: als Rendezvous-Request missbrauchen)
+                # Sende einen DHT-Put-Frame
+                from .tunnel import FRAME_DHT_PUT
                 payload = json.dumps({
-                    "type": "dht_put",
                     "key": key.hex(),
                     "value": value,
                 }).encode("utf-8")
-                # TODO: Eigenen Frame-Typ für DHT-Put einführen
-                logger.info(f"DHT-Put an {peer.address} (TODO: Frame-Typ)")
+                await client.send_typed(FRAME_DHT_PUT, payload)
+                logger.info(f"DHT-Put an {peer.address} gesendet")
                 await client.close()
             except Exception as e:
                 logger.error(f"DHT-Put an {peer.address} fehlgeschlagen: {e}")
