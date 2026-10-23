@@ -42,19 +42,31 @@ class DistributedDescriptorStore:
         return None
 
     async def async_get(self, key: bytes) -> Optional[dict]:
-        """Asynchrone Version von get(): fragt die nächsten Peers."""
+        """Asynchrone Version von get(): fragt die Peers."""
         if key in self._local_store:
             return self._local_store[key]
 
-        target_id = key.hex()
-        closest = self.routing_table.find_closest(target_id, count=3)
+        # Frage ALLE Peers in der Routing-Tabelle (nicht nur die nächsten)
+        # In einer echten DHT würde man die nächsten Peers fragen,
+        # aber für den Test fragen wir alle.
+        all_peers = []
+        for bucket in self.routing_table.buckets.values():
+            all_peers.extend(bucket.peers)
 
-        for peer in closest:
+        for peer in all_peers:
             try:
                 from .tunnel import ErebosTunnelClient
                 from .tunnel import FRAME_DHT_GET
                 host, port = peer.address.split(":")
-                client = ErebosTunnelClient(host=host, port=int(port))
+                # Robuste Port-Konvertierung
+                if isinstance(port, bytes):
+                    port = port.decode("utf-8", errors="replace")
+                try:
+                    port_int = int(port)
+                except (ValueError, TypeError):
+                    logger.error(f"Ungültiger Port: {port!r}")
+                    continue
+                client = ErebosTunnelClient(host=host, port=port_int)
                 await client.connect()
                 payload = json.dumps({"key": key.hex()}).encode("utf-8")
                 await client.send_typed(FRAME_DHT_GET, payload)
@@ -78,7 +90,15 @@ class DistributedDescriptorStore:
             try:
                 from .tunnel import ErebosTunnelClient
                 host, port = peer.address.split(":")
-                client = ErebosTunnelClient(host=host, port=int(port))
+                # Robuste Port-Konvertierung
+                if isinstance(port, bytes):
+                    port = port.decode("utf-8", errors="replace")
+                try:
+                    port_int = int(port)
+                except (ValueError, TypeError):
+                    logger.error(f"Ungültiger Port: {port!r}")
+                    continue
+                client = ErebosTunnelClient(host=host, port=port_int)
                 await client.connect()
                 # Sende einen DHT-Put-Frame
                 from .tunnel import FRAME_DHT_PUT

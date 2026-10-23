@@ -789,22 +789,52 @@ async def run_peer_server(port: int = PEER_PORT,
                     from .hidden_service_server import handle_rendezvous_request
                     import time
                     
+                    # Sicherstellen, dass alle Felder Strings sind
+                    cek_hex = request_data.get("client_ephemeral_key", "00" * 32)
+                    if isinstance(cek_hex, bytes):
+                        cek_hex = cek_hex.hex()
+                    if not isinstance(cek_hex, str):
+                        cek_hex = "00" * 32
+                    try:
+                        cek = bytes.fromhex(cek_hex)
+                    except (ValueError, TypeError):
+                        cek = b"\x00" * 32
+
+                    # rendezvous_address: Bytes korrekt dekodieren
+                    rendezvous_addr = request_data.get("rendezvous_address", "")
+                    if isinstance(rendezvous_addr, bytes):
+                        rendezvous_addr = rendezvous_addr.decode("utf-8", errors="replace")
+                    # Falls es immer noch ein Byte-String ist (z. B. b"..." als Text)
+                    if isinstance(rendezvous_addr, str) and rendezvous_addr.startswith("b'") or rendezvous_addr.startswith('b"'):
+                        # Entferne die b'...'-Verpackung
+                        try:
+                            rendezvous_addr = eval(rendezvous_addr).decode("utf-8", errors="replace")
+                        except Exception:
+                            pass
+                    rendezvous_addr = str(rendezvous_addr)
+
                     request = RendezvousRequest(
-                        client_ephemeral_key=bytes.fromhex(request_data.get("client_ephemeral_key", "00" * 32)),
+                        client_ephemeral_key=cek,
                         rendezvous_peer_id=str(request_data.get("rendezvous_peer_id", "unknown")),
-                        rendezvous_address=str(request_data.get("rendezvous_address", "")),
+                        rendezvous_address=rendezvous_addr,
                         created_at=request_data.get("created_at", time.time()),
                     )
                     
                     async def tunnel_factory(address):
                         from .tunnel import ErebosTunnelClient
+                        if isinstance(address, bytes):
+                            address = address.decode("utf-8", errors="replace")
                         address = str(address)
-                        if ":" in address:
-                            host, port = address.split(":")
-                            client = ErebosTunnelClient(host=host, port=int(port))
-                            await client.connect()
-                            return client
-                        raise ValueError(f"Ungültige Adresse: {address}")
+                        if ":" not in address:
+                            raise ValueError(f"Ungültige Adresse (kein Doppelpunkt): {address!r}")
+                        host, port_str = address.split(":", 1)
+                        try:
+                            port = int(port_str)
+                        except ValueError:
+                            raise ValueError(f"Ungültiger Port: {port_str!r} (Adresse: {address!r})")
+                        client = ErebosTunnelClient(host=host, port=port)
+                        await client.connect()
+                        return client
                     
                     response = await handle_rendezvous_request(request, tunnel_factory)
                     logger.info(f"Rendezvous-Verarbeitung: {response.status} - {response.message}")

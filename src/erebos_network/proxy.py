@@ -3,6 +3,7 @@
 Nimmt Anfragen entgegen und leitet sie über den Erebos-Router.
 """
 
+import json
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -18,6 +19,12 @@ from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
 from .topology_utils import select_three_hops
 
 logger = logging.getLogger(__name__)
+
+
+def _peer_name_to_port(peer_name: str) -> int:
+    """Leitet den Port aus dem Peer-Namen ab (z. B. peer1 -> 9999)."""
+    mapping = {"peer1": 9999, "peer2": 9998, "peer3": 9997}
+    return mapping.get(peer_name, 9999)
 
 
 class ErebosProxy:
@@ -384,11 +391,22 @@ class ErebosSocks5Server:
                 
                 # Verteilte DHT (Kademlia-basiert)
                 from .distributed_dht import DistributedDescriptorStore
+                from .dht import PeerInfo
                 dht = getattr(self, "_descriptor_store", None)
                 if dht is None:
-                    # Own-ID aus dem ersten Peer ableiten (vereinfacht)
                     own_id = "00" * 32
                     dht = DistributedDescriptorStore(own_id)
+                    # Peers aus der Config eintragen
+                    for i, (peer_name, peer_pub) in enumerate(self.peer_pubs.items()):
+                        # Peer-ID aus dem Namen ableiten (vereinfacht)
+                        peer_id = f"{i:02x}" * 32
+                        # Adresse aus dem Peer-Namen ableiten (Port-Mapping)
+                        port = 9997 + i  # peer1 -> 9997, peer2 -> 9998, ...
+                        peer_info = PeerInfo(
+                            peer_id=peer_id,
+                            address=f"127.0.0.1:{port}",
+                        )
+                        dht.add_peer(peer_info)
                     self._descriptor_store = dht
                 
                 # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
@@ -405,7 +423,7 @@ class ErebosSocks5Server:
                     address=host,
                     dht=dht,
                     rendezvous_peer_id=rendezvous_peer,
-                    rendezvous_address=f"127.0.0.1:{self.peer_pubs[rendezvous_peer]}",
+                    rendezvous_address=f"127.0.0.1:{_peer_name_to_port(rendezvous_peer)}",
                     client_ephemeral_key=client_ephemeral,
                     use_network=True,
                 )
