@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .onion import open_layer
 from .crypto.hybrid_kem import derive_hybrid_key
+from .dht import PeerDhtStore
 
 logger = logging.getLogger(__name__)
 
@@ -643,7 +644,9 @@ async def run_peer_server(port: int = PEER_PORT,
         )
     logger.info(f"Peer-Identitaet: {peer_name} (Port {port})")
 
-    dht_store = {}  # Lokaler DHT-Speicher für diesen Peer
+    # Lokaler DHT-Speicher mit Datei-Persistenz pro Peer-Port.
+    # Ueberlebt Peer-Neustarts (Datei bleibt in /tmp).
+    dht_store = PeerDhtStore(path=f"/tmp/erebos_peer_dht_{port}.json", verbose=True)
     rendezvous_pairs = {}  # Key -> {"hidden": (r,w,c), "clients": [(r,w,c), ...]}
 
     async def handle(reader, writer):

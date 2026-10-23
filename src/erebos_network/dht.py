@@ -220,3 +220,125 @@ class RoutingTable:
             "buckets_used": sum(1 for b in self.buckets.values() if b.size > 0),
             "buckets_total": KEY_SIZE,
         }
+
+
+# ---------------------------------------------------------------------------
+# Datei-persistenter Peer-DHT-Store
+# ---------------------------------------------------------------------------
+
+class PeerDhtStore:
+    """Lokaler DHT-Speicher eines Peers mit Datei-Persistenz.
+
+    Unterstuetzt die grundlegende Dict-API (__getitem__, __setitem__,
+    __contains__, get), damit er als Drop-in-Ersatz fuer ein einfaches
+    `dht_store = {}` funktioniert.
+
+    Schreibt bei jedem __setitem__ den gesamten Store atomar in eine
+    JSON-Datei (tmp + rename) und laedt ihn beim Start wieder.
+    """
+
+    def __init__(self, path: str = "/tmp/erebos_peer_dht.json", verbose: bool = False):
+        self.path = path
+        self._store = {}
+        self._verbose = verbose
+        self._load()
+
+    # -- Dict-API ----------------------------------------------------------
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def __setitem__(self, key, value):
+        self._store[key] = value
+        self._persist()
+
+    def __contains__(self, key) -> bool:
+        return key in self._store
+
+    def __delitem__(self, key):
+        del self._store[key]
+        self._persist()
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def get(self, key, default=None):
+        return self._store.get(key, default)
+
+    def items(self):
+        return self._store.items()
+
+    def keys(self):
+        return self._store.keys()
+
+    def values(self):
+        return self._store.values()
+
+    def setdefault(self, key, default=None):
+        if key not in self._store:
+            self[key] = default
+        return self._store[key]
+
+    def update(self, other) -> None:
+        self._store.update(other)
+        self._persist()
+
+    # -- Persistenz --------------------------------------------------------
+
+    def _load(self) -> None:
+        import json
+        from pathlib import Path
+
+        p = Path(self.path)
+        if not p.exists():
+            return
+        try:
+            raw = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            if self._verbose:
+                print(f"PeerDhtStore: Laden fehlgeschlagen ({e}) - starte leer", flush=True)
+            return
+
+        loaded = 0
+        for key_hex, entry in raw.items():
+            try:
+                key = bytes.fromhex(key_hex)
+                # Format: {"value": ..., "ts": ...}
+                value = entry.get("value", entry)
+                self._store[key] = value
+                loaded += 1
+            except (ValueError, AttributeError):
+                continue
+        if self._verbose or loaded:
+            print(f"PeerDhtStore: {loaded} Eintraege aus {self.path} geladen", flush=True)
+
+    def _persist(self) -> None:
+        import json
+        import os
+        import tempfile
+        import time
+        from pathlib import Path
+
+        data = {
+            key.hex(): {"value": value, "ts": time.time()}
+            for key, value in self._store.items()
+        }
+        p = Path(self.path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(p.parent), prefix=".dht_", suffix=".json.tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp_path, p)
+        except Exception as e:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            if self._verbose:
+                print(f"PeerDhtStore: Persist fehlgeschlagen: {e}", flush=True)
