@@ -17,18 +17,35 @@ async def connect_to_hidden_service(
     rendezvous_peer_id: str,
     rendezvous_address: str,
     client_ephemeral_key: bytes,
+    use_network: bool = False,
 ) -> Optional[RendezvousRequest]:
     """
     Verbindet sich mit einem Hidden Service über einen Rendezvous-Punkt.
 
-    Ablauf:
-    1. Descriptor aus der DHT holen.
-    2. Rendezvous-Request bauen.
-    3. Anfrage an den ersten Intro-Point schicken (über einen Tunnel).
-    4. Auf Antwort warten (kommt später).
+    Args:
+        address: Die .erebos-Adresse.
+        dht: Die DHT (DistributedDescriptorStore oder DescriptorStore).
+        rendezvous_peer_id: Die Peer-ID des Rendezvous-Punkts.
+        rendezvous_address: Die Adresse des Rendezvous-Punkts (host:port).
+        client_ephemeral_key: Der X25519-Public-Key des Clients.
+        use_network: Wenn True, wird async_get() für die Netzwerkabfrage genutzt.
+
+    Returns:
+        Der Rendezvous-Request, oder None bei Fehler.
     """
     logger.info(f"Suche Descriptor für {address}")
-    descriptor = lookup_descriptor(dht, address)
+
+    # 1. Descriptor holen (lokal oder über Netzwerk)
+    descriptor = None
+    if use_network and hasattr(dht, "async_get"):
+        import hashlib
+        key = hashlib.sha256(address.encode()).digest()
+        descriptor_dict = await dht.async_get(key)
+        if descriptor_dict:
+            descriptor = HiddenServiceDescriptor.from_dict(descriptor_dict)
+    else:
+        descriptor = lookup_descriptor(dht, address)
+
     if descriptor is None:
         logger.error(f"Kein Descriptor für {address} gefunden")
         return None
@@ -37,9 +54,11 @@ async def connect_to_hidden_service(
         logger.error(f"Descriptor für {address} hat keine Intro-Points")
         return None
 
+    # 2. Intro-Point wählen (erster)
     intro_point = descriptor.intro_points[0]
     logger.info(f"Wähle Intro-Point {intro_point.peer_id} ({intro_point.address})")
 
+    # 3. Rendezvous-Request bauen
     request = build_rendezvous_request(
         client_ephemeral_key=client_ephemeral_key,
         rendezvous_peer_id=rendezvous_peer_id,
@@ -47,8 +66,6 @@ async def connect_to_hidden_service(
     )
 
     logger.info(f"Sende Rendezvous-Request an {intro_point.address}")
-    # Hier würde die tatsächliche Netzwerkkommunikation stattfinden.
-    # Für den Moment geben wir den Request zurück (als Platzhalter).
     return request
 
 
@@ -56,29 +73,14 @@ async def send_rendezvous_over_tunnel(
     tunnel_client,
     request: RendezvousRequest,
 ) -> None:
-    """
-    Sendet eine Rendezvous-Anfrage über einen bestehenden Tunnel.
-
-    Args:
-        tunnel_client: Ein ErebosTunnelClient, der bereits mit dem Intro-Point
-                       verbunden ist.
-        request: Die Rendezvous-Anfrage.
-    """
+    """Sendet eine Rendezvous-Anfrage über einen bestehenden Tunnel."""
     payload = request.to_dict()
     await tunnel_client.send_rendezvous_request(payload)
     logger.info(f"Rendezvous-Request gesendet an {tunnel_client.peer_name}")
 
 
 async def receive_rendezvous_response(tunnel_client) -> Optional[dict]:
-    """
-    Wartet auf eine Rendezvous-Antwort über den Tunnel.
-
-    Args:
-        tunnel_client: Ein ErebosTunnelClient, der mit dem Intro-Point verbunden ist.
-
-    Returns:
-        Die Antwort als dict, oder None bei Timeout.
-    """
+    """Wartet auf eine Rendezvous-Antwort über den Tunnel."""
     try:
         raw = await asyncio.wait_for(tunnel_client.receive(), timeout=10.0)
         if not raw:
