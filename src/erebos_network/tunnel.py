@@ -644,7 +644,7 @@ async def run_peer_server(port: int = PEER_PORT,
     logger.info(f"Peer-Identitaet: {peer_name} (Port {port})")
 
     dht_store = {}  # Lokaler DHT-Speicher für diesen Peer
-    rendezvous_pairs = {}  # Key -> {"hidden": (reader, writer), "client": (reader, writer)}
+    rendezvous_pairs = {}  # Key -> {"hidden": (r,w,c), "clients": [(r,w,c), ...]}
 
     async def handle(reader, writer):
         logger.info("Eingehende Tunnel-Verbindung")
@@ -901,7 +901,14 @@ async def run_peer_server(port: int = PEER_PORT,
                             rendezvous_pairs[key] = {}
                         # WICHTIG: Cipher mit speichern, damit FRAME_DATA mit dem
                         # richtigen Schluessel der Ziel-Verbindung verschluesselt wird.
-                        rendezvous_pairs[key][role] = (reader, writer, cipher)
+                        # 'hidden' ist eindeutig (ein Hidden-Service pro Key),
+                        # 'clients' ist eine Liste (mehrere Clients pro Key moeglich).
+                        if role == "hidden":
+                            rendezvous_pairs[key]["hidden"] = (reader, writer, cipher)
+                        else:
+                            rendezvous_pairs[key].setdefault("clients", []).append(
+                                (reader, writer, cipher)
+                            )
                         logger.info(f"Rendezvous-Registrierung: {role} für Key {key[:16]}...")
                         # Bestätigung senden
                         import struct
@@ -928,16 +935,23 @@ async def run_peer_server(port: int = PEER_PORT,
 
                         # Prüfe, ob beide Rollen da sind
                         pair = rendezvous_pairs[key]
-                        if "hidden" in pair and "client" in pair:
+                        if "hidden" in pair and pair.get("clients"):
                             logger.info(f"Rendezvous-Paar vollständig für Key {key[:16]}...")
 
-                            # Bestaetigung NUR an die ANDERE Rolle senden.
-                            # Die aktuell registrierende Rolle hat ihren 'ready'-Frame
-                            # bereits oben erhalten; ein zweiter 'ready' wuerde den
-                            # Client verwirren (er wuerde ihn als Datenframe sehen).
-                            for role_name, entry in pair.items():
-                                if role_name == role:
-                                    continue  # eigene Rolle ueberspringen
+                            # Bestaetigung NUR an die ANDERE Seite senden.
+                            # Die aktuell registrierende Verbindung hat ihren
+                            # 'ready'-Frame bereits oben erhalten; ein zweiter
+                            # 'ready' wuerde sie verwirren.
+                            def _other_entries(pair_dict, current_role):
+                                entries = []
+                                if current_role != "hidden" and "hidden" in pair_dict:
+                                    entries.append(("hidden", pair_dict["hidden"]))
+                                if current_role != "client":
+                                    for idx, c in enumerate(pair_dict.get("clients", [])):
+                                        entries.append((f"client[{idx}]", c))
+                                return entries
+
+                            for role_name, entry in _other_entries(pair, role):
                                 try:
                                     r, w, target_cipher = entry
                                     typed_ready = bytes([FRAME_RENDEZVOUS_REGISTER]) + ready_msg
@@ -973,13 +987,19 @@ async def run_peer_server(port: int = PEER_PORT,
                                     stream_id = struct.unpack(">H", pl[:2])[0]
                                     payload_data = pl[2:]
                                     logger.info(f"FRAME_DATA empfangen (stream={stream_id}, {len(payload_data)}B) - leite weiter")
-                                    for role_name, entry in pair.items():
+                                    # Ziele: hidden + alle clients (jeweils != writer)
+                                    targets = []
+                                    if "hidden" in pair:
+                                        targets.append(("hidden", pair["hidden"]))
+                                    for idx, c in enumerate(pair.get("clients", [])):
+                                        targets.append((f"client[{idx}]", c))
+
+                                    for role_name, entry in targets:
                                         r, w, target_cipher = entry
                                         if w is writer:
                                             continue
                                         try:
-                                            # Stream-ID + Nutzdaten weiterleiten
-                                            forward_payload = pl  # pl enthaelt bereits stream_id + payload_data
+                                            forward_payload = pl  # stream_id + payload_data
                                             typed_out = bytes([FRAME_DATA]) + forward_payload
                                             padded_out = _apply_padding(typed_out)
                                             nonce_out = __import__("os").urandom(12)
