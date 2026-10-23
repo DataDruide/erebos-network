@@ -386,6 +386,12 @@ class ErebosTunnelClient:
             if frame_type == FRAME_COVER_ACK:
                 logger.debug(f"Cover-ACK empfangen: {len(payload)}B (verworfen)")
                 continue
+            if frame_type == FRAME_RENDEZVOUS_REQUEST:
+                logger.debug(f"Rendezvous-Request empfangen: {len(payload)}B")
+                return payload
+            if frame_type == FRAME_RENDEZVOUS_RESPONSE:
+                logger.debug(f"Rendezvous-Response empfangen: {len(payload)}B")
+                return payload
             logger.warning(f"Unbekannter Frame-Typ im receive(): {frame_type:#x}")
             # Fallback: alles nach dem ersten Byte zurueckgeben
             return payload
