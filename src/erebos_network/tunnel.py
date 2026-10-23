@@ -738,23 +738,50 @@ async def run_peer_server(port: int = PEER_PORT,
                     request_data = _json.loads(payload.decode("utf-8"))
                     logger.debug(f"Rendezvous-Request Daten: {request_data}")
                     
-                    # Intro-Point: Baue einen Tunnel zum Hidden Service auf
-                    # und leite die Anfrage weiter.
                     rendezvous_peer_id = request_data.get("rendezvous_peer_id")
                     rendezvous_address = request_data.get("rendezvous_address")
                     
-                    # Bestimme den nächsten Peer (Hidden Service) aus dem Pfad
-                    # Für den Moment: Der Hidden Service ist der Peer, der
-                    # nicht der Intro-Point ist.
+                    # Intro-Point: Baue einen Tunnel zum Hidden Service auf.
                     # In einer vollständigen Implementierung würden wir den
                     # Descriptor des Hidden Service nutzen, um den nächsten
-                    # Peer zu bestimmen.
+                    # Peer zu bestimmen. Für den Moment nutzen wir die
+                    # rendezvous_address als Ziel.
+                    logger.info(f"Baue Tunnel zum Hidden Service ({rendezvous_address})")
                     
-                    # Für den Moment senden wir eine Bestätigung zurück.
+                    try:
+                        # Versuche, einen Tunnel zum Hidden Service aufzubauen
+                        from .tunnel import ErebosTunnelClient
+                        # Parse die Adresse (host:port)
+                        if rendezvous_address and ":" in rendezvous_address:
+                            hs_host, hs_port = rendezvous_address.split(":")
+                            hs_port = int(hs_port)
+                            hs_client = ErebosTunnelClient(hs_port)
+                            await hs_client.connect()
+                            logger.info(f"Tunnel zum Hidden Service aufgebaut: {rendezvous_address}")
+                            # Sende die Rendezvous-Anfrage weiter
+                            await hs_client.send_rendezvous_request(request_data)
+                            # Warte auf Antwort
+                            response_raw = await asyncio.wait_for(hs_client.receive(), timeout=10.0)
+                            if response_raw:
+                                response_data = _json.loads(response_raw.decode("utf-8"))
+                                status = response_data.get("status", "ok")
+                                message = response_data.get("message", "Weitergeleitet")
+                            else:
+                                status = "ok"
+                                message = "Weitergeleitet (keine Antwort)"
+                            await hs_client.close()
+                        else:
+                            status = "error"
+                            message = f"Ungültige Adresse: {rendezvous_address}"
+                    except Exception as e:
+                        logger.error(f"Fehler beim Tunnel-Aufbau: {e}")
+                        status = "error"
+                        message = f"Tunnel-Aufbau fehlgeschlagen: {e}"
+                    
                     from .rendezvous import RendezvousResponse
                     response = RendezvousResponse(
-                        status="ok",
-                        message=f"Rendezvous-Request an {rendezvous_peer_id} weitergeleitet",
+                        status=status,
+                        message=message,
                         created_at=__import__("time").time(),
                     )
                     response_payload = _json.dumps({
