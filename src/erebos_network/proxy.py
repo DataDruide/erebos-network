@@ -413,8 +413,44 @@ class ErebosSocks5Server:
                     return
                 
                 logger.info(f"[{conn_id}] Rendezvous-Request gebaut, sende an Intro-Point")
-                # TODO: Tatsächliche Netzwerkkommunikation über den Tunnel
-                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+
+                # Baue einen Tunnel zum Intro-Point (erster Peer im Descriptor)
+                from .hidden_service import lookup_descriptor
+                descriptor = lookup_descriptor(dht, host)
+                if descriptor is None or not descriptor.intro_points:
+                    logger.error(f"[{conn_id}] Kein Intro-Point im Descriptor")
+                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    writer.close()
+                    return
+
+                intro_point = descriptor.intro_points[0]
+                intro_host, intro_port = intro_point.address.split(":")
+                intro_port = int(intro_port)
+
+                from .tunnel import ErebosTunnelClient
+                tunnel_client = ErebosTunnelClient(host=intro_host, port=intro_port)
+                try:
+                    await tunnel_client.connect()
+                    logger.info(f"[{conn_id}] Tunnel zum Intro-Point {intro_point.address} aufgebaut")
+                    await tunnel_client.send_rendezvous_request(request.to_dict())
+                    logger.info(f"[{conn_id}] Rendezvous-Request an Intro-Point gesendet")
+                    # Warte auf Antwort
+                    raw = await asyncio.wait_for(tunnel_client.receive(), timeout=10.0)
+                    if raw:
+                        response_data = json.loads(raw.decode("utf-8"))
+                        logger.info(f"[{conn_id}] Rendezvous-Antwort: {response_data}")
+                        if response_data.get("status") == "ok":
+                            await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                        else:
+                            await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    else:
+                        logger.error(f"[{conn_id}] Keine Antwort vom Intro-Point")
+                        await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                except Exception as e:
+                    logger.error(f"[{conn_id}] Fehler bei Rendezvous-Kommunikation: {e}")
+                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                finally:
+                    await tunnel_client.close()
                 writer.close()
                 return
 
