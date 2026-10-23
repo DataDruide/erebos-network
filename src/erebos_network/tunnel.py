@@ -733,10 +733,38 @@ async def run_peer_server(port: int = PEER_PORT,
                                     ack_size_max=ack_size_max)
             elif frame_type == FRAME_RENDEZVOUS_REQUEST:
                 logger.info(f"Rendezvous-Request empfangen ({len(payload)}B)")
-                # Der Peer leitet die Anfrage weiter (als Intro-Point) oder
-                # verarbeitet sie selbst (als Hidden Service).
-                # Für den Moment loggen wir nur den Empfang.
-                logger.debug(f"Rendezvous-Request payload: {payload[:64]}...")
+                try:
+                    import json as _json
+                    request_data = _json.loads(payload.decode("utf-8"))
+                    logger.debug(f"Rendezvous-Request Daten: {request_data}")
+                    
+                    # Intro-Point: Leite die Anfrage an den nächsten Peer weiter.
+                    # In einer vollständigen Implementierung würde hier der
+                    # Tunnel zum Hidden Service aufgebaut.
+                    # Für den Moment bestätigen wir den Empfang.
+                    from .rendezvous import RendezvousResponse
+                    response = RendezvousResponse(
+                        status="ok",
+                        message="Rendezvous-Request empfangen",
+                        created_at=__import__("time").time(),
+                    )
+                    response_payload = _json.dumps({
+                        "status": response.status,
+                        "message": response.message,
+                        "created_at": response.created_at,
+                    }).encode("utf-8")
+                    # Antwort-Frame bauen und senden
+                    import struct
+                    typed = bytes([FRAME_RENDEZVOUS_RESPONSE]) + response_payload
+                    padded = _apply_padding(typed) if False else typed
+                    nonce = __import__("os").urandom(12)
+                    ct = cipher.encrypt(nonce, padded, None)
+                    frame = struct.pack(">I", len(ct) + 12) + nonce + ct
+                    writer.write(frame)
+                    await writer.drain()
+                    logger.debug(f"Rendezvous-Response gesendet: {len(response_payload)}B")
+                except Exception as e:
+                    logger.error(f"Fehler bei Rendezvous-Request: {e}")
             elif frame_type == FRAME_RENDEZVOUS_RESPONSE:
                 logger.info(f"Rendezvous-Response empfangen ({len(payload)}B)")
                 logger.debug(f"Rendezvous-Response payload: {payload[:64]}...")
