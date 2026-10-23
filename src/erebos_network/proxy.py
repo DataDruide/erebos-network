@@ -382,10 +382,13 @@ class ErebosSocks5Server:
                 from .descriptor_store import DescriptorStore
                 import os
                 
-                # Descriptor-Store (In-Memory, später echte DHT)
+                # Verteilte DHT (Kademlia-basiert)
+                from .distributed_dht import DistributedDescriptorStore
                 dht = getattr(self, "_descriptor_store", None)
                 if dht is None:
-                    dht = DescriptorStore()
+                    # Own-ID aus dem ersten Peer ableiten (vereinfacht)
+                    own_id = "00" * 32
+                    dht = DistributedDescriptorStore(own_id)
                     self._descriptor_store = dht
                 
                 # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
