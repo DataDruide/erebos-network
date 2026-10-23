@@ -41,6 +41,35 @@ class DistributedDescriptorStore:
         # Für den Moment: None.
         return None
 
+    async def async_get(self, key: bytes) -> Optional[dict]:
+        """Asynchrone Version von get(): fragt die nächsten Peers."""
+        if key in self._local_store:
+            return self._local_store[key]
+
+        target_id = key.hex()
+        closest = self.routing_table.find_closest(target_id, count=3)
+
+        for peer in closest:
+            try:
+                from .tunnel import ErebosTunnelClient
+                from .tunnel import FRAME_DHT_GET
+                host, port = peer.address.split(":")
+                client = ErebosTunnelClient(host=host, port=int(port))
+                await client.connect()
+                payload = json.dumps({"key": key.hex()}).encode("utf-8")
+                await client.send_typed(FRAME_DHT_GET, payload)
+                raw = await asyncio.wait_for(client.receive(), timeout=5.0)
+                await client.close()
+                if raw:
+                    response = json.loads(raw.decode("utf-8"))
+                    if response.get("status") == "ok" and response.get("value"):
+                        value = response["value"]
+                        self._local_store[key] = value
+                        return value
+            except Exception as e:
+                logger.error(f"DHT-GET an {peer.address} fehlgeschlagen: {e}")
+        return None
+
     async def _distribute_put(self, key: bytes, value: dict) -> None:
         """Verteilt einen Descriptor an die nächsten Peers."""
         target_id = key.hex()
