@@ -909,6 +909,8 @@ async def run_peer_server(port: int = PEER_PORT,
                             rendezvous_pairs[key].setdefault("clients", []).append(
                                 (reader, writer, cipher)
                             )
+                        # streams: stream_id -> {"client": (reader, writer, cipher)}
+                        rendezvous_pairs[key].setdefault("streams", {})
                         logger.info(f"Rendezvous-Registrierung: {role} für Key {key[:16]}...")
                         # Bestätigung senden
                         import struct
@@ -986,13 +988,43 @@ async def run_peer_server(port: int = PEER_PORT,
                                         continue
                                     stream_id = struct.unpack(">H", pl[:2])[0]
                                     payload_data = pl[2:]
-                                    logger.info(f"FRAME_DATA empfangen (stream={stream_id}, {len(payload_data)}B) - leite weiter")
-                                    # Ziele: hidden + alle clients (jeweils != writer)
-                                    targets = []
-                                    if "hidden" in pair:
-                                        targets.append(("hidden", pair["hidden"]))
-                                    for idx, c in enumerate(pair.get("clients", [])):
-                                        targets.append((f"client[{idx}]", c))
+
+                                    streams = pair.setdefault("streams", {})
+                                    hidden_entry = pair.get("hidden")
+
+                                    # Bin ich der Hidden-Service oder ein Client?
+                                    is_hidden = hidden_entry is not None and writer is hidden_entry[1]
+
+                                    if is_hidden:
+                                        # Antwort vom Hidden-Service -> an den Client,
+                                        # der zu dieser Stream-ID gehoert.
+                                        stream_info = streams.get(stream_id)
+                                        if stream_info is None:
+                                            logger.warning(
+                                                f"FRAME_DATA (stream={stream_id}) vom Hidden-Service, "
+                                                f"aber kein Client fuer diesen Stream registriert - verworfen"
+                                            )
+                                            continue
+                                        targets = [(
+                                            f"client(stream={stream_id})",
+                                            stream_info["client"],
+                                        )]
+                                    else:
+                                        # Anfrage von einem Client -> Stream diesem Client zuordnen
+                                        streams[stream_id] = {"client": (reader, writer, cipher)}
+                                        if hidden_entry is None:
+                                            logger.warning(
+                                                f"FRAME_DATA (stream={stream_id}) von Client, "
+                                                f"aber kein Hidden-Service registriert - verworfen"
+                                            )
+                                            continue
+                                        targets = [("hidden", hidden_entry)]
+
+                                    logger.info(
+                                        f"FRAME_DATA empfangen (stream={stream_id}, {len(payload_data)}B, "
+                                        f"from={'hidden' if is_hidden else 'client'}) - leite an "
+                                        f"{', '.join(name for name, _ in targets)}"
+                                    )
 
                                     for role_name, entry in targets:
                                         r, w, target_cipher = entry
