@@ -891,6 +891,8 @@ async def run_peer_server(port: int = PEER_PORT,
                     logger.error(f"Fehler bei DHT-PUT: {e}")
             elif frame_type == FRAME_RENDEZVOUS_REGISTER:
                 logger.info(f"Rendezvous-Registrierung empfangen ({len(payload)}B)")
+                role = None
+                key = None
                 try:
                     import json as _json
                     data = _json.loads(payload.decode("utf-8"))
@@ -1053,6 +1055,74 @@ async def run_peer_server(port: int = PEER_PORT,
                                 break
                 except Exception as e:
                     logger.error(f"Fehler bei Rendezvous-Registrierung: {e}")
+                finally:
+                    # Cleanup: Diese Verbindung aus rendezvous_pairs entfernen —
+                    # aber NUR, wenn sie tatsaechlich die registrierte ist.
+                    # (handle_rendezvous_request baut zusätzliche Tunnel zu peer1 auf,
+                    #  die sich NICHT als 'hidden' registrieren und nach dem Response
+                    #  wieder enden — die duerfen das Paar nicht aufloesen.)
+                    #
+                    # WICHTIG: pair["hidden"] bleibt erhalten, solange die
+                    # Hidden-Verbindung lebt. Nur wenn der letzte Client geht,
+                    # bleibt pair["hidden"] bestehen (hidden ist noch aktiv).
+                    # Erst wenn die HIDDEN-Verbindung endet, wird das Paar entfernt.
+                    if role and key and key in rendezvous_pairs:
+                        try:
+                            pair = rendezvous_pairs[key]
+                            if role == "hidden":
+                                hidden_entry = pair.get("hidden")
+                                if hidden_entry is not None and hidden_entry[1] is writer:
+                                    # Dies ist die registrierte Hidden-Verbindung -> aufloesen
+                                    rendezvous_pairs.pop(key, None)
+                                    logger.info(
+                                        f"Rendezvous-Paar für Key {key[:16]}... "
+                                        f"aufgeloest (hidden getrennt)"
+                                    )
+                                else:
+                                    # Nicht die registrierte Hidden-Verbindung -> ignorieren
+                                    pass
+                            else:
+                                # Client weg -> nur entfernen, wenn dieser writer registriert ist
+                                before = len(pair.get("clients", []))
+                                pair["clients"] = [
+                                    c for c in pair.get("clients", [])
+                                    if c[1] is not writer
+                                ]
+                                after = len(pair["clients"])
+                                if before == after:
+                                    # Dieser writer war gar nicht registriert -> ignorieren
+                                    pass
+                                else:
+                                    # streams bereinigen, die auf diesen Client zeigen
+                                    streams = pair.get("streams", {})
+                                    to_remove = [
+                                        sid for sid, info in streams.items()
+                                        if info.get("client", (None, None, None))[1] is writer
+                                    ]
+                                    for sid in to_remove:
+                                        streams.pop(sid, None)
+                                    if not pair["clients"]:
+                                        # WICHTIG: pair NICHT entfernen, solange hidden aktiv ist!
+                                        # Nur wenn hidden auch weg ist (was hier nicht der Fall ist,
+                                        # weil hidden separat bereinigt wird), darf das Paar weg.
+                                        if "hidden" not in pair:
+                                            rendezvous_pairs.pop(key, None)
+                                            logger.info(
+                                                f"Rendezvous-Paar für Key {key[:16]}... "
+                                                f"aufgeloest (letzter client getrennt)"
+                                            )
+                                        else:
+                                            logger.info(
+                                                f"Letzter Client aus Rendezvous-Paar {key[:16]}... "
+                                                f"entfernt (hidden bleibt aktiv, {len(to_remove)} streams bereinigt)"
+                                            )
+                                    else:
+                                        logger.info(
+                                            f"Client aus Rendezvous-Paar {key[:16]}... entfernt "
+                                            f"({after} verbleibend, {len(to_remove)} streams bereinigt)"
+                                        )
+                        except Exception as cleanup_err:
+                            logger.error(f"Fehler beim Rendezvous-Cleanup: {cleanup_err}")
             elif frame_type == FRAME_DATA:
                 logger.info(f"FRAME_DATA empfangen ({len(payload)}B)")
                 # Leite an die Rendezvous-Verbindung weiter (falls vorhanden)
