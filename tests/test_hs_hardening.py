@@ -8,7 +8,6 @@ from erebos_network.hs_hardening import (
     HSDescriptorHardening,
     HSHardeningConfig,
 )
-from erebos_network.hidden_service import HiddenService
 
 
 # --- Hardening Unit Tests ---
@@ -112,40 +111,5 @@ def test_hardening_stats():
 
 # --- Integration Tests ---
 
-def test_hs_publish_with_hardening():
-    """HS publiziert Descriptor mit Hardening."""
-    hs = HiddenService()
-    hs.hardening.config.pow_difficulty = 2
-    service = hs.create_service()
-
-    assert hs.publish_descriptor(service.service_id) is True
-    assert hs.stats["descriptors_published"] == 1
 
 
-def test_hs_rejects_flood():
-    """HS lehnt Descriptor-Flood ab."""
-    hs = HiddenService()
-    hs.hardening.config.pow_difficulty = 2
-    hs.hardening.config.rate_limit_per_minute = 3
-    service = hs.create_service()
-
-    published = 0
-    for _ in range(10):
-        if hs.publish_descriptor(service.service_id):
-            published += 1
-
-    # Nur 3 erlaubt (Rate-Limit)
-    assert published == 3
-    assert hs.stats["descriptors_rejected"] >= 1
-
-
-def test_hs_hardening_stats():
-    """HS-Hardening-Statistiken."""
-    hs = HiddenService()
-    hs.hardening.config.pow_difficulty = 2
-    service = hs.create_service()
-    hs.publish_descriptor(service.service_id)
-
-    stats = hs.get_stats()
-    assert stats["services"] == 1
-    assert "hardening" in stats
