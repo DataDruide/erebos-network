@@ -985,6 +985,9 @@ async def run_peer_server(port: int = PEER_PORT,
                                     logger.debug(f"Frame {ft:#x} empfangen")
                             except asyncio.TimeoutError:
                                 continue
+                            except (asyncio.IncompleteReadError, ConnectionResetError):
+                                logger.debug("Rendezvous-Loop: Verbindung regulaer beendet")
+                                break
                             except Exception as e:
                                 logger.error(f"Fehler in Rendezvous-Loop: {e}")
                                 break
@@ -1028,6 +1031,8 @@ async def run_peer_server(port: int = PEER_PORT,
                     logger.error(f"Fehler bei DHT-GET: {e}")
             else:
                 logger.error(f"Unbekannter Frame-Typ: {frame_type:#x}")
+        except (asyncio.IncompleteReadError, ConnectionResetError):
+            logger.debug("Peer-Verbindung regulaer beendet")
         except Exception as e:
             logger.error(f"Peer-Fehler: {type(e).__name__}: {e!r}")
         finally:

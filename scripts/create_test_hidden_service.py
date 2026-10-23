@@ -89,6 +89,8 @@ async def keep_alive(client):
             # weiterzuleitenden Datenframe erkennt (sonst Typ 0x48 = 'H').
             await client.send_typed(FRAME_DATA, http_response)
             print(f"HTTP-Antwort gesendet: {len(http_response)}B")
+    except (asyncio.IncompleteReadError, ConnectionResetError):
+        print("keep_alive: Verbindung regulaer beendet")
     except asyncio.CancelledError:
         raise
     except Exception as e:
