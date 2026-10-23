@@ -378,18 +378,15 @@ class ErebosSocks5Server:
             # Prüfe, ob es eine .erebos-Adresse ist
             if host.endswith(".erebos"):
                 logger.info(f"[{conn_id}] .erebos-Adresse erkannt: {host}")
-                # Rendezvous-Mechanismus für Hidden Services
                 from .hidden_service_client import connect_to_hidden_service
-                from .hidden_service import lookup_descriptor
-                from .rendezvous import RendezvousRequest
+                from .descriptor_store import DescriptorStore
+                import os
                 
-                # DHT aus dem Peer-Pool ableiten (vereinfacht)
-                dht = None  # TODO: DHT-Instanz aus dem Peer-Pool
+                # Descriptor-Store (In-Memory, später echte DHT)
+                dht = getattr(self, "_descriptor_store", None)
                 if dht is None:
-                    logger.error(f"[{conn_id}] Keine DHT verfügbar")
-                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
-                    writer.close()
-                    return
+                    dht = DescriptorStore()
+                    self._descriptor_store = dht
                 
                 # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
                 rendezvous_peer = list(self.peer_pubs.keys())[0] if self.peer_pubs else None
@@ -399,8 +396,7 @@ class ErebosSocks5Server:
                     writer.close()
                     return
                 
-                # Rendezvous-Request bauen (vereinfacht)
-                import os
+                # Rendezvous-Request bauen
                 client_ephemeral = os.urandom(32)
                 request = await connect_to_hidden_service(
                     address=host,
@@ -411,7 +407,7 @@ class ErebosSocks5Server:
                 )
                 
                 if request is None:
-                    logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen")
+                    logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen (kein Descriptor?)")
                     await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     writer.close()
                     return
