@@ -93,6 +93,7 @@ class HiddenServiceRuntime:
         self.private_key: Optional[ed25519.Ed25519PrivateKey] = None
         self.public_key: Optional[bytes] = None
         self._stop_event = asyncio.Event()
+        self._reconnecting = False
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -257,8 +258,49 @@ class HiddenServiceRuntime:
                     f"{len(http_response)}B)"
                 )
         except (asyncio.IncompleteReadError, ConnectionResetError):
-            logger.debug("keep_alive: Verbindung regulaer beendet")
+            logger.warning("keep_alive: Rendezvous-Verbindung verloren")
+            if not self._stop_event.is_set():
+                asyncio.create_task(self._reconnect_loop())
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"keep_alive Fehler: {type(e).__name__}: {e}")
+            if not self._stop_event.is_set():
+                asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        """Verbindet sich nach Abbruch neu mit dem Rendezvous-Punkt.
+
+        Exponential Backoff: 1s, 2s, 4s, ... max 60s.
+        Wird beendet, sobald _stop_event gesetzt ist oder die
+        Registrierung erfolgreich war.
+        """
+        if getattr(self, "_reconnecting", False):
+            logger.debug("Reconnect laeuft bereits")
+            return
+        self._reconnecting = True
+        backoff = 1.0
+        max_backoff = 60.0
+        attempt = 0
+        try:
+            while not self._stop_event.is_set():
+                attempt += 1
+                logger.info(
+                    f"Reconnect-Versuch {attempt} in {backoff:.0f}s "
+                    f"({self.rendezvous_host}:{self.rendezvous_port})..."
+                )
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff)
+                    # _stop_event wurde gesetzt -> abbrechen
+                    return
+                except asyncio.TimeoutError:
+                    pass
+                try:
+                    await self._register_at_rendezvous()
+                    logger.info(f"Reconnect erfolgreich (Versuch {attempt})")
+                    return
+                except Exception as e:
+                    logger.error(f"Reconnect fehlgeschlagen: {type(e).__name__}: {e}")
+                    backoff = min(backoff * 2, max_backoff)
+        finally:
+            self._reconnecting = False
