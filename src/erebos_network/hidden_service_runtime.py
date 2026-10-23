@@ -223,12 +223,17 @@ class HiddenServiceRuntime:
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
 
-                # 2) Stream-ID + HTTP-Anfrage?
-                if len(data) < 2:
+                # 2) Stream-ID + e2e_flag + HTTP-Anfrage?
+                if len(data) < 3:
                     logger.debug(f"Ignoriere zu kurze Daten: {len(data)}B")
                     continue
                 stream_id = struct.unpack(">H", data[:2])[0]
-                payload_data = data[2:]
+                e2e_flag = data[2]
+                payload_data = data[3:]
+                # B1: e2e_flag=0 -> Klartext (altes Verhalten)
+                # spaeter: 0x01 -> E2E-verschluesselt, entschluesseln
+                if e2e_flag != 0x00:
+                    logger.debug(f"Unbekanntes e2e_flag (stream={stream_id}): {e2e_flag:#x}")
                 if not payload_data.startswith(HTTP_PREFIXES):
                     logger.debug(
                         f"Ignoriere Nicht-HTTP-Daten (stream={stream_id}): "
@@ -251,7 +256,7 @@ class HiddenServiceRuntime:
                     logger.error(f"HTTP-Backend-Fehler: {e}")
                     continue
 
-                framed_response = struct.pack(">H", stream_id) + http_response
+                framed_response = struct.pack(">H", stream_id) + bytes([0x00]) + http_response
                 await client.send_typed(FRAME_DATA, framed_response)
                 logger.info(
                     f"HTTP-Antwort gesendet (stream={stream_id}, "

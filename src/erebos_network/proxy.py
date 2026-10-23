@@ -506,7 +506,9 @@ class ErebosSocks5Server:
                             # conn_id ist pro Proxy-Verbindung eindeutig -> als Stream-ID.
                             stream_id = conn_id & 0xFFFF
                             import struct as _struct
-                            framed_request = _struct.pack(">H", stream_id) + http_request
+                            # B1: [stream_id:2B][e2e_flag:1B][payload]
+                            e2e_flag = 0x00  # B1: Klartext (altes Verhalten)
+                            framed_request = _struct.pack(">H", stream_id) + bytes([e2e_flag]) + http_request
                             await rendezvous_client.send_typed(FRAME_DATA, framed_request)
                             logger.info(f"[{conn_id}] HTTP-Anfrage über Rendezvous-Tunnel gesendet (stream={stream_id})")
 
@@ -517,13 +519,18 @@ class ErebosSocks5Server:
                                 try:
                                     resp = await asyncio.wait_for(rendezvous_client.receive(), timeout=5.0)
                                     if resp:
-                                        # Rendezvous-Pfad: resp = [stream_id: 2B][nutzdaten]
-                                        if len(resp) < 2:
+                                        # Rendezvous-Pfad: resp = [stream_id:2B][e2e_flag:1B][nutzdaten]
+                                        if len(resp) < 3:
                                             logger.debug(f"[{conn_id}] Ignoriere zu kurzen Frame: {resp[:16]!r}...")
                                             continue
                                         import struct as _struct
                                         resp_stream_id = _struct.unpack(">H", resp[:2])[0]
-                                        resp_payload = resp[2:]
+                                        resp_e2e_flag = resp[2]
+                                        resp_payload = resp[3:]
+                                        # B1: e2e_flag=0 -> Klartext (altes Verhalten)
+                                        # spaeter: 0x01 -> E2E-verschluesselt, entschluesseln
+                                        if resp_e2e_flag != 0x00:
+                                            logger.debug(f"[{conn_id}] Unbekanntes e2e_flag: {resp_e2e_flag:#x}")
                                         # Nur Antworten fuer die EIGENE Stream-ID akzeptieren
                                         if resp_stream_id != stream_id:
                                             logger.debug(

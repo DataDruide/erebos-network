@@ -987,12 +987,15 @@ async def run_peer_server(port: int = PEER_PORT,
                                 ft = data_in[0]
                                 pl = data_in[1:]
                                 if ft == FRAME_DATA:
-                                    # Rendezvous-Pfad: pl = [stream_id: 2B][nutzdaten]
-                                    if len(pl) < 2:
-                                        logger.warning(f"FRAME_DATA zu kurz fuer Stream-ID ({len(pl)}B) - ignoriert")
+                                    # Rendezvous-Pfad: pl = [stream_id:2B][e2e_flag:1B][nutzdaten]
+                                    if len(pl) < 3:
+                                        logger.warning(f"FRAME_DATA zu kurz ({len(pl)}B) - ignoriert")
                                         continue
                                     stream_id = struct.unpack(">H", pl[:2])[0]
-                                    payload_data = pl[2:]
+                                    e2e_flag = pl[2]
+                                    payload_data = pl[3:]
+                                    if e2e_flag != 0x00:
+                                        logger.debug(f"FRAME_DATA (stream={stream_id}) mit e2e_flag={e2e_flag:#x}")
 
                                     streams = pair.setdefault("streams", {})
                                     hidden_entry = pair.get("hidden")
