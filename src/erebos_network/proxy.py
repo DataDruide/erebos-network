@@ -407,6 +407,7 @@ class ErebosSocks5Server:
                     rendezvous_peer_id=rendezvous_peer,
                     rendezvous_address=f"127.0.0.1:{self.peer_pubs[rendezvous_peer]}",
                     client_ephemeral_key=client_ephemeral,
+                    use_network=True,
                 )
                 
                 if request is None:
