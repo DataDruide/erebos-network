@@ -21,7 +21,6 @@ from erebos_network.dht import PeerInfo
 from erebos_network.tunnel import (
     ErebosTunnelClient,
     FRAME_DHT_PUT,
-    FRAME_RENDEZVOUS_REQUEST,
     FRAME_DATA,
 )
 from erebos_network.rendezvous import RendezvousRequest
@@ -161,77 +160,12 @@ async def main():
     # 6. Auf Rendezvous-Anfragen warten
     print("Hidden Service läuft. Warte auf Rendezvous-Anfragen...")
 
-    async def handle_rendezvous(reader, writer):
-        """Empfängt eine Rendezvous-Anfrage über einen Tunnel."""
-        try:
-            raw = await asyncio.wait_for(reader.read(4096), timeout=10.0)
-            if not raw:
-                return
-
-            if raw[0] == FRAME_RENDEZVOUS_REQUEST:
-                data = json.loads(raw[1:].decode("utf-8"))
-                print(f"Rendezvous-Anfrage empfangen: {data}")
-
-                rendezvous_address = data.get("rendezvous_address", "")
-                if ":" in rendezvous_address:
-                    host, port = rendezvous_address.split(":")
-                    port = int(port)
-                    print(f"Baue Tunnel zum Rendezvous-Punkt {host}:{port}")
-
-                    rendezvous_client = ErebosTunnelClient(host=host, port=port)
-                    await rendezvous_client.connect()
-
-                    # Registriere sich beim Rendezvous-Punkt
-                    from erebos_network.tunnel import FRAME_RENDEZVOUS_REGISTER
-                    import json as _json
-                    reg_key = address[:32]  # Key für die Paarung
-                    reg_payload = _json.dumps({"role": "hidden", "key": reg_key}).encode("utf-8")
-                    await rendezvous_client.send_typed(FRAME_RENDEZVOUS_REGISTER, reg_payload)
-                    print(f"Rendezvous-Registrierung (hidden) gesendet für Key {reg_key[:16]}...")
-
-                    # Bestätigung senden
-                    response = json.dumps({"status": "ok", "message": "Rendezvous aufgebaut"}).encode("utf-8")
-                    writer.write(bytes([FRAME_RENDEZVOUS_REQUEST]) + response)
-                    await writer.drain()
-
-                    # Datenkanal: Leite eingehende Daten an HTTP-Server weiter
-                    while True:
-                        try:
-                            data = await asyncio.wait_for(rendezvous_client.receive(), timeout=10.0)
-                            if not data:
-                                break
-                            print(f"Daten empfangen: {len(data)}B")
-                            # Leite an HTTP-Server weiter
-                            http_reader, http_writer = await asyncio.open_connection("127.0.0.1", 8080)
-                            http_writer.write(data)
-                            await http_writer.drain()
-                            http_response = await http_reader.read(4096)
-                            http_writer.close()
-                            # Sende Antwort zurück
-                            await rendezvous_client.send(http_response)
-                            print(f"Antwort gesendet: {len(http_response)}B")
-                        except asyncio.TimeoutError:
-                            continue
-                        except Exception as e:
-                            print(f"Datenkanal-Fehler: {e}")
-                            break
-
-                    await rendezvous_client.close()
-        except Exception as e:
-            print(f"Rendezvous-Fehler: {e}")
-        finally:
-            writer.close()
-
-    # 6. Rendezvous-Server starten
-    rendezvous_server = await asyncio.start_server(handle_rendezvous, "127.0.0.1", 9996)
-    print("Rendezvous-Server läuft auf 127.0.0.1:9996")
+    # Hinweis: Der frueher hier befindliche zweite Datenkanal (handle_rendezvous
+    # auf Port 9996) wurde entfernt. Der Datenkanal laeuft ausschliesslich ueber
+    # die Rendezvous-Verbindung zu Port 9999 (siehe keep_alive oben).
 
     async with http_server:
-        async with rendezvous_server:
-            await asyncio.gather(
-                http_server.serve_forever(),
-                rendezvous_server.serve_forever(),
-            )
+        await http_server.serve_forever()
 
 
 if __name__ == "__main__":

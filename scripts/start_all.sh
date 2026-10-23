@@ -21,7 +21,7 @@ fi
 
 echo ""
 echo "=== 3. Validierung: Sind alle Ports frei? ==="
-for PORT in 9996 9997 9998 9999 4448 8080; do
+for PORT in 9997 9998 9999 4448 8080; do
     if lsof -nP -iTCP:$PORT | grep LISTEN > /dev/null; then
         echo "❌ Port $PORT ist noch belegt!"
         lsof -nP -iTCP:$PORT | grep LISTEN
@@ -89,7 +89,7 @@ fi
 
 echo ""
 echo "=== 9. Validierung: Laufen HTTP-Server und Rendezvous-Server? ==="
-for PORT in 8080 9996; do
+for PORT in 8080; do
     if lsof -nP -iTCP:$PORT | grep LISTEN > /dev/null; then
         PID=$(lsof -nP -iTCP:$PORT | grep LISTEN | awk '{print $2}' | head -1)
         echo "✅ Port $PORT läuft (PID $PID)"
