@@ -807,10 +807,22 @@ def render_thread(thread: dict, admin: bool = False) -> str:
             f" <a href=\"/forum/{tid}/post/{idx}/report\" "
             f"style=\"font-size:0.85em\">Melden</a>"
         )
+        # Ban-Button (nur Admin, nur bei Posts mit benanntem Autor)
+        ban_btn = ""
+        if admin and p.get("author") and p.get("author") != "Anonym":
+            ban_btn = (
+                f" <form method=\"post\" action=\"/forum/admin/ban\" "
+                f"style=\"display:inline\">"
+                f"<input type=\"hidden\" name=\"username\" value=\"{_escape(p.get('author'))}\">"
+                f"<button type=\"submit\" "
+                f"style=\"background:#8e44ad;color:#fff;border:none;"
+                f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer;font-size:0.85em\">"
+                f"User bannen</button></form>"
+            )
         posts_html += (
             f"<div style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
             f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
-            f"{quote_btn}{report_btn}{admin_btn}</p>\n"
+            f"{quote_btn}{report_btn}{ban_btn}{admin_btn}</p>\n"
             f"  <p>{body}</p>\n"
             f"</div>\n"
         )
@@ -819,6 +831,18 @@ def render_thread(thread: dict, admin: bool = False) -> str:
         sticky_locked += " <small>[sticky]</small>"
     if thread.get("locked"):
         sticky_locked += " <small>[gesperrt]</small>"
+    if admin:
+        tid_esc = _escape(thread["id"])
+        sticky_locked += (
+            f" <form method=\"post\" action=\"/forum/{tid_esc}/toggle/sticky\" "
+            f"style=\"display:inline\"><button type=\"submit\" "
+            f"style=\"font-size:0.75em;padding:0.2em 0.5em\">"
+            f"{'Sticky aus' if thread.get('sticky') else 'Sticky an'}</button></form>"
+            f" <form method=\"post\" action=\"/forum/{tid_esc}/toggle/locked\" "
+            f"style=\"display:inline\"><button type=\"submit\" "
+            f"style=\"font-size:0.75em;padding:0.2em 0.5em\">"
+            f"{'Entsperren' if thread.get('locked') else 'Sperren'}</button></form>"
+        )
     reply_block = ""
     if thread.get("locked"):
         reply_block = "<p><em>Dieser Thread ist gesperrt. Antworten nicht möglich.</em></p>\n"
@@ -968,10 +992,16 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
 
     admin_nav = ""
     if admin:
+        open_reports = len(list_reports())
+        reports_badge = (
+            f" <strong style=\"color:#c0392b\">({open_reports} offen)</strong>"
+            if open_reports > 0 else ""
+        )
         admin_nav = (
             "<p><small>"
             "<a href=\"/forum/admin/authors?admin=<token>\">Autoren</a> · "
-            "<a href=\"/forum/admin/reports?admin=<token>\">Meldungen</a> · "
+            f"<a href=\"/forum/admin/reports?admin=<token>\">Meldungen{reports_badge}</a> · "
+            "<a href=\"/forum/admin/bans?admin=<token>\">Bans</a> · "
             "<a href=\"/forum/admin/modlog?admin=<token>\">Mod-Log</a>"
             "</small></p>\n"
         )
@@ -1199,3 +1229,42 @@ def render_health() -> str:
         f"  <li>Mod-Log: {len(data.get('mod_log', []))}</li>\n"
         "</ul>\n"
     )
+
+
+def render_bans() -> str:
+    data = load_forum()
+    bans = data.get("bans", [])
+    rows = ""
+    for idx, b in enumerate(bans):
+        username = _escape(b.get("username", "?"))
+        reason = _escape(b.get("reason", ""))
+        created = _fmt_time(b.get("created_at", 0))
+        rows += (
+            f"<li><strong>{username}</strong> — {reason} ({created}) "
+            f"<form method=\"post\" action=\"/forum/admin/bans/{idx}/unban\" "
+            f"style=\"display:inline\">"
+            f"<button type=\"submit\" "
+            f"style=\"background:#27ae60;color:#fff;border:none;"
+            f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer\">"
+            f"Entbannen</button></form></li>\n"
+        )
+    if not rows:
+        rows = "<li><em>Keine Bans.</em></li>"
+    return (
+        "<h1>Ban-Liste</h1>\n"
+        "<form method=\"post\" action=\"/forum/admin/ban\">\n"
+        "  <p><label>Username:<br><input name=\"username\" required style=\"width:100%\"></label></p>\n"
+        "  <p><label>Grund:<br><input name=\"reason\" maxlength=\"500\" style=\"width:100%\"></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Bannen</button></p>\n"
+        "</form>\n"
+        f"<ul>\n{rows}\n</ul>\n"
+    )
+
+
+def unban_user(index: int) -> bool:
+    data = load_forum()
+    bans = data.get("bans", [])
+    if index < 0 or index >= len(bans):
+        return False
+    del bans[index]
+    return save_forum(data)

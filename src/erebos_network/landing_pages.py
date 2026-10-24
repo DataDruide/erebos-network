@@ -270,6 +270,51 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 idx = -1
             return _page("Melden", address, forum.render_report_form(tid, idx))
 
+    # --- Admin: Bans ---
+    if path == "/forum/admin/bans":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        return _page("Ban-Liste", address, forum.render_bans())
+
+    if path == "/forum/admin/ban" and method == "POST":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        form = forum.parse_form_body(body)
+        username = form.get("username", "")
+        reason = form.get("reason", "")
+        forum.ban_user(username, reason)
+        forum.log_moderation("ban", username, "admin")
+        return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+
+    if path.startswith("/forum/admin/bans/") and path.endswith("/unban") and method == "POST":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        idx_str = path[len("/forum/admin/bans/"):-len("/unban")]
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            idx = -1
+        forum.unban_user(idx)
+        forum.log_moderation("unban", f"index {idx}", "admin")
+        return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+
+    # --- Sticky/Locked-Toggles ---
+    if path.startswith("/forum/") and path.endswith("/toggle/sticky") and method == "POST":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        tid = path[len("/forum/"):-len("/toggle/sticky")]
+        forum.toggle_sticky(tid)
+        forum.log_moderation("sticky", tid, "admin")
+        return b"REDIRECT:/forum/" + tid.encode("utf-8")
+
+    if path.startswith("/forum/") and path.endswith("/toggle/locked") and method == "POST":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        tid = path[len("/forum/"):-len("/toggle/locked")]
+        forum.toggle_locked(tid)
+        forum.log_moderation("locked", tid, "admin")
+        return b"REDIRECT:/forum/" + tid.encode("utf-8")
+
     if path == "/forum/neu":
         if method == "POST":
             form = forum.parse_form_body(body)
