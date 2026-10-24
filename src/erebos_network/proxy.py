@@ -627,8 +627,11 @@ class ErebosSocks5Server:
                             #    Wichtig: Der SOCKS5-Handshake ist abgeschlossen,
                             #    curl schickt den HTTP-Request jetzt in denselben Stream.
                             try:
+                                # 64 KB statt 8 KB: deckt POST-Requests bis
+                                # MAX_HTTP_BODY_BYTES (16 KB) + Header + URL-
+                                # Encoding-Overhead ab. Kein Abschneiden mehr.
                                 http_request = await asyncio.wait_for(
-                                    reader.read(8192), timeout=5.0
+                                    reader.read(65536), timeout=5.0
                                 )
                             except asyncio.TimeoutError:
                                 http_request = b""

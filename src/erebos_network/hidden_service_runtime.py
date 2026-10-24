@@ -613,7 +613,18 @@ class HiddenServiceRuntime:
                     )
                     http_writer.write(payload_data)
                     await http_writer.drain()
-                    http_response = await http_reader.read(65536)
+                    # Antwort vollstaendig lesen (bis EOF, max. 256 KB)
+                    chunks = []
+                    total = 0
+                    while total < 262144:  # 256 KB Limit
+                        chunk = await asyncio.wait_for(
+                            http_reader.read(65536), timeout=5.0
+                        )
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    http_response = b"".join(chunks)
                     http_writer.close()
                 except Exception as e:
                     logger.error(f"HTTP-Backend-Fehler: {e}")
