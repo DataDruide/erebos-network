@@ -25,7 +25,16 @@ class DistributedDescriptorStore:
         self._local_store = {}
 
     def put(self, key: bytes, value: dict) -> None:
-        """Speichert einen Descriptor lokal und bei den nächsten Peers."""
+        """Speichert einen Descriptor lokal und bei den nächsten Peers.
+
+        Prueft die Signatur, bevor der Descriptor gespeichert wird.
+        """
+        if not self._verify_descriptor_value(value):
+            logger.warning(
+                f"DHT-PUT: ungueltige Signatur oder abgelaufen — verworfen "
+                f"(key={key.hex()[:16]})"
+            )
+            return
         self._local_store[key] = value
         # Asynchron an die nächsten Peers verteilen (Fire-and-Forget)
         # In einer echten Implementierung würde man auf Bestätigungen warten.
@@ -35,16 +44,51 @@ class DistributedDescriptorStore:
         """Holt einen Descriptor (lokal oder von Peers)."""
         # 1. Lokal prüfen
         if key in self._local_store:
-            return self._local_store[key]
+            value = self._local_store[key]
+            if not self._verify_descriptor_value(value):
+                # Ungueltige Signatur/abgelaufen -> aus dem Store entfernen
+                logger.warning(
+                    f"DHT: lokaler Descriptor {key.hex()[:16]} ungueltig/abgelaufen — entfernt"
+                )
+                del self._local_store[key]
+            else:
+                return value
         # 2. Bei den nächsten Peers anfragen (synchron, mit Timeout)
         # In einer echten Implementierung wäre das asynchron.
         # Für den Moment: None.
         return None
 
+    @staticmethod
+    def _verify_descriptor_value(value: dict) -> bool:
+        """Prueft die Signatur und Frische eines Descriptor-Dicts.
+
+        Lokaler Import vermeidet Zirkular-Import beim Modul-Load.
+        """
+        try:
+            from .hidden_service import HiddenServiceDescriptor, verify_descriptor
+        except Exception:
+            return False
+        try:
+            desc = HiddenServiceDescriptor.from_dict(value)
+        except Exception:
+            return False
+        if not verify_descriptor(desc):
+            return False
+        if desc.is_expired():
+            return False
+        return True
+
     async def async_get(self, key: bytes) -> Optional[dict]:
         """Asynchrone Version von get(): fragt die Peers."""
         if key in self._local_store:
-            return self._local_store[key]
+            value = self._local_store[key]
+            if not self._verify_descriptor_value(value):
+                logger.warning(
+                    f"DHT: lokaler Descriptor {key.hex()[:16]} ungueltig/abgelaufen — entfernt"
+                )
+                del self._local_store[key]
+            else:
+                return value
 
         # Frage ALLE Peers in der Routing-Tabelle (nicht nur die nächsten)
         # In einer echten DHT würde man die nächsten Peers fragen,
@@ -76,6 +120,13 @@ class DistributedDescriptorStore:
                     response = json.loads(raw.decode("utf-8"))
                     if response.get("status") == "ok" and response.get("value"):
                         value = response["value"]
+                        # Signatur + Frische pruefen (DHT-Integritaet)
+                        if not self._verify_descriptor_value(value):
+                            logger.warning(
+                                f"DHT-GET von {peer.address}: ungueltige "
+                                f"Signatur oder abgelaufen — verworfen"
+                            )
+                            continue
                         self._local_store[key] = value
                         return value
             except Exception as e:
