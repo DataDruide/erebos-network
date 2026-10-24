@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import struct
+import traceback
 from pathlib import Path
 import time
 from typing import Callable, List, Optional, Tuple
@@ -410,7 +411,8 @@ class HiddenServiceRuntime:
         except asyncio.TimeoutError:
             logger.warning("HTTP-Timeout beim Lesen des Requests")
         except Exception as e:
-            logger.error(f"HTTP-Fehler: {e}")
+            logger.error(f"HTTP-Fehler: {type(e).__name__}: {e}")
+            traceback.print_exc()
         finally:
             writer.close()
 

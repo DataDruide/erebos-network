@@ -125,7 +125,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Forum", address, forum.render_forum_list(admin=admin, client_id=client_id))
+        return _page("Erebos Community", address, forum.render_categories(client_id=client_id))
     if path == "/forum/admin":
         if not admin:
             return _page(
@@ -156,6 +156,41 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         result = forum.delete_posts_by_author(author)
         logger.info(f"Admin: {author} -> {result}")
         return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
+    if path == "/forum/search":
+        from urllib.parse import parse_qs as _pq
+        q = ""
+        if query:
+            q = (_pq(query).get("q", [""])[0] or "")
+        results = forum.search_threads(q)
+        return _page(f"Suche: {q}", address, forum.render_search_results(q, results))
+
+    # /forum/<category>?page=N&sort=X (aber nicht /forum/neu, /forum/search, /forum/admin*, /forum/<id>)
+    if (path.startswith("/forum/")
+            and not path.startswith("/forum/neu")
+            and not path.startswith("/forum/search")
+            and not path.startswith("/forum/admin")
+            and "/" not in path[len("/forum/"):]):
+        cat_slug = path[len("/forum/"):]
+        # Nur als Kategorie behandeln, wenn sie existiert
+        if forum.get_category(cat_slug) is not None:
+            from urllib.parse import parse_qs as _pq
+            params = _pq(query) if query else {}
+            page_n = 1
+            sort = "active"
+            try:
+                page_n = int(params.get("page", ["1"])[0])
+            except (ValueError, TypeError):
+                page_n = 1
+            sort = params.get("sort", ["active"])[0] or "active"
+            return _page(
+                forum.get_category(cat_slug)["name"],
+                address,
+                forum.render_thread_list(
+                    cat_slug, page=page_n, sort=sort,
+                    admin=admin, client_id=client_id,
+                ),
+            )
+
     if path == "/forum/neu":
         if method == "POST":
             form = forum.parse_form_body(body)
@@ -164,6 +199,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 form.get("author", ""),
                 form.get("body", ""),
                 client_id=client_id,
+                category_id=form.get("category_id", "allgemein"),
             )
             if tid:
                 return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
@@ -174,7 +210,14 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 "(Titel und Beitrag erforderlich).</p>"
                 + forum.render_new_thread_form(),
             )
-        return _page("Neuer Thread", address, forum.render_new_thread_form())
+        from urllib.parse import parse_qs as _pq
+        cat_pre = "allgemein"
+        if query:
+            cat_pre = (_pq(query).get("category", ["allgemein"])[0] or "allgemein")
+        return _page(
+            "Neuer Thread", address,
+            forum.render_new_thread_form(category_id=cat_pre),
+        )
     if path.startswith("/forum/"):
         rest = path[len("/forum/"):]
 
