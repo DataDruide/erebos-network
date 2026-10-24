@@ -647,6 +647,42 @@ async def run_peer_server(port: int = PEER_PORT,
     # Lokaler DHT-Speicher mit Datei-Persistenz pro Peer-Port.
     # Ueberlebt Peer-Neustarts (Datei bleibt in /tmp).
     dht_store = PeerDhtStore(path=f"/tmp/erebos_peer_dht_{port}.json", verbose=True)
+    # Kademlia-DHT: echter verteilter Store auf UDP-Port (port + 1000).
+    # Fallback: wenn kademlia_dynamic nicht verfuegbar ist, laeuft nur
+    # der lokale dht_store (Verhalten wie vorher).
+    kad = None
+    try:
+        from kademlia_dynamic import KademliaServer
+        kad = KademliaServer()
+        kad_port = port + 1000
+        await kad.listen(port=kad_port, ip="0.0.0.0")
+        logger.info(f"Kademlia-DHT laeuft auf UDP-Port {kad_port}")
+        # Bootstrap: die anderen Peers als Bootstrap-Nodes
+        bootstrap_nodes = []
+        for other_port in (9997, 9998, 9999):
+            if other_port != port:
+                bootstrap_nodes.append(("127.0.0.1", other_port + 1000))
+        if bootstrap_nodes:
+            # Bootstrap mit Retry: die anderen Peers starten ggf. gleichzeitig.
+            # Bis zu 5 Versuche mit 1s, 2s, 4s, 8s, 16s Backoff.
+            async def _bootstrap_with_retry():
+                backoff = 1.0
+                for attempt in range(1, 6):
+                    try:
+                        await kad.bootstrap(bootstrap_nodes)
+                        logger.info(f"Kademlia-Bootstrap erfolgreich (Versuch {attempt}): {bootstrap_nodes}")
+                        return
+                    except Exception as e:
+                        logger.debug(f"Kademlia-Bootstrap Versuch {attempt} fehlgeschlagen: {e}")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 16.0)
+                logger.warning(f"Kademlia-Bootstrap nach 5 Versuchen fehlgeschlagen: {bootstrap_nodes}")
+            asyncio.create_task(_bootstrap_with_retry())
+    except ImportError:
+        logger.warning("kademlia_dynamic nicht installiert - nur lokaler DHT-Speicher")
+    except Exception as e:
+        logger.warning(f"Kademlia-Initialisierung fehlgeschlagen: {e} - nur lokaler DHT")
+
     rendezvous_pairs = {}  # Key -> {"hidden": (r,w,c), "clients": [(r,w,c), ...]}
 
     async def handle(reader, writer):
@@ -879,6 +915,13 @@ async def run_peer_server(port: int = PEER_PORT,
                         
                             
                         dht_store[bytes.fromhex(key_hex)] = value
+                        # Zusaetzlich in Kademlia verteilen (falls verfuegbar)
+                        if kad is not None:
+                            try:
+                                await kad.set(key_hex, _json.dumps(value))
+                                logger.info(f"DHT-PUT an Kademlia verteilt: {key_hex[:16]}...")
+                            except Exception as e:
+                                logger.warning(f"Kademlia-PUT fehlgeschlagen: {e}")
                         logger.info(f"DHT-PUT gespeichert: {key_hex[:16]}...")
                         # Sende Bestätigung
                         import struct
@@ -1149,8 +1192,19 @@ async def run_peer_server(port: int = PEER_PORT,
                     data = _json.loads(payload.decode("utf-8"))
                     key_hex = data.get("key")
                     if key_hex:
-                        store = dht_store
-                        value = store.get(bytes.fromhex(key_hex))
+                        value = dht_store.get(bytes.fromhex(key_hex))
+                        # Fallback: Kademlia fragen, wenn lokal nicht vorhanden
+                        if value is None and kad is not None:
+                            try:
+                                kad_value = await kad.get(key_hex)
+                                if kad_value is not None:
+                                    import json as _json2
+                                    value = _json2.loads(kad_value)
+                                    # Lokal cachen
+                                    dht_store[bytes.fromhex(key_hex)] = value
+                                    logger.info(f"DHT-GET aus Kademlia: {key_hex[:16]}...")
+                            except Exception as e:
+                                logger.warning(f"Kademlia-GET fehlgeschlagen: {e}")
                         response = {"status": "ok", "key": key_hex, "value": value}
                     else:
                         response = {"status": "error", "message": "kein key"}
