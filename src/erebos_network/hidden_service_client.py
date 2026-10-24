@@ -64,6 +64,9 @@ async def connect_to_hidden_service(
         rendezvous_peer_id=rendezvous_peer_id,
         rendezvous_address=rendezvous_address,
     )
+    # Descriptor am Request haengen, damit der Aufrufer ihn
+    # wiederverwenden kann (statt ihn erneut aus der DHT zu holen).
+    request.descriptor = descriptor
 
     logger.info(f"Sende Rendezvous-Request an {intro_point.address}")
     return request

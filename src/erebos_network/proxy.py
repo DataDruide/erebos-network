@@ -437,8 +437,6 @@ class ErebosSocks5Server:
                 )
                 if request:
                     request.hidden_service_address = "127.0.0.1:9996"
-                if request:
-                    request.hidden_service_address = "127.0.0.1:9996"
                 
                 if request is None:
                     logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen (kein Descriptor?)")
@@ -448,9 +446,13 @@ class ErebosSocks5Server:
                 
                 logger.info(f"[{conn_id}] Rendezvous-Request gebaut, sende an Intro-Point")
 
-                # Baue einen Tunnel zum Intro-Point (erster Peer im Descriptor)
-                from .hidden_service import lookup_descriptor
-                descriptor = lookup_descriptor(dht, host)
+                # Descriptor aus dem Request nehmen (wurde von
+                # connect_to_hidden_service bereits aus der DHT geholt).
+                descriptor = getattr(request, "descriptor", None)
+                if descriptor is None:
+                    # Fallback: lokaler Lookup (z.B. fuer aeltere Aufrufer)
+                    from .hidden_service import lookup_descriptor
+                    descriptor = lookup_descriptor(dht, host)
                 if descriptor is None or not descriptor.intro_points:
                     logger.error(f"[{conn_id}] Kein Intro-Point im Descriptor")
                     await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)

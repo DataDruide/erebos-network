@@ -15,6 +15,10 @@ class RendezvousRequest:
     rendezvous_address: str
     created_at: float
     hidden_service_address: str = ""
+    # Nicht-signiertes, nicht-serialisiertes Attribut: Der gefundene
+    # HiddenServiceDescriptor, damit der Aufrufer ihn wiederverwenden
+    # kann (statt ihn erneut aus der DHT zu holen).
+    descriptor: object = None
     signature: bytes = b""
 
     def signable_payload(self) -> bytes:

@@ -332,15 +332,57 @@ class HiddenServiceRuntime:
         logger.info(f"HTTP-Server läuft auf {self.bind_host}:{self.bind_port}")
 
     async def _default_http_handler(self, reader, writer) -> None:
-        """Standard-HTTP-Backend: einfache 200-OK-Antwort."""
+        """Standard-HTTP-Backend: kleine Willkommensseite.
+
+        Antwortet auf jede HTTP-Anfrage mit einer HTML-Seite, die den
+        Client begruesst und die .erebos-Adresse des Dienstes zeigt.
+        """
         try:
-            await reader.read(4096)
+            request = await reader.read(4096)
+            # Erste Zeile der Anfrage (z.B. "GET / HTTP/1.1") fuer Logging
+            first_line = ""
+            if request:
+                raw_first = request.split(b"\r\n", 1)[0]
+                first_line = raw_first.decode("utf-8", "replace")
+            logger.info(f"HTTP-Anfrage empfangen: {first_line!r}")
+
+            body = (
+                "<!DOCTYPE html>\n"
+                "<html lang=\"de\">\n"
+                "<head>\n"
+                "  <meta charset=\"utf-8\">\n"
+                "  <title>Willkommen bei Erebos</title>\n"
+                "  <style>\n"
+                "    body { font-family: sans-serif; max-width: 640px;\n"
+                "           margin: 2em auto; padding: 1em; line-height: 1.5; }\n"
+                "    code { background: #f0f0f0; padding: 0.2em 0.4em; }\n"
+                "    h1 { color: #2c3e50; }\n"
+                "  </style>\n"
+                "</head>\n"
+                "<body>\n"
+                "  <h1>Willkommen im Erebos-Netzwerk</h1>\n"
+                "  <p>Du hast einen Hidden Service ueber das Erebos-Netzwerk\n"
+                "     erreicht. Diese Seite wird von einem Container im\n"
+                "     Docker-Netz ausgeliefert.</p>\n"
+                "  <p><strong>Adresse:</strong> <code>" + self.address + "</code></p>\n"
+                "  <p><strong>Deine Anfrage:</strong> <code>" + first_line + "</code></p>\n"
+                "  <hr>\n"
+                "  <p>Erebos ist ein Forschungsprototyp fuer ein anonymes\n"
+                "     Netzwerk mit Post-Quanten-Kryptographie, 3-Hop-Onion-\n"
+                "     Routing und Ende-zu-Ende-Verschluesselung.</p>\n"
+                "  <p><em>Der Pfad war: Client -&gt; Proxy -&gt; peer2 -&gt; peer3\n"
+                "     -&gt; peer1 (Rendezvous) -&gt; Hidden Service.</em></p>\n"
+                "</body>\n"
+                "</html>\n"
+            )
+            body_bytes = body.encode("utf-8")
             response = (
                 b"HTTP/1.1 200 OK\r\n"
-                b"Content-Type: text/plain\r\n"
-                b"Content-Length: 22\r\n"
-                b"\r\n"
-                b"Hidden Service works!\n"
+                b"Content-Type: text/html; charset=utf-8\r\n"
+                + f"Content-Length: {len(body_bytes)}\r\n".encode("ascii")
+                + b"Connection: close\r\n"
+                + b"\r\n"
+                + body_bytes
             )
             writer.write(response)
             await writer.drain()
