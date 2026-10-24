@@ -554,6 +554,7 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
         return
 
     next_layer = decrypted[3:]
+
     logger.info(
         f"Relay: leite weiter an {NEXT_HOST}:{next_port} "
         f"(frame_type={next_frame_type:#x}, layer_len={len(next_layer)})"
@@ -942,6 +943,21 @@ async def run_peer_server(port: int = PEER_PORT,
                 role = None
                 key = None
                 try:
+                    # 2-Hop-Onion: Pruefe, ob payload eine Onion-Schicht ist
+                    # (dann ist der eigentliche Payload verschluesselt).
+                    from .onion import open_layer
+                    try:
+                        self_priv = (KEYS_DIR / f"{peer_name}_x25519").read_bytes()
+                        decrypted = open_layer(self_priv, payload)
+                        payload = decrypted
+                        logger.info(
+                            f"Rendezvous-Registrierung: Onion-Schicht entschluesselt "
+                            f"({len(payload)}B)"
+                        )
+                    except Exception:
+                        # Keine Onion-Schicht -> payload bleibt Klartext.
+                        pass
+
                     import json as _json
                     data = _json.loads(payload.decode("utf-8"))
                     role = data.get("role")

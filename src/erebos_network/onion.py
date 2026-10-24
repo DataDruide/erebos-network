@@ -129,12 +129,14 @@ def open_layer(recipient_x25519_priv: bytes, layer: bytes) -> bytes:
 #   byte[4:]  = next_layer (an den naechsten Peer adressiert)
 
 FRAME_RELAY_WIRE = 0x01
+FRAME_RENDEZVOUS_REQUEST_WIRE = 0x10
+FRAME_RENDEZVOUS_REGISTER_WIRE = 0x14
 FRAME_OPEN_WIRE = 0x02
 
 
 def pack_relay_header(next_frame_type: int, next_port: int) -> bytes:
     """Packt einen Relay-Header: 1 Byte Frame-Typ + 2 Byte Port."""
-    if next_frame_type not in (FRAME_RELAY_WIRE, FRAME_OPEN_WIRE):
+    if next_frame_type not in (FRAME_RELAY_WIRE, FRAME_OPEN_WIRE, FRAME_RENDEZVOUS_REQUEST_WIRE, FRAME_RENDEZVOUS_REGISTER_WIRE):
         raise ValueError(f"Unbekannter Frame-Typ: {next_frame_type:#x}")
     if not (0 <= next_port <= 0xFFFF):
         raise ValueError(f"Port ausserhalb uint16: {next_port}")
@@ -148,3 +150,64 @@ def unpack_relay_header(blob: bytes) -> tuple:
     next_frame_type = blob[0]
     next_port = struct.unpack("!H", blob[1:3])[0]
     return next_frame_type, next_port
+
+
+# ---------------------------------------------------------------------------
+# 2-Hop-Onion fuer Rendezvous-Ketten
+# ---------------------------------------------------------------------------
+
+def pack_onion_2hop(
+    hop1_x25519_pub: bytes,
+    hop2_x25519_pub: bytes,
+    payload: bytes,
+) -> bytes:
+    """Baut eine 2-Schicht-Onion: hop1 -> hop2 -> payload.
+
+    Args:
+        hop1_x25519_pub: X25519-Public-Key des ersten Hops (z.B. peer3).
+        hop2_x25519_pub: X25519-Public-Key des zweiten Hops (z.B. peer1).
+        payload: Die eigentliche Nutzlast (z.B. Rendezvous-Request).
+
+    Returns:
+        Onion-Blob: [hop1_layer], die nach dem Entschluesseln
+        [hop2_layer] enthaelt, die nach dem Entschluesseln `payload`.
+    """
+    # Innere Schicht: fuer hop2, enthaelt den payload.
+    # Format: [relay_header: type+port][payload]
+    inner_layer = seal_for(hop2_x25519_pub, payload)
+
+    # Aeussere Schicht: fuer hop1, enthaelt die innere Schicht.
+    # Format: [relay_header: type+port][inner_layer]
+    outer_header = pack_relay_header(
+        next_frame_type=0x14,  # FRAME_RENDEZVOUS_REGISTER (innerer Typ)
+        next_port=9999,  # port von hop2
+    )
+    outer_plaintext = outer_header + inner_layer
+    outer_layer = seal_for(hop1_x25519_pub, outer_plaintext)
+
+    return outer_layer
+
+
+def unpack_onion_2hop(
+    hop_priv: bytes,
+    onion_blob: bytes,
+) -> tuple:
+    """Entschluesselt eine Schicht der Onion (auf dem Relay-Hop).
+
+    Args:
+        hop_priv: X25519-Private-Key des aktuellen Hops.
+        onion_blob: Die empfangene Onion-Schicht.
+
+    Returns:
+        (next_frame_type, next_port, next_blob) — die naechste
+        Frame-Typ, Port und der naechste Blob (innere Schicht).
+
+    Raises:
+        ValueError: Wenn die Onion nicht entschluesselt werden kann.
+    """
+    plaintext = open_layer(hop_priv, onion_blob)
+    next_frame_type, next_port = unpack_relay_header(plaintext)
+    # Der Header hat eine feste Groesse (siehe pack_relay_header).
+    header_size = 1 + 2  # 1 Byte frame_type + 2 Byte port
+    next_blob = plaintext[header_size:]
+    return next_frame_type, next_port, next_blob

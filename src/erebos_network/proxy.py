@@ -470,20 +470,27 @@ class ErebosSocks5Server:
                         response_data = json.loads(raw.decode("utf-8"))
                         logger.info(f"[{conn_id}] Rendezvous-Antwort: {response_data}")
                         if response_data.get("status") == "ok":
-                            # Baue Tunnel zum Rendezvous-Punkt (Port 9999)
-                            logger.info(f"[{conn_id}] Baue Tunnel zum Rendezvous-Punkt 127.0.0.1:9999")
-                            from .tunnel import ErebosTunnelClient
-                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9999)
-                            await rendezvous_client.connect()
-                            logger.info(f"[{conn_id}] Rendezvous-Tunnel aufgebaut")
-
-                            # Registriere sich beim Rendezvous-Punkt als Client
-                            from .tunnel import FRAME_RENDEZVOUS_REGISTER, FRAME_DATA
+                            # 2-Hop-Onion: peer3 (Intro) -> peer1 (Rendezvous)
+                            # Beide Richtungen laufen ueber peer3.
+                            logger.info(f"[{conn_id}] Baue 2-Hop-Onion zu peer3 (Port 9997) -> peer1 (Port 9999)")
+                            from .tunnel import ErebosTunnelClient, FRAME_RELAY
+                            from .onion import pack_onion_2hop
                             import json as _json
-                            reg_key = host[:32]  # Derselbe Key wie beim Hidden Service
+                            from pathlib import Path
+
+                            keys_dir = Path("erebos_keys")
+                            peer3_pub = (keys_dir / "peer3_x25519.pub").read_bytes()
+                            peer1_pub = (keys_dir / "peer1_x25519.pub").read_bytes()
+
+                            reg_key = host[:32]
                             reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
-                            await rendezvous_client.send_typed(FRAME_RENDEZVOUS_REGISTER, reg_payload)
-                            logger.info(f"[{conn_id}] Rendezvous-Registrierung (client) gesendet für Key {reg_key[:16]}...")
+                            onion = pack_onion_2hop(peer3_pub, peer1_pub, reg_payload)
+                            logger.info(f"[{conn_id}] Onion gebaut ({len(onion)}B)")
+
+                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9997)  # peer3
+                            await rendezvous_client.connect()
+                            await rendezvous_client.send_typed(FRAME_RELAY, onion)
+                            logger.info(f"[{conn_id}] 2-Hop-Onion an peer3 gesendet (peer3 -> peer1)")
 
                             # Warte auf 'ready' vom Rendezvous-Punkt
                             # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
