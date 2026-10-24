@@ -512,6 +512,12 @@ class ErebosSocks5Server:
                                         logger.info(f"[{conn_id}] Rendezvous-Nachricht: {ready_data}")
                                         if ready_data.get("status") == "ready":
                                             logger.info(f"[{conn_id}] Rendezvous-Paar vollständig!")
+                                            # WICHTIG: SOCKS5-REP_SUCCESS jetzt senden,
+                                            # damit curl den HTTP-Request schicken kann.
+                                            # Sonst blockiert das spaetere reader.read()
+                                            # bis zum Timeout und wir lesen nie den Pfad.
+                                            await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                                            logger.info(f"[{conn_id}] SOCKS5-REP_SUCCESS gesendet (Client kann HTTP senden)")
                                             break
                                         # Ignoriere 'ok'-Bestätigungen, warte auf 'ready'
                                     except json.JSONDecodeError:
@@ -553,8 +559,21 @@ class ErebosSocks5Server:
                             except Exception as e:
                                 logger.warning(f"[{conn_id}] E2E-Schluesselaustausch fehlgeschlagen: {e}")
 
-                            # 3) Sende HTTP-Anfrage (E2E-verschluesselt, falls Key vorhanden)
-                            http_request = b"GET / HTTP/1.1\r\nHost: test.erebos\r\n\r\n"
+                            # 3) Lese den HTTP-Request des Clients (enthaelt
+                            #    den angefragten Pfad, z.B. GET /wiki HTTP/1.1).
+                            #    Wichtig: Der SOCKS5-Handshake ist abgeschlossen,
+                            #    curl schickt den HTTP-Request jetzt in denselben Stream.
+                            try:
+                                http_request = await asyncio.wait_for(
+                                    reader.read(8192), timeout=5.0
+                                )
+                            except asyncio.TimeoutError:
+                                http_request = b""
+                            if not http_request:
+                                # Fallback: minimaler Request (Startseite)
+                                http_request = b"GET / HTTP/1.1\r\nHost: " + host.encode() + b"\r\nConnection: close\r\n\r\n"
+                            first_http_line = http_request.split(b"\r\n", 1)[0].decode("utf-8", "replace")
+                            logger.info(f"[{conn_id}] HTTP-Request vom Client: {first_http_line!r}")
                             if e2e_key is not None:
                                 encrypted = e2e_client.encrypt(http_request)
                                 e2e_flag = E2E_FLAG_ENCRYPTED
@@ -608,8 +627,8 @@ class ErebosSocks5Server:
                                     break
                             if http_response:
                                 logger.info(f"[{conn_id}] HTTP-Antwort vom Hidden Service: {len(http_response)}B")
-                                # SOCKS5-Reply senden (Protokoll-Abschluss des CONNECT)
-                                await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                                # SOCKS5-REP_SUCCESS wurde bereits oben (nach
+                                # Rendezvous-Paar vollständig) gesendet.
                                 # WICHTIG: Die eigentliche HTTP-Antwort an curl weiterreichen!
                                 # Ohne diese Zeilen bekommt curl nur die SOCKS5-Reply und
                                 # bricht mit "Empty reply from server" ab.

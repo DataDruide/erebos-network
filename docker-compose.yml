@@ -55,6 +55,7 @@ services:
     build: .
     volumes:
       - hs-keys:/root/.erebos
+      - ./wiki.json:/app/wiki.json:ro
     entrypoint: >
       python -u scripts/create_test_hidden_service.py
       --rendezvous-host 172.20.0.10

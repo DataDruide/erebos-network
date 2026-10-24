@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "name": "Erebos Projekt (diese Instanz)",
+      "url": "/",
+      "desc": "Die Startseite dieses Hidden Service"
+    },
+    {
+      "name": "Hidden Wiki (Beispiel-Platzhalter)",
+      "url": "http://exampleexampleexampleexampleexampleexampleexampleexample.erebos/",
+      "desc": "Platzhalter — echte .erebos-Adressen folgen"
+    },
+    {
+      "name": "Erebos Dokumentation",
+      "url": "/wiki",
+      "desc": "Diese Seite (Selbstreferenz zum Testen)"
+    }
+  ]
+}
