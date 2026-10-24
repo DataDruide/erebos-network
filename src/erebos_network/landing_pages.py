@@ -112,13 +112,30 @@ def render_wiki(address: str) -> bytes:
 
 
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
-                body: bytes = b"") -> bytes:
+                body: bytes = b"", query: str = "") -> bytes:
+    admin_token_value = ""
+    if query:
+        from urllib.parse import parse_qs
+        q = parse_qs(query)
+        admin_token_value = (q.get("admin", [""])[0] or "")
+    admin = forum.is_admin(admin_token_value)
+
     if path == "/":
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Forum", address, forum.render_forum_list())
+        return _page("Forum", address, forum.render_forum_list(admin=admin))
+    if path == "/forum/admin":
+        if not admin:
+            return _page(
+                "Nicht erlaubt",
+                address,
+                "<h1>Nicht erlaubt</h1>"
+                "<p>Admin-Token fehlt oder ist falsch.</p>"
+                "<a class=\"btn\" href=\"/forum\">← Zurück</a>",
+            )
+        return _page("Admin", address, forum.render_admin_status())
     if path == "/forum/neu":
         if method == "POST":
             form = forum.parse_form_body(body)
@@ -139,17 +156,51 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return _page("Neuer Thread", address, forum.render_new_thread_form())
     if path.startswith("/forum/"):
         rest = path[len("/forum/"):]
+
         if rest.endswith("/antwort"):
             tid = rest[: -len("/antwort")]
             form = forum.parse_form_body(body)
-            forum.add_reply(tid, form.get("author", ""), form.get("body", ""))
-            # Redirect zurueck zum Thread
+            ok = forum.add_reply(tid, form.get("author", ""), form.get("body", ""))
+            if not ok:
+                return _page(
+                    "Rate-Limit",
+                    address,
+                    forum.render_rate_limited(),
+                )
             return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
-        # Thread-Ansicht
+
+        if rest.endswith("/delete") and method == "POST":
+            if not admin:
+                return _page(
+                    "Nicht erlaubt",
+                    address,
+                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+                )
+            tid = rest[: -len("/delete")]
+            forum.delete_thread(tid)
+            return b"REDIRECT:/forum"
+
+        # /forum/<id>/post/<idx>/delete
+        if "/post/" in rest and rest.endswith("/delete") and method == "POST":
+            if not admin:
+                return _page(
+                    "Nicht erlaubt",
+                    address,
+                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+                )
+            head = rest[: -len("/delete")]
+            tid, idx_str = head.split("/post/", 1)
+            try:
+                idx = int(idx_str)
+            except ValueError:
+                idx = -1
+            forum.delete_post(tid, idx)
+            return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+
         t = forum.find_thread(rest)
         if t is None:
             return _page("Nicht gefunden", address, forum.render_not_found())
-        return _page(t["title"], address, forum.render_thread(t))
+        return _page(t["title"], address, forum.render_thread(t, admin=admin))
     return _page(
         "404 Nicht gefunden",
         address,

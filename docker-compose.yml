@@ -57,6 +57,9 @@ services:
       - hs-keys:/root/.erebos
       - ./wiki.json:/app/wiki.json:ro
       - ./forum.json:/app/forum.json
+    environment:
+      - EREBOS_FORUM_ADMIN_TOKEN=changeme
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
     entrypoint: >
       python -u scripts/create_test_hidden_service.py
       --rendezvous-host 172.20.0.10
@@ -68,8 +71,6 @@ services:
       --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997
       --intro-points peer1:172.20.0.10:9999,peer2:172.20.0.11:9998,peer3:172.20.0.12:9997
       --log-level INFO
-    environment:
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
     networks:
       erebos-net:
         ipv4_address: 172.20.0.14

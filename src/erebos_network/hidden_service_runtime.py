@@ -365,8 +365,23 @@ class HiddenServiceRuntime:
 
             logger.info(f"HTTP {method} {path} ({len(body)}B body)")
 
-            # 3) Response erzeugen
-            body_out = render_page(path, self.address, f"{method} {path}", method=method, body=body)
+            # 3) Query-String aus dem Original-Request extrahieren
+            #    (parse_http_request gibt nur den Pfad zurueck)
+            query = ""
+            if b" " in raw:
+                try:
+                    request_line = raw.split(b"\r\n", 1)[0].decode("utf-8", "replace")
+                    target = request_line.split(" ")[1] if " " in request_line else ""
+                    if "?" in target:
+                        query = target.split("?", 1)[1]
+                except Exception:
+                    pass
+
+            # 4) Response erzeugen
+            body_out = render_page(
+                path, self.address, f"{method} {path}",
+                method=method, body=body, query=query,
+            )
 
             # 3a) Redirect-Fall (POST /forum/*/antwort)
             if body_out.startswith(b"REDIRECT:"):
