@@ -345,17 +345,21 @@ class HiddenServiceRuntime:
     async def _default_http_handler(self, reader, writer) -> None:
         """HTTP-Backend: Startseite, Wiki, Forum (mit POST-Support)."""
         try:
-            # 1) Header lesen bis "\r\n\r\n"
+            # 1) Header lesen bis "\r\n\r\n" (früh abbrechen)
             raw = b""
-            while b"\r\n\r\n" not in raw and len(raw) < 16384:
+            while b"\r\n\r\n" not in raw and len(raw) < MAX_HTTP_BODY_BYTES:
                 chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                 if not chunk:
                     break
                 raw += chunk
+                if b"\r\n\r\n" in raw:
+                    break
 
             method, path, headers, body = parse_http_request(raw)
 
-            # 2) Body vollstaendig nachlesen, falls Content-Length angegeben
+            # 2) Body nachlesen, falls Content-Length groesser als bereits
+            #    gelesener Body. Kurzer Timeout (1s), damit ein haengender
+            #    Client den Dienst nicht blockiert.
             try:
                 content_length = int(headers.get("content-length", "0") or 0)
             except ValueError:
@@ -379,7 +383,9 @@ class HiddenServiceRuntime:
             if content_length > len(body):
                 need = content_length - len(body)
                 while need > 0:
-                    chunk = await asyncio.wait_for(reader.read(min(need, 4096)), timeout=5.0)
+                    chunk = await asyncio.wait_for(
+                        reader.read(min(need, 4096)), timeout=1.0
+                    )
                     if not chunk:
                         break
                     body += chunk

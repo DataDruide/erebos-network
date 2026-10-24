@@ -23,6 +23,10 @@ class DistributedDescriptorStore:
         self.own_id = own_id
         self.routing_table = RoutingTable(own_id)
         self._local_store = {}
+        # DHT-Rate-Limit (global): max. 100 Anfragen pro 60s.
+        self._rate_window = 60.0
+        self._rate_max = 100
+        self._rate_log = []
 
     def put(self, key: bytes, value: dict) -> None:
         """Speichert einen Descriptor lokal und bei den nächsten Peers.
@@ -89,6 +93,18 @@ class DistributedDescriptorStore:
                 del self._local_store[key]
             else:
                 return value
+
+        # DHT-Rate-Limit: zu viele Anfragen in kurzer Zeit -> ablehnen
+        import time as _time
+        now = _time.time()
+        self._rate_log = [t for t in self._rate_log if now - t < self._rate_window]
+        if len(self._rate_log) >= self._rate_max:
+            logger.warning(
+                f"DHT-Rate-Limit erreicht ({len(self._rate_log)}/{self._rate_max} "
+                f"in {self._rate_window:.0f}s) — Anfrage abgelehnt"
+            )
+            return None
+        self._rate_log.append(now)
 
         # Frage ALLE Peers in der Routing-Tabelle (nicht nur die nächsten)
         # In einer echten DHT würde man die nächsten Peers fragen,

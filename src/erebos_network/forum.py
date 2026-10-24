@@ -115,7 +115,16 @@ def _record_login_failure(client_id: str) -> None:
     data = _ensure_accounts(load_forum())
     failures = data.setdefault("login_failures", {})
     failures.setdefault(client_id, []).append(time.time())
+    count = len(failures[client_id])
     save_forum(data)
+    # Sicherheits-Warnung (OWASP A09:2025 Logging & Alerting)
+    if count >= LOGIN_MAX_FAILURES:
+        logger.warning(
+            f"SECURITY: Login-Rate-Limit erreicht "
+            f"(client={client_id[:16]}..., {count} Fehlversuche)"
+        )
+    elif count == 1:
+        logger.info(f"Login-Fehlversuch (client={client_id[:16]}...)")
 
 
 def _clear_login_failures(client_id: str) -> None:
@@ -700,25 +709,80 @@ def search_threads(query: str, limit: int = 50) -> list:
 
 
 def render_markdown(text: str) -> str:
-    """Sicheres Markdown-Mini: **bold**, *italic*, `code`, [text](url)."""
+    """Sicheres Markdown-Mini ohne Regex (ReDoS-Schutz).
+
+    Ersetzt **bold**, *italic*, `code`, [text](url) mit linearen
+    String-Operationen. Max. 50 Ersetzungen pro Muster, damit die
+    Laufzeit bei 4000-Zeichen-Posts begrenzt bleibt.
+    """
     escaped = _escape(text).replace("\n", "<br>")
-    # Links: nur http(s), keine Steuerzeichen, rel="noopener noreferrer"
-    def _link(m):
-        label, url = m.group(1), m.group(2)
-        # Steuerzeichen (inkl. Unicode-Kategorien Cc, Cf) ablehnen
-        if any(ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f for c in url):
-            return label
-        # Unicode-Homoglyphen in der URL ablehnen: nur ASCII erlaubt
-        if not url.isascii():
-            return label
-        return (
-            f'<a href="{url}" rel="noopener noreferrer" '
-            f'target="_blank">{label}</a>'
-        )
-    escaped = _MD_LINK.sub(_link, escaped)
-    escaped = _MD_CODE.sub(lambda m: f"<code>{m.group(1)}</code>", escaped)
-    escaped = _MD_BOLD.sub(r"<strong>\1</strong>", escaped)
-    escaped = _MD_ITALIC.sub(r"<em>\1</em>", escaped)
+    MAX_REPLACEMENTS = 50
+
+    # 1) Links: [text](url) — manueller Parser, linear
+    out = []
+    i = 0
+    link_count = 0
+    n = len(escaped)
+    while i < n and link_count < MAX_REPLACEMENTS:
+        if escaped[i] == "[":
+            close = escaped.find("]", i + 1)
+            if close != -1 and close + 1 < n and escaped[close + 1] == "(":
+                end = escaped.find(")", close + 2)
+                if end != -1:
+                    label = escaped[i + 1:close]
+                    url = escaped[close + 2:end]
+                    # Steuerzeichen und Nicht-ASCII ablehnen
+                    ok = url.startswith(("http://", "https://")) and url.isascii()
+                    if ok and not any(ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f for c in url):
+                        out.append(
+                            f'<a href="{url}" rel="noopener noreferrer" '
+                            f'target="_blank">{label}</a>'
+                        )
+                        link_count += 1
+                        i = end + 1
+                        continue
+        out.append(escaped[i])
+        i += 1
+    escaped = "".join(out)
+
+    # 2) **bold** — linear, max. 50
+    for _ in range(MAX_REPLACEMENTS):
+        start = escaped.find("**")
+        if start == -1:
+            break
+        end = escaped.find("**", start + 2)
+        if end == -1:
+            break
+        inner = escaped[start + 2:end]
+        escaped = escaped[:start] + f"<strong>{inner}</strong>" + escaped[end + 2:]
+
+    # 3) *italic* — linear, max. 50 (nur wenn nicht Teil von **)
+    for _ in range(MAX_REPLACEMENTS):
+        start = escaped.find("*")
+        if start == -1:
+            break
+        end = escaped.find("*", start + 1)
+        if end == -1:
+            break
+        inner = escaped[start + 1:end]
+        if not inner or inner.startswith("*") or inner.endswith("*"):
+            # Ueberspringe verschachtelte Sterne
+            escaped = escaped[:start] + "\x00" + escaped[start + 1:]
+            continue
+        escaped = escaped[:start] + f"<em>{inner}</em>" + escaped[end + 1:]
+    escaped = escaped.replace("\x00", "*")
+
+    # 4) `code` — linear, max. 50
+    for _ in range(MAX_REPLACEMENTS):
+        start = escaped.find("`")
+        if start == -1:
+            break
+        end = escaped.find("`", start + 1)
+        if end == -1:
+            break
+        inner = escaped[start + 1:end]
+        escaped = escaped[:start] + f"<code>{inner}</code>" + escaped[end + 1:]
+
     return escaped
 
 
@@ -789,6 +853,7 @@ def ban_user(username: str, reason: str = "") -> bool:
         del sessions[token]
     if to_remove:
         logger.info(f"Ban: {len(to_remove)} Session(s) von {username} invalidiert")
+    logger.warning(f"SECURITY: User {username} gebannt (Grund: {reason or 'kein Grund'})")
     return save_forum(data)
 
 
