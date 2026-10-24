@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--bind-port", type=int, default=8080)
     p.add_argument("--ttl", type=int, default=3600)
     p.add_argument("--dht-peers", default="9997,9998,9999",
-                   help="Komma-getrennte Peer-Ports für DHT-Publish")
+                   help="Komma-getrennt: Ports (int) oder host:port-Strings")
     p.add_argument("--intro-points", default="peer1:127.0.0.1:9999,peer2:127.0.0.1:9998,peer3:127.0.0.1:9997",
                    help="Komma-getrennt, Format: peer_id:host:port")
     p.add_argument("--log-level", default="INFO",
@@ -51,7 +51,11 @@ def main() -> int:
         http_backend_host=args.http_host,
         http_backend_port=args.http_port,
         intro_points=intro_points,
-        dht_peers=[int(p) for p in args.dht_peers.split(",")],
+        # Reine Ports (int) oder "host:port" (str) — beides erlaubt.
+        dht_peers=[
+            (int(p) if ":" not in p else p)
+            for p in args.dht_peers.split(",")
+        ],
         ttl_seconds=args.ttl,
         bind_host=args.bind_host,
         bind_port=args.bind_port,

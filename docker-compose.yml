@@ -61,7 +61,7 @@ services:
       --http-port 8080
       --bind-host 0.0.0.0
       --bind-port 8080
-      --dht-peers 9997,9998,9999
+      --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997
       --intro-points peer1:172.20.0.10:9999,peer2:172.20.0.11:9998,peer3:172.20.0.12:9997
       --log-level INFO
     environment:

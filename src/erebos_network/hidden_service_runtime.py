@@ -67,7 +67,9 @@ class HiddenServiceRuntime:
         http_backend_host/port: Lokales HTTP-Backend, an das eingehende
             Anfragen weitergeleitet werden.
         intro_points: Liste von (peer_id, address)-Tupeln für den Descriptor.
-        dht_peers: Ports der Peers, an die der Descriptor verteilt wird.
+        dht_peers: Peers fuer die DHT-Verteilung. Jeder Eintrag ist entweder
+            ein reiner Port (int/str, dann wird rendezvous_host genutzt)
+            oder "host:port" (str).
         ttl_seconds: Gültigkeit des Descriptors.
         http_request_handler: Optionales Override für das HTTP-Backend.
             Standard: TCP-Weiterleitung an http_backend_host:port.
@@ -80,7 +82,7 @@ class HiddenServiceRuntime:
         http_backend_host: str = "127.0.0.1",
         http_backend_port: int = 8080,
         intro_points: Optional[List[Tuple[str, str]]] = None,
-        dht_peers: Optional[List[int]] = None,
+        dht_peers: Optional[List] = None,
         ttl_seconds: int = 3600,
         http_request_handler: Optional[Callable] = None,
         bind_host: str = "127.0.0.1",
@@ -96,6 +98,16 @@ class HiddenServiceRuntime:
             ("peer3", "127.0.0.1:9997"),
         ]
         self.dht_peers = dht_peers or [9997, 9998, 9999]
+        # Normalisieren: reine Ports (int/str) und "host:port"-Strings
+        self._dht_targets = []
+        for entry in self.dht_peers:
+            if isinstance(entry, int):
+                self._dht_targets.append((self.rendezvous_host, int(entry)))
+            elif isinstance(entry, str) and ":" in entry:
+                h, p_ = entry.rsplit(":", 1)
+                self._dht_targets.append((h, int(p_)))
+            else:
+                self._dht_targets.append((self.rendezvous_host, int(entry)))
         self.ttl_seconds = ttl_seconds
         self.http_request_handler = http_request_handler
         self.bind_host = bind_host
@@ -215,15 +227,15 @@ class HiddenServiceRuntime:
             {"key": key.hex(), "value": descriptor.to_dict()}
         ).encode("utf-8")
 
-        for port in self.dht_peers:
+        for host, port in self._dht_targets:
             try:
-                client = ErebosTunnelClient(host=self.rendezvous_host, port=port)
+                client = ErebosTunnelClient(host=host, port=port)
                 await client.connect()
                 await client.send_typed(FRAME_DHT_PUT, payload)
                 await client.close()
-                logger.info(f"Descriptor an Peer auf Port {port} gesendet")
+                logger.info(f"Descriptor an {host}:{port} gesendet")
             except Exception as e:
-                logger.error(f"Fehler beim Senden an Port {port}: {e}")
+                logger.error(f"Fehler beim Senden an {host}:{port}: {e}")
 
         logger.info(f"Descriptor veröffentlicht in DHT (Key: {key.hex()[:16]}...)")
 
