@@ -568,7 +568,13 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
 
     tunnel2 = ErebosTunnelClient(host=NEXT_HOST, port=next_port)
     try:
-        await tunnel2.connect()
+        await asyncio.wait_for(tunnel2.connect(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Relay: Tunnel zu {NEXT_HOST}:{next_port} Timeout nach 5s "
+            f"(naechster Hop nicht erreichbar)"
+        )
+        return
     except Exception as e:
         logger.error(f"Relay: Tunnel zu {NEXT_HOST}:{next_port} fehlgeschlagen: {e}")
         return
