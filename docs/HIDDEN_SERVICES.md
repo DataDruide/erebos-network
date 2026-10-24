@@ -64,6 +64,24 @@ Client                    Intro-Point              Hidden Service
 
 Die Klasse `HiddenServiceRuntime` in `hidden_service_runtime.py` ist die produktive Implementierung. Sie ist konfigurierbar (Rendezvous, HTTP-Backend, Intro-Points, DHT-Peers, TTL), nutzt `logging` statt `print()` und hat ein sauberes `stop()`.
 
+## DHT-Verteilung: `dht_peers`-Format
+
+`HiddenServiceRuntime._publish_descriptor` verteilt den Descriptor an
+alle Peers in `dht_peers`. Zwei Formate werden akzeptiert:
+
+| Format | Beispiel | Bedeutung |
+|---|---|---|
+| reiner Port (int) | `9999` | Verbindet zu `rendezvous_host:9999` |
+| `host:port` (str) | `172.20.0.10:9999` | Verbindet zu `172.20.0.10:9999` |
+
+**Empfehlung**: In verteilten Setups (Docker, echte Peers) immer
+`host:port` nutzen, damit der Descriptor an **alle** Peers geht:
+
+    --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997
+
+Mit reinen Ports landet der Descriptor nur bei `rendezvous_host` — bei
+Ausfall dieses Peers ist der Hidden-Service dann nicht mehr auffindbar.
+
 ## DHT-Persistenz (PeerDhtStore)
 
 `PeerDhtStore` in `dht.py` persistiert die Peer-DHT in `/tmp/erebos_peer_dht_<port>.json` (atomar via tmp+rename). Nach einem Peer-Neustart wird der Descriptor geladen, ohne neuen DHT-PUT.

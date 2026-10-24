@@ -54,6 +54,48 @@ gleichzeitig starten, gibt es Timeouts (Retry mit Backoff ist
 implementiert). In einem echten Netzwerk mit stabilen Peers ist
 das kein Problem.
 
+## Docker-Betrieb (Stand nach Migration)
+
+### 5. Hidden-Service-Schluessel nicht ueber Container-Neustart persistent
+
+`HiddenServiceRuntime` speichert den Ed25519-Schluessel in
+`/root/.erebos/hs_key_<bind_port>.pem` **im Container**. Bei
+`docker-compose up --force-recreate` (oder `down`/`up`) ist der
+Schluessel weg -> neue `.erebos`-Adresse. Clients, die die alte
+Adresse gecacht haben, finden den Dienst nicht mehr.
+
+**Loesung (offen)**: Volume-Mount in `docker-compose.yml`:
+
+    hidden-service:
+      volumes:
+        - hs-keys:/root/.erebos
+    volumes:
+      hs-keys:
+
+### 6. 3-Hop-Rendezvous-Kette hat festen Pfad
+
+Der Proxy baut den Onion-Pfad fix als `proxy -> peer2 -> peer3 -> peer1`.
+Faellt peer3 aus, bricht die Kette (mit 5s-Timeout seit dem letzten
+Patch, aber ohne Fallback auf einen alternativen Pfad).
+
+**Loesung (offen)**: Dynamische Pfadwahl — der Proxy probiert
+mehrere Onion-Pfade, bis einer klappt. Erfordert, dass der
+Rendezvous-Punkt mehrere Paare pro Key verwalten kann (was er
+bereits tut: `rendezvous_pairs[key]["clients"]` ist eine Liste).
+
+### 7. `--dht-peers` im Hidden-Service: Format beachten
+
+Seit dem letzten Patch akzeptiert `--dht-peers` sowohl reine Ports
+(int, dann wird `rendezvous_host` genutzt) als auch `host:port`-
+Strings. In Docker muss die `host:port`-Form genutzt werden, damit
+der Descriptor an alle Peers verteilt wird:
+
+    --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997
+
+Mit reinen Ports landet der Descriptor nur bei `rendezvous_host`
+(typisch peer1) — dann ist er bei peer1-Ausfall nicht mehr
+auffindbar.
+
 ## Lasttest-Ergebnisse
 
 | Parallele Verbindungen | Erfolgreich | Latenz (pro Verbindung) |

@@ -387,6 +387,34 @@ Erwartet: HTTP 200 mit 22 Bytes ('Hidden Service works!').
 
 **Offene Limitierungen**: siehe [docs/known-limitations.md](docs/known-limitations.md)
 
+### Docker-Netzwerk (3 Peers + Proxy + Hidden-Service)
+
+Reproduzierbarer End-to-End-Test mit fünf Containern im Bridge-Netz
+`172.20.0.0/24`:
+
+    docker-compose up -d --build
+    sleep 15
+    ADDR=$(docker-compose logs hidden-service 2>&1 | grep -oE "[a-z2-7]{52}\.erebos" | tail -1)
+    echo "Adresse: $ADDR"
+    curl --socks5-hostname localhost:4448 -v "http://$ADDR" -o /dev/null
+
+Erwartet: `HTTP/1.1 200 OK` mit 22 Bytes (`Hidden Service works!`).
+
+**Was dabei passiert**: curl -> Docker-Port-Mapping -> proxy (172.20.0.13)
+-> DHT-GET via `peer_host()` zu peer1/peer2/peer3 -> Descriptor gefunden
+-> 3-Hop-Onion (peer2 -> peer3 -> peer1) -> Rendezvous -> E2E-verschluesselt
+-> hidden-service (172.20.0.14) -> HTTP-Backend -> zurueck.
+
+**Wichtig**: Auf macOS muss der curl-Aufruf `localhost` (nicht
+`127.0.0.1`) nutzen, weil Docker Desktop den Port nur auf IPv6 mappt.
+
+**Bekannte Limitierungen im Docker-Betrieb**:
+- Hidden-Service-Schluessel nicht persistent (Volume-Mount noetig)
+- 3-Hop-Kette hat festen Pfad (peer3 als SPOF)
+- `--dht-peers` muss `host:port`-Format nutzen
+
+Siehe [docs/known-limitations.md](docs/known-limitations.md).
+
 ### Tests
 
     pytest -v
