@@ -40,7 +40,7 @@ from .landing_pages import (
     parse_http_request,
     http_response,
 )
-from .forum import get_or_create_client_id, CLIENT_COOKIE
+from .forum import get_or_create_client_id, get_session_user, CLIENT_COOKIE, SESSION_COOKIE
 from .tunnel import (
     ErebosTunnelClient,
     FRAME_DATA,
@@ -384,18 +384,45 @@ class HiddenServiceRuntime:
             if is_new_client:
                 logger.info(f"HTTP: neuer Client (cookie gesetzt: {client_id[:8]}...)")
 
+            # 4b) Session-Cookie lesen (optional)
+            session_token = ""
+            for part in cookie_header.split(";"):
+                part = part.strip()
+                if part.startswith(SESSION_COOKIE + "="):
+                    session_token = part[len(SESSION_COOKIE) + 1:].strip()
+                    break
+            username = get_session_user(session_token) or ""
+
             # 5) Response erzeugen
             body_out = render_page(
                 path, self.address, f"{method} {path}",
                 method=method, body=body, query=query, client_id=client_id,
+                username=username, session_token=session_token,
             )
 
             # 3a) Redirect-Fall (POST /forum/*/antwort)
             if body_out.startswith(b"REDIRECT:"):
-                target = body_out[len("REDIRECT:"):].decode("utf-8", "replace")
+                # Format: REDIRECT:/ziel  [SET_SESSION:<token>]  [CLEAR_SESSION:1]
+                parts = body_out[len("REDIRECT:"):].split(b"\n")
+                target = parts[0].decode("utf-8", "replace")
+                extra_cookies = []
+                if is_new_client:
+                    extra_cookies.append(
+                        CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax"
+                    )
+                for part in parts[1:]:
+                    if part.startswith(b"SET_SESSION:"):
+                        token = part[len("SET_SESSION:"):].decode("utf-8", "replace")
+                        extra_cookies.append(
+                            SESSION_COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800"
+                        )
+                    elif part.startswith(b"CLEAR_SESSION:"):
+                        extra_cookies.append(
+                            SESSION_COOKIE + "=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+                        )
                 resp = http_response(
                     302, "text/plain; charset=utf-8", b"Redirecting...", location=target,
-                    set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
+                    set_cookie="\r\nSet-Cookie: ".join(extra_cookies) if extra_cookies else "",
                 )
                 writer.write(resp)
                 await writer.drain()

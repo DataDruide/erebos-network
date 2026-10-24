@@ -112,7 +112,8 @@ def render_wiki(address: str) -> bytes:
 
 
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
-                body: bytes = b"", query: str = "", client_id: str = "") -> bytes:
+                body: bytes = b"", query: str = "", client_id: str = "",
+                username: str = "", session_token: str = "") -> bytes:
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
@@ -125,7 +126,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Erebos Community", address, forum.render_categories(client_id=client_id))
+        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin))
     if path == "/forum/admin":
         if not admin:
             return _page(
@@ -190,6 +191,84 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     admin=admin, client_id=client_id,
                 ),
             )
+
+    # --- Auth-Routen ---
+    if path == "/forum/login":
+        if method == "POST":
+            form = forum.parse_form_body(body)
+            token = forum.login_user(form.get("username", ""), form.get("password", ""))
+            if token:
+                return b"REDIRECT:/forum\nSET_SESSION:" + token.encode("utf-8")
+            return _page("Login", address, forum.render_login_form("Login fehlgeschlagen."))
+        return _page("Login", address, forum.render_login_form())
+
+    if path == "/forum/register":
+        if method == "POST":
+            form = forum.parse_form_body(body)
+            ok, msg = forum.register_user(form.get("username", ""), form.get("password", ""))
+            if ok:
+                return b"REDIRECT:/forum/login"
+            return _page("Registrieren", address, forum.render_register_form(msg))
+        return _page("Registrieren", address, forum.render_register_form())
+
+    if path == "/forum/logout":
+        forum.logout_user(session_token)
+        return b"REDIRECT:/forum\nCLEAR_SESSION:1"
+
+    if path == "/forum/my-threads":
+        if not username:
+            return b"REDIRECT:/forum/login"
+        return _page("Meine Threads", address, forum.render_my_threads(username))
+
+    # --- Admin: Reports + Mod-Log ---
+    if path == "/forum/admin/reports":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        return _page("Meldungen", address, forum.render_reports())
+
+    if path.startswith("/forum/admin/reports/") and path.endswith("/resolve") and method == "POST":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        idx_str = path[len("/forum/admin/reports/"):-len("/resolve")]
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            idx = -1
+        forum.resolve_report(idx)
+        return b"REDIRECT:/forum/admin/reports?admin=" + admin_token_value.encode("utf-8")
+
+    if path == "/forum/admin/modlog":
+        if not admin:
+            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+        return _page("Mod-Log", address, forum.render_mod_log())
+
+    if path == "/forum/health":
+        return _page("Health", address, forum.render_health())
+
+    # --- Report posten ---
+    if "/post/" in path and path.endswith("/report"):
+        if method == "POST":
+            head = path[: -len("/report")]
+            parts = head.split("/post/")
+            if len(parts) == 2:
+                tid = parts[0].replace("/forum/", "")
+                try:
+                    idx = int(parts[1])
+                except ValueError:
+                    idx = -1
+                form = forum.parse_form_body(body)
+                forum.report_post(tid, idx, form.get("reason", ""), username or "Anonym")
+                return b"REDIRECT:/forum/" + tid.encode("utf-8")
+        # GET: Formular
+        head = path[: -len("/report")]
+        parts = head.split("/post/")
+        if len(parts) == 2:
+            tid = parts[0].replace("/forum/", "")
+            try:
+                idx = int(parts[1])
+            except ValueError:
+                idx = -1
+            return _page("Melden", address, forum.render_report_form(tid, idx))
 
     if path == "/forum/neu":
         if method == "POST":

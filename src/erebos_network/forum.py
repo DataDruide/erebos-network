@@ -1,5 +1,6 @@
 """Einfaches Forum fuer den Erebos Hidden-Service (JSON-persistent)."""
 
+import hashlib
 import json
 import logging
 import os
@@ -24,6 +25,18 @@ RATE_MAX_REPLIES = 30           # Antworten pro Client/Fenster
 GLOBAL_MAX_THREADS = 50         # Sicherheitsnetz global
 GLOBAL_MAX_REPLIES = 150        # Sicherheitsnetz global
 CLIENT_COOKIE = "forum_client_id"
+SESSION_COOKIE = "forum_session"
+PBKDF2_ITERATIONS = 200_000
+MIN_PASSWORD_LEN = 8
+MAX_USERNAME_LEN = 32
+SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 Tage
+
+# Markdown-Mini: nur fett, kursiv, Code, Links (sicher escaped)
+import re as _re
+_MD_BOLD = _re.compile(r"\*\*(.+?)\*\*")
+_MD_ITALIC = _re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_MD_CODE = _re.compile(r"`([^`]+)`")
+_MD_LINK = _re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 
 # Standard-Kategorien (werden beim ersten Start angelegt)
 DEFAULT_CATEGORIES = [
@@ -33,6 +46,113 @@ DEFAULT_CATEGORIES = [
     {"id": "offtopic", "name": "Off-Topic", "desc": "Alles andere"},
 ]
 THREADS_PER_PAGE = 20
+
+
+def _hash_password(password: str, salt: bytes = None) -> Tuple[bytes, bytes]:
+    """PBKDF2-HMAC-SHA256. Liefert (hash, salt)."""
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return h, salt
+
+
+def _verify_password(password: str, expected_hash: bytes, salt: bytes) -> bool:
+    h, _ = _hash_password(password, salt)
+    return secrets.compare_digest(h, expected_hash)
+
+
+def _ensure_accounts(data: dict) -> dict:
+    if "users" not in data:
+        data["users"] = {}
+    if "sessions" not in data:
+        data["sessions"] = {}
+    return data
+
+
+def register_user(username: str, password: str) -> Tuple[bool, str]:
+    """Legt einen Account an. Liefert (ok, message)."""
+    username = _clean(username, MAX_USERNAME_LEN)
+    if not username or len(username) < 2:
+        return False, "Username zu kurz (min. 2 Zeichen)."
+    if not _re.match(r"^[A-Za-z0-9_.-]+$", username):
+        return False, "Username: nur Buchstaben, Ziffern, _.- erlaubt."
+    if len(password) < MIN_PASSWORD_LEN:
+        return False, f"Passwort zu kurz (min. {MIN_PASSWORD_LEN} Zeichen)."
+    data = _ensure_accounts(load_forum())
+    for existing in data["users"].values():
+        if existing.get("username", "").lower() == username.lower():
+            return False, "Username bereits vergeben."
+    pwd_hash, salt = _hash_password(password)
+    data["users"][username] = {
+        "username": username,
+        "password_hash": pwd_hash.hex(),
+        "salt": salt.hex(),
+        "created_at": time.time(),
+    }
+    save_forum(data)
+    return True, "Account erstellt. Bitte einloggen."
+
+
+def login_user(username: str, password: str) -> Optional[str]:
+    """Prueft Login. Liefert session_token (oder None)."""
+    username = _clean(username, MAX_USERNAME_LEN)
+    data = _ensure_accounts(load_forum())
+    user = data["users"].get(username)
+    if user is None:
+        # Case-insensitive Fallback
+        for u in data["users"].values():
+            if u.get("username", "").lower() == username.lower():
+                user = u
+                break
+    if user is None:
+        return None
+    try:
+        expected = bytes.fromhex(user["password_hash"])
+        salt = bytes.fromhex(user["salt"])
+    except (KeyError, ValueError):
+        return None
+    if not _verify_password(password, expected, salt):
+        return None
+    token = secrets.token_urlsafe(32)
+    data["sessions"][token] = {
+        "username": user["username"],
+        "created_at": time.time(),
+        "expires_at": time.time() + SESSION_TTL_SECONDS,
+    }
+    save_forum(data)
+    return token
+
+
+def logout_user(token: str) -> bool:
+    data = _ensure_accounts(load_forum())
+    if token in data["sessions"]:
+        del data["sessions"][token]
+        save_forum(data)
+        return True
+    return False
+
+
+def get_session_user(session_cookie_value: str) -> Optional[str]:
+    """Liefert den Username zur Session oder None (abgelaufen/ungueltig)."""
+    if not session_cookie_value:
+        return None
+    data = _ensure_accounts(load_forum())
+    sess = data["sessions"].get(session_cookie_value)
+    if sess is None:
+        return None
+    if sess.get("expires_at", 0) < time.time():
+        del data["sessions"][session_cookie_value]
+        save_forum(data)
+        return None
+    return sess.get("username")
+
+
+def _cleanup_sessions(data: dict) -> None:
+    now = time.time()
+    data["sessions"] = {
+        tok: s for tok, s in data.get("sessions", {}).items()
+        if s.get("expires_at", 0) >= now
+    }
 
 
 def get_or_create_client_id(cookie_header: str) -> Tuple[str, bool]:
@@ -76,6 +196,14 @@ def _ensure_structure(data: dict) -> dict:
     for t in data.get("threads", []):
         if "category_id" not in t:
             t["category_id"] = "allgemein"
+        # Sticky/Locked default False
+        t.setdefault("sticky", False)
+        t.setdefault("locked", False)
+    # Accounts/Sessions/Reports/Bans/Mod-Log
+    _ensure_accounts(data)
+    data.setdefault("reports", [])
+    data.setdefault("bans", [])
+    data.setdefault("mod_log", [])
     if "rate_log" not in data:
         data["rate_log"] = {
             "threads": {},
@@ -163,6 +291,9 @@ def create_thread(title: str, author: str, body: str,
     category_id = _clean(category_id, 64) or "allgemein"
     if not title or not body:
         return None
+    if is_banned(author):
+        logger.warning(f"Thread von gebanntem User {author} blockiert")
+        return None
     data = load_forum()
     if not _check_rate(data, client_id, "threads"):
         logger.warning(f"Rate-Limit erreicht (client={client_id[:8]}): zu viele Threads")
@@ -200,8 +331,14 @@ def add_reply(thread_id: str, author: str, body: str,
     if not _check_rate(data, client_id, "replies"):
         logger.warning(f"Rate-Limit erreicht (client={client_id[:8]}): zu viele Antworten")
         return False
+    if is_banned(author):
+        logger.warning(f"Antwort von gebanntem User {author} blockiert")
+        return False
     for t in data["threads"]:
         if t["id"] == thread_id:
+            if t.get("locked", False):
+                logger.warning(f"Thread {thread_id} ist gesperrt")
+                return False
             t["posts"].append({
                 "author": author,
                 "body": body,
@@ -453,6 +590,121 @@ def search_threads(query: str, limit: int = 50) -> list:
     return results[:limit]
 
 
+def render_markdown(text: str) -> str:
+    """Sicheres Markdown-Mini: **bold**, *italic*, `code`, [text](url)."""
+    escaped = _escape(text).replace("\n", "<br>")
+    # Links: nur http(s)
+    def _link(m):
+        label, url = m.group(1), m.group(2)
+        return f'<a href="{url}" rel="noopener">{label}</a>'
+    escaped = _MD_LINK.sub(_link, escaped)
+    escaped = _MD_CODE.sub(lambda m: f"<code>{m.group(1)}</code>", escaped)
+    escaped = _MD_BOLD.sub(r"<strong>\1</strong>", escaped)
+    escaped = _MD_ITALIC.sub(r"<em>\1</em>", escaped)
+    return escaped
+
+
+def list_user_threads(username: str) -> list:
+    data = load_forum()
+    return [
+        t for t in data["threads"]
+        if any(p.get("author") == username for p in t.get("posts", []))
+    ]
+
+
+def report_post(thread_id: str, index: int, reason: str, reporter: str = "") -> bool:
+    data = _ensure_accounts(load_forum())
+    if "reports" not in data:
+        data["reports"] = []
+    for t in data["threads"]:
+        if t["id"] == thread_id:
+            if index < 0 or index >= len(t.get("posts", [])):
+                return False
+            data["reports"].append({
+                "thread_id": thread_id,
+                "post_index": index,
+                "reason": _clean(reason, 500),
+                "reporter": _clean(reporter, MAX_AUTHOR) or "Anonym",
+                "created_at": time.time(),
+                "resolved": False,
+            })
+            return save_forum(data)
+    return False
+
+
+def list_reports() -> list:
+    data = _ensure_accounts(load_forum())
+    return [r for r in data.get("reports", []) if not r.get("resolved")]
+
+
+def resolve_report(index: int) -> bool:
+    data = _ensure_accounts(load_forum())
+    reports = data.get("reports", [])
+    if index < 0 or index >= len(reports):
+        return False
+    reports[index]["resolved"] = True
+    return save_forum(data)
+
+
+def ban_user(username: str, reason: str = "") -> bool:
+    data = _ensure_accounts(load_forum())
+    if "bans" not in data:
+        data["bans"] = []
+    username = _clean(username, MAX_USERNAME_LEN)
+    if not username:
+        return False
+    data["bans"].append({
+        "username": username,
+        "reason": _clean(reason, 500),
+        "created_at": time.time(),
+    })
+    return save_forum(data)
+
+
+def is_banned(username: str) -> bool:
+    data = _ensure_accounts(load_forum())
+    return any(
+        b.get("username", "").lower() == username.lower()
+        for b in data.get("bans", [])
+    )
+
+
+def toggle_sticky(thread_id: str) -> bool:
+    data = load_forum()
+    for t in data["threads"]:
+        if t["id"] == thread_id:
+            t["sticky"] = not t.get("sticky", False)
+            return save_forum(data)
+    return False
+
+
+def toggle_locked(thread_id: str) -> bool:
+    data = load_forum()
+    for t in data["threads"]:
+        if t["id"] == thread_id:
+            t["locked"] = not t.get("locked", False)
+            return save_forum(data)
+    return False
+
+
+def log_moderation(action: str, target: str, moderator: str = "admin") -> None:
+    data = _ensure_accounts(load_forum())
+    if "mod_log" not in data:
+        data["mod_log"] = []
+    data["mod_log"].append({
+        "action": action,
+        "target": target,
+        "moderator": moderator,
+        "created_at": time.time(),
+    })
+    save_forum(data)
+
+
+def list_mod_log(limit: int = 100) -> list:
+    data = _ensure_accounts(load_forum())
+    return list(reversed(data.get("mod_log", [])))[:limit]
+
+
 def find_thread(thread_id: str) -> Optional[dict]:
     data = load_forum()
     for t in data["threads"]:
@@ -524,7 +776,7 @@ def render_thread(thread: dict, admin: bool = False) -> str:
     posts_html = ""
     for idx, p in enumerate(thread.get("posts", [])):
         author = _escape(p.get("author", "?"))
-        body = _escape(p.get("body", "")).replace("\n", "<br>")
+        body = render_markdown(p.get("body", ""))
         created = _fmt_time(p.get("created_at", 0))
         edited = p.get("edited_at")
         edited_marker = ""
@@ -544,22 +796,46 @@ def render_thread(thread: dict, admin: bool = False) -> str:
                 f"padding:0.2em 0.5em;border-radius:3px;font-size:0.85em\">"
                 f"Bearbeiten</a>"
             )
+        # Zitat-Button
+        quote_btn = (
+            f" <a href=\"#quote\" onclick=\"document.querySelector('textarea[name=body]').value="
+            f"'>>> {author} schrieb:\\n\\n';return false;\" "
+            f"style=\"font-size:0.85em\">Zitieren</a>"
+        )
+        # Report-Button
+        report_btn = (
+            f" <a href=\"/forum/{tid}/post/{idx}/report\" "
+            f"style=\"font-size:0.85em\">Melden</a>"
+        )
         posts_html += (
             f"<div style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
-            f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}{admin_btn}</p>\n"
+            f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
+            f"{quote_btn}{report_btn}{admin_btn}</p>\n"
             f"  <p>{body}</p>\n"
             f"</div>\n"
         )
+    sticky_locked = ""
+    if thread.get("sticky"):
+        sticky_locked += " <small>[sticky]</small>"
+    if thread.get("locked"):
+        sticky_locked += " <small>[gesperrt]</small>"
+    reply_block = ""
+    if thread.get("locked"):
+        reply_block = "<p><em>Dieser Thread ist gesperrt. Antworten nicht möglich.</em></p>\n"
+    else:
+        reply_block = (
+            "<h2>Antworten</h2>\n"
+            f"<form method=\"post\" action=\"/forum/{tid}/antwort\">\n"
+            "  <p><label>Dein Name (optional):<br><input name=\"author\" maxlength=\"60\" placeholder=\"Anonym\" style=\"width:100%\"></label></p>\n"
+            "  <p><label>Antwort:<br><textarea name=\"body\" rows=\"6\" maxlength=\"4000\" required style=\"width:100%\"></textarea></label></p>\n"
+            "  <p><button type=\"submit\" class=\"btn\">Antwort senden</button></p>\n"
+            "</form>\n"
+        )
     return (
-        f"<h1>{title}</h1>\n"
+        f"<h1>{title}{sticky_locked}</h1>\n"
         f"<p><a href=\"/forum\">← Zurück zum Forum</a></p>\n"
         f"{posts_html}\n"
-        "<h2>Antworten</h2>\n"
-        f"<form method=\"post\" action=\"/forum/{tid}/antwort\">\n"
-        "  <p><label>Dein Name (optional):<br><input name=\"author\" maxlength=\"60\" placeholder=\"Anonym\" style=\"width:100%\"></label></p>\n"
-        "  <p><label>Antwort:<br><textarea name=\"body\" rows=\"6\" maxlength=\"4000\" required style=\"width:100%\"></textarea></label></p>\n"
-        "  <p><button type=\"submit\" class=\"btn\">Antwort senden</button></p>\n"
-        "</form>\n"
+        f"{reply_block}"
     )
 
 
@@ -656,7 +932,7 @@ def _pagination_html(page: int, pages: int, base_url: str, sort: str) -> str:
     return "<p>" + " · ".join(parts) + "</p>\n"
 
 
-def render_categories(client_id: str = "") -> str:
+def render_categories(client_id: str = "", username: str = "", admin: bool = False) -> str:
     cats = list_categories()
     status = rate_limit_status(client_id)
     client_status = (
@@ -676,9 +952,34 @@ def render_categories(client_id: str = "") -> str:
         )
     if not rows:
         rows = "<li><em>Noch keine Kategorien.</em></li>"
+
+    # User-Navigation
+    if username:
+        user_nav = (
+            f"<p>Eingeloggt als <strong>{_escape(username)}</strong> · "
+            f"<a href=\"/forum/my-threads\">Meine Threads</a> · "
+            f"<a href=\"/forum/logout\">Logout</a></p>\n"
+        )
+    else:
+        user_nav = (
+            "<p><a href=\"/forum/login\">Login</a> · "
+            "<a href=\"/forum/register\">Registrieren</a></p>\n"
+        )
+
+    admin_nav = ""
+    if admin:
+        admin_nav = (
+            "<p><small>"
+            "<a href=\"/forum/admin/authors?admin=<token>\">Autoren</a> · "
+            "<a href=\"/forum/admin/reports?admin=<token>\">Meldungen</a> · "
+            "<a href=\"/forum/admin/modlog?admin=<token>\">Mod-Log</a>"
+            "</small></p>\n"
+        )
+
     return (
         "<h1>Erebos Community</h1>\n"
         "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
+        f"{user_nav}"
         f"{client_status}"
         "<form method=\"get\" action=\"/forum/search\" style=\"margin:1em 0\">\n"
         "  <input name=\"q\" placeholder=\"Suche in Titeln und Posts...\" "
@@ -687,6 +988,7 @@ def render_categories(client_id: str = "") -> str:
         "</form>\n"
         f"<ul>\n{rows}</ul>\n"
         "<a class=\"btn\" href=\"/forum/neu\">Neuen Thread erstellen</a>\n"
+        f"{admin_nav}"
         "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
     )
 
@@ -791,4 +1093,109 @@ def render_new_thread_form(category_id: str = "allgemein",
         "  <p><button type=\"submit\" class=\"btn\">Thread erstellen</button></p>\n"
         "</form>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
+
+def render_login_form(error: str = "") -> str:
+    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
+    return (
+        "<h1>Login</h1>\n"
+        f"{err}"
+        "<form method=\"post\" action=\"/forum/login\">\n"
+        "  <p><label>Username:<br><input name=\"username\" required style=\"width:100%\"></label></p>\n"
+        "  <p><label>Passwort:<br><input type=\"password\" name=\"password\" required style=\"width:100%\"></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Login</button></p>\n"
+        "</form>\n"
+        "<p><a href=\"/forum/register\">Noch kein Account? Registrieren</a></p>\n"
+        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
+
+def render_register_form(error: str = "") -> str:
+    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
+    return (
+        "<h1>Registrieren</h1>\n"
+        f"{err}"
+        "<form method=\"post\" action=\"/forum/register\">\n"
+        "  <p><label>Username:<br><input name=\"username\" required maxlength=\"32\" style=\"width:100%\"></label></p>\n"
+        "  <p><label>Passwort (min. 8 Zeichen):<br><input type=\"password\" name=\"password\" required minlength=\"8\" style=\"width:100%\"></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Account erstellen</button></p>\n"
+        "</form>\n"
+        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
+
+def render_my_threads(username: str) -> str:
+    threads = list_user_threads(username)
+    items = ""
+    for t in threads:
+        tid = _escape(t["id"])
+        title = _escape(t["title"])
+        cat = _escape(t.get("category_id", "allgemein"))
+        items += f"<li><a href=\"/forum/{tid}\">{title}</a> <small>({cat})</small></li>\n"
+    if not items:
+        items = "<li><em>Du hast noch keine Threads.</em></li>"
+    return (
+        f"<h1>Meine Threads ({_escape(username)})</h1>\n"
+        f"<ul>\n{items}\n</ul>\n"
+        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
+
+def render_report_form(thread_id: str, index: int) -> str:
+    tid = _escape(thread_id)
+    return (
+        "<h1>Post melden</h1>\n"
+        f"<form method=\"post\" action=\"/forum/{tid}/post/{index}/report\">\n"
+        "  <p><label>Grund:<br><textarea name=\"reason\" rows=\"4\" maxlength=\"500\" required style=\"width:100%\"></textarea></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Melden</button></p>\n"
+        "</form>\n"
+        f"<a class=\"btn\" href=\"/forum/{tid}\">← Zurück</a>\n"
+    )
+
+
+def render_reports() -> str:
+    reports = list_reports()
+    items = ""
+    for idx, r in enumerate(reports):
+        tid = _escape(r["thread_id"])
+        reason = _escape(r["reason"])
+        reporter = _escape(r["reporter"])
+        created = _fmt_time(r["created_at"])
+        items += (
+            f"<li>Thread <a href=\"/forum/{tid}\">{tid}</a>, "
+            f"Post {r['post_index']} — {reason} (von {reporter}, {created}) "
+            f"<form method=\"post\" action=\"/forum/admin/reports/{idx}/resolve\" style=\"display:inline\">"
+            f"<button type=\"submit\" class=\"btn\" style=\"padding:0.1em 0.4em;font-size:0.8em\">Erledigt</button></form></li>\n"
+        )
+    if not items:
+        items = "<li><em>Keine offenen Meldungen.</em></li>"
+    return "<h1>Meldungen</h1>\n" + f"<ul>\n{items}\n</ul>\n"
+
+
+def render_mod_log() -> str:
+    log = list_mod_log(100)
+    items = ""
+    for e in log:
+        items += (
+            f"<li><small>{_fmt_time(e['created_at'])}</small> "
+            f"<strong>{_escape(e['action'])}</strong> {_escape(e['target'])} "
+            f"(von {_escape(e['moderator'])})</li>\n"
+        )
+    if not items:
+        items = "<li><em>Noch keine Moderationseintraege.</em></li>"
+    return "<h1>Moderations-Log</h1>\n" + f"<ul>\n{items}\n</ul>\n"
+
+
+def render_health() -> str:
+    data = load_forum()
+    return (
+        "<h1>Health</h1>\n"
+        "<ul>\n"
+        f"  <li>Threads: {len(data['threads'])}</li>\n"
+        f"  <li>Users: {len(data.get('users', {}))}</li>\n"
+        f"  <li>Offene Reports: {len(list_reports())}</li>\n"
+        f"  <li>Bans: {len(data.get('bans', []))}</li>\n"
+        f"  <li>Mod-Log: {len(data.get('mod_log', []))}</li>\n"
+        "</ul>\n"
     )
