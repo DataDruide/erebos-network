@@ -187,7 +187,7 @@ das Laden langsam, Schreiben blockiert.
 **Loesung (offen)**: SQLite statt JSON (Migration), oder
 regelmaessiger Cleanup alter Eintraege.
 
-### 17. E2E-Payload-Grenze bei 8192 Bytes
+### 17. E2E-Payload-Grenze bei 8192 Bytes (geloest)
 
 Der E2E-entschluesselte Payload im Rendezvous-Datenkanal ist
 auf 8192 Bytes begrenzt (eine `read()`-Operation im Tunnel).
