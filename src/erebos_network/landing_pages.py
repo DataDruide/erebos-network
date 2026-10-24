@@ -196,10 +196,18 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum/login":
         if method == "POST":
             form = forum.parse_form_body(body)
-            token = forum.login_user(form.get("username", ""), form.get("password", ""))
+            token, reason = forum.login_user(
+                form.get("username", ""), form.get("password", ""),
+                client_id=client_id,
+            )
             if token:
                 return b"REDIRECT:/forum\nSET_SESSION:" + token.encode("utf-8")
-            return _page("Login", address, forum.render_login_form("Login fehlgeschlagen."))
+            if reason == "rate_limit":
+                # HTTP 429: Too Many Requests
+                return b"RATE_LIMIT:1"
+            return _page("Login", address, forum.render_login_form(
+                "Login fehlgeschlagen."
+            ))
         return _page("Login", address, forum.render_login_form())
 
     if path == "/forum/register":
@@ -421,7 +429,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
 def http_response(status: int, content_type: str, body: bytes,
                   location: str = "", set_cookie: str = "") -> bytes:
-    reason = {200: "OK", 302: "Found", 404: "Not Found"}.get(status, "OK")
+    reason = {200: "OK", 302: "Found", 403: "Forbidden", 404: "Not Found",
+              429: "Too Many Requests", 500: "Internal Server Error"}.get(status, "OK")
     headers = (
         f"HTTP/1.1 {status} {reason}\r\n"
         f"Content-Type: {content_type}\r\n"
@@ -431,6 +440,21 @@ def http_response(status: int, content_type: str, body: bytes,
         headers += f"Location: {location}\r\n"
     if set_cookie:
         headers += f"Set-Cookie: {set_cookie}\r\n"
+    # Security Headers (OWASP A05:2025 Security Misconfiguration)
+    headers += (
+        "X-Content-Type-Options: nosniff\r\n"
+        "X-Frame-Options: DENY\r\n"
+        "Referrer-Policy: no-referrer\r\n"
+        "Permissions-Policy: geolocation=(), microphone=(), camera=()\r\n"
+        # CSP: kein externes Script, kein Inline-Script, nur eigene Styles
+        # und Inline-Styles (die Templates nutzen style="...")
+        "Content-Security-Policy: default-src 'self'; "
+        "script-src 'none'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'\r\n"
+    )
     headers += "Connection: close\r\n\r\n"
     return headers.encode("ascii") + body
 

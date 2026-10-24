@@ -400,7 +400,23 @@ class HiddenServiceRuntime:
                 username=username, session_token=session_token,
             )
 
-            # 3a) Redirect-Fall (POST /forum/*/antwort)
+            # 3a) Rate-Limit-Fall (HTTP 429)
+            if body_out.startswith(b"RATE_LIMIT:"):
+                body_429 = (
+                    "<!DOCTYPE html><html><head><title>429</title></head>"
+                    "<body><h1>Zu viele Login-Versuche</h1>"
+                    "<p>Bitte warte 5 Minuten und versuche es erneut.</p>"
+                    "<a href=\"/forum/login\">← Zurück zum Login</a></body></html>"
+                ).encode("utf-8")
+                resp = http_response(
+                    429, "text/html; charset=utf-8", body_429,
+                    set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # 3b) Redirect-Fall (POST /forum/*/antwort)
             if body_out.startswith(b"REDIRECT:"):
                 # Format: REDIRECT:/ziel  [SET_SESSION:<token>]  [CLEAR_SESSION:1]
                 parts = body_out[len("REDIRECT:"):].split(b"\n")

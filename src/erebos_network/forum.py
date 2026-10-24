@@ -31,6 +31,11 @@ MIN_PASSWORD_LEN = 8
 MAX_USERNAME_LEN = 32
 SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 Tage
 
+# Login-Rate-Limit (gegen Brute-Force): max. 5 Fehlversuche pro
+# Client-ID in 5 Minuten.
+LOGIN_WINDOW_SECONDS = 300
+LOGIN_MAX_FAILURES = 5
+
 # Markdown-Mini: nur fett, kursiv, Code, Links (sicher escaped)
 import re as _re
 _MD_BOLD = _re.compile(r"\*\*(.+?)\*\*")
@@ -93,8 +98,42 @@ def register_user(username: str, password: str) -> Tuple[bool, str]:
     return True, "Account erstellt. Bitte einloggen."
 
 
-def login_user(username: str, password: str) -> Optional[str]:
-    """Prueft Login. Liefert session_token (oder None)."""
+def _check_login_rate(client_id: str) -> bool:
+    """True = erlaubt, False = zu viele Fehlversuche."""
+    data = _ensure_accounts(load_forum())
+    failures = data.setdefault("login_failures", {})
+    now = time.time()
+    attempts = [t for t in failures.get(client_id, []) if now - t < LOGIN_WINDOW_SECONDS]
+    failures[client_id] = attempts
+    save_forum(data)
+    return len(attempts) < LOGIN_MAX_FAILURES
+
+
+def _record_login_failure(client_id: str) -> None:
+    data = _ensure_accounts(load_forum())
+    failures = data.setdefault("login_failures", {})
+    failures.setdefault(client_id, []).append(time.time())
+    save_forum(data)
+
+
+def _clear_login_failures(client_id: str) -> None:
+    data = _ensure_accounts(load_forum())
+    failures = data.setdefault("login_failures", {})
+    if client_id in failures:
+        del failures[client_id]
+        save_forum(data)
+
+
+def login_user(username: str, password: str,
+               client_id: str = "") -> tuple:
+    """Prueft Login. Liefert (session_token, reason).
+
+    reason: None (Erfolg), "invalid" (falsches Passwort),
+            "rate_limit" (zu viele Fehlversuche).
+    """
+    if client_id and not _check_login_rate(client_id):
+        logger.warning(f"Login-Rate-Limit erreicht (client={client_id[:8]})")
+        return (None, "rate_limit")
     username = _clean(username, MAX_USERNAME_LEN)
     data = _ensure_accounts(load_forum())
     user = data["users"].get(username)
@@ -105,14 +144,23 @@ def login_user(username: str, password: str) -> Optional[str]:
                 user = u
                 break
     if user is None:
-        return None
+        if client_id:
+            _record_login_failure(client_id)
+        return (None, "invalid")
     try:
         expected = bytes.fromhex(user["password_hash"])
         salt = bytes.fromhex(user["salt"])
     except (KeyError, ValueError):
-        return None
+        if client_id:
+            _record_login_failure(client_id)
+        return (None, "invalid")
     if not _verify_password(password, expected, salt):
-        return None
+        if client_id:
+            _record_login_failure(client_id)
+        return (None, "invalid")
+    # Erfolg: Fehlversuche loeschen
+    if client_id:
+        _clear_login_failures(client_id)
     token = secrets.token_urlsafe(32)
     data["sessions"][token] = {
         "username": user["username"],
@@ -120,7 +168,7 @@ def login_user(username: str, password: str) -> Optional[str]:
         "expires_at": time.time() + SESSION_TTL_SECONDS,
     }
     save_forum(data)
-    return token
+    return (token, None)
 
 
 def logout_user(token: str) -> bool:
@@ -204,6 +252,7 @@ def _ensure_structure(data: dict) -> dict:
     data.setdefault("reports", [])
     data.setdefault("bans", [])
     data.setdefault("mod_log", [])
+    data.setdefault("login_failures", {})
     if "rate_log" not in data:
         data["rate_log"] = {
             "threads": {},
@@ -613,6 +662,9 @@ def list_user_threads(username: str) -> list:
 
 
 def report_post(thread_id: str, index: int, reason: str, reporter: str = "") -> bool:
+    if reporter and reporter != "Anonym" and is_banned(reporter):
+        logger.warning(f"Report von gebanntem User {reporter} blockiert")
+        return False
     data = _ensure_accounts(load_forum())
     if "reports" not in data:
         data["reports"] = []
@@ -658,6 +710,16 @@ def ban_user(username: str, reason: str = "") -> bool:
         "reason": _clean(reason, 500),
         "created_at": time.time(),
     })
+    # Alle Sessions des Users invalidieren (Ban-Durchsetzung)
+    sessions = data.get("sessions", {})
+    to_remove = [
+        token for token, sess in sessions.items()
+        if sess.get("username", "").lower() == username.lower()
+    ]
+    for token in to_remove:
+        del sessions[token]
+    if to_remove:
+        logger.info(f"Ban: {len(to_remove)} Session(s) von {username} invalidiert")
     return save_forum(data)
 
 
