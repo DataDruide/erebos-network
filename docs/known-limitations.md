@@ -72,14 +72,21 @@ Adresse gecacht haben, finden den Dienst nicht mehr.
     volumes:
       hs-keys:
 
-### 6. 3-Hop-Rendezvous-Kette hat festen Pfad
+### 6. 3-Hop-Rendezvous-Kette hat festen Pfad (pragmatisch geloest: 2-Hop-Fallback)
 
 Der Proxy baut den Onion-Pfad fix als `proxy -> peer2 -> peer3 -> peer1`.
 Faellt peer3 aus, bricht die Kette (mit 5s-Timeout seit dem letzten
 Patch, aber ohne Fallback auf einen alternativen Pfad).
 
-**Loesung (offen)**: Dynamische Pfadwahl — der Proxy probiert
-mehrere Onion-Pfade, bis einer klappt. Erfordert, dass der
+**Pragmatisch geloest**: Faellt peer3 aus, baut der Proxy einen
+2-Hop-Onion (peer2 -> peer1) als Fallback. Der Standard-Pfad
+bleibt peer2 -> peer3 -> peer1. Im Test: peer3 gestoppt ->
+HTTP 200 in 6.3s (statt Fehler).
+
+**Weiterhin offen**: peer2-Ausfall ist nicht abgedeckt (peer2
+ist der erste Hop). Fuer vollstaendige Pfadwahl muesste der
+Proxy eine Liste von Pfaden probieren (Hilfsfunktion
+_try_onion_path). Erfordert, dass der
 Rendezvous-Punkt mehrere Paare pro Key verwalten kann (was er
 bereits tut: `rendezvous_pairs[key]["clients"]` ist eine Liste).
 
