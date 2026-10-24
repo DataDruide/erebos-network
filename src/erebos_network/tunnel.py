@@ -667,7 +667,9 @@ async def run_peer_server(port: int = PEER_PORT,
             # Bis zu 5 Versuche mit 1s, 2s, 4s, 8s, 16s Backoff.
             async def _bootstrap_with_retry():
                 backoff = 1.0
-                for attempt in range(1, 6):
+                # 10 Versuche: bei gleichzeitigem Start aller Peers
+                # brauchen die anderen ggf. 20-30s, bis sie erreichbar sind.
+                for attempt in range(1, 11):
                     try:
                         await kad.bootstrap(bootstrap_nodes)
                         logger.info(f"Kademlia-Bootstrap erfolgreich (Versuch {attempt}): {bootstrap_nodes}")
@@ -675,8 +677,8 @@ async def run_peer_server(port: int = PEER_PORT,
                     except Exception as e:
                         logger.debug(f"Kademlia-Bootstrap Versuch {attempt} fehlgeschlagen: {e}")
                     await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 16.0)
-                logger.warning(f"Kademlia-Bootstrap nach 5 Versuchen fehlgeschlagen: {bootstrap_nodes}")
+                    backoff = min(backoff * 2, 30.0)
+                logger.warning(f"Kademlia-Bootstrap nach 10 Versuchen fehlgeschlagen: {bootstrap_nodes}")
             asyncio.create_task(_bootstrap_with_retry())
     except ImportError:
         logger.warning("kademlia_dynamic nicht installiert - nur lokaler DHT-Speicher")

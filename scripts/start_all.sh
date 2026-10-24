@@ -3,6 +3,17 @@
 
 set -e
 
+# FD-Limit fuer 100+ parallele Verbindungen hochsetzen.
+# macOS-Standard ist 256; 100 parallele Verbindungen brauchen ~500 FDs.
+# Wenn das Limit nicht gesetzt werden kann, laeuft der Test mit dem
+# System-Limit (dann schlagen >50 parallele Verbindungen fehl).
+if ulimit -n 4096 2>/dev/null; then
+    echo "✅ ulimit -n 4096 gesetzt (FD-Limit)"
+else
+    echo "⚠️  ulimit -n 4096 fehlgeschlagen (System-Limit)"
+    echo "   Aktuelles Limit: $(ulimit -n)"
+fi
+
 echo "=== 1. ALLES killen (Peers, Proxy, Hidden-Service) ==="
 pkill -9 -f "erebos_network --peer" 2>/dev/null || true
 pkill -9 -f "erebos_network --proxy" 2>/dev/null || true

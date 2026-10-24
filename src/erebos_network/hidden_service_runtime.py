@@ -268,33 +268,48 @@ class HiddenServiceRuntime:
                             logger.error(f"Republish fehlgeschlagen: {e}")
 
     async def _check_intro_point(self, peer_id: str, addr: str) -> bool:
-        """Baut einen Test-Tunnel zum Peer und prueft die Antwort."""
+        """Prueft, ob der Peer-Port offen ist (TCP-Connect).
+
+        Ein voller Erebos-Handshake ist fuer den Health-Check zu teuer
+        und zu langsam. Ein einfacher TCP-Connect reicht: wenn der
+        Port offen ist, ist der Peer erreichbar.
+        """
         try:
             host, port_str = addr.split(":")
             port = int(port_str)
-            client = ErebosTunnelClient(host=host, port=port)
-            await asyncio.wait_for(client.connect(), timeout=5.0)
-            await client.close()
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=3.0
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
             return True
         except Exception:
             return False
 
     async def _rotate_intro_point(self, index: int) -> None:
-        """Ersetzt den Intro-Point an `index` durch einen anderen Peer."""
+        """Ersetzt den Intro-Point an `index` durch einen erreichbaren Peer."""
         current_peers = {pid for pid, _ in self.intro_points}
-        # Finde einen Peer, der noch nicht als Intro-Point verwendet wird
         for peer_id, addr in self._known_peers:
             if peer_id not in current_peers:
-                old = self.intro_points[index]
-                self.intro_points[index] = (peer_id, addr)
-                logger.info(
-                    f"Intro-Point rotiert: {old[0]} ({old[1]}) -> "
-                    f"{peer_id} ({addr})"
-                )
-                return
+                # Health-Check vor Rotation: nur erreichbare Peers waehlen
+                if await self._check_intro_point(peer_id, addr):
+                    old = self.intro_points[index]
+                    self.intro_points[index] = (peer_id, addr)
+                    logger.info(
+                        f"Intro-Point rotiert: {old[0]} ({old[1]}) -> "
+                        f"{peer_id} ({addr})"
+                    )
+                    return
+                else:
+                    logger.debug(
+                        f"Ersatz-Peer {peer_id} ({addr}) nicht erreichbar - ueberspringe"
+                    )
         logger.warning(
-            f"Keine Rotation moeglich: alle Peers sind bereits Intro-Points "
-            f"({current_peers})"
+            f"Keine Rotation moeglich: kein erreichbarer Ersatz-Peer "
+            f"(aktuell: {current_peers})"
         )
 
     async def _start_http_backend(self) -> None:
