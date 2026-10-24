@@ -161,6 +161,14 @@ def login_user(username: str, password: str,
     # Erfolg: Fehlversuche loeschen
     if client_id:
         _clear_login_failures(client_id)
+    # Session-Fixation-Schutz: alle alten Sessions des Users loeschen
+    old_tokens = [
+        tok for tok, sess in data["sessions"].items()
+        if sess.get("username", "").lower() == user["username"].lower()
+    ]
+    for tok in old_tokens:
+        del data["sessions"][tok]
+
     token = secrets.token_urlsafe(32)
     data["sessions"][token] = {
         "username": user["username"],
@@ -642,10 +650,19 @@ def search_threads(query: str, limit: int = 50) -> list:
 def render_markdown(text: str) -> str:
     """Sicheres Markdown-Mini: **bold**, *italic*, `code`, [text](url)."""
     escaped = _escape(text).replace("\n", "<br>")
-    # Links: nur http(s)
+    # Links: nur http(s), keine Steuerzeichen, rel="noopener noreferrer"
     def _link(m):
         label, url = m.group(1), m.group(2)
-        return f'<a href="{url}" rel="noopener">{label}</a>'
+        # Steuerzeichen (inkl. Unicode-Kategorien Cc, Cf) ablehnen
+        if any(ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f for c in url):
+            return label
+        # Unicode-Homoglyphen in der URL ablehnen: nur ASCII erlaubt
+        if not url.isascii():
+            return label
+        return (
+            f'<a href="{url}" rel="noopener noreferrer" '
+            f'target="_blank">{label}</a>'
+        )
     escaped = _MD_LINK.sub(_link, escaped)
     escaped = _MD_CODE.sub(lambda m: f"<code>{m.group(1)}</code>", escaped)
     escaped = _MD_BOLD.sub(r"<strong>\1</strong>", escaped)
@@ -858,10 +875,10 @@ def render_thread(thread: dict, admin: bool = False) -> str:
                 f"padding:0.2em 0.5em;border-radius:3px;font-size:0.85em\">"
                 f"Bearbeiten</a>"
             )
-        # Zitat-Button
+        # Zitat-Button: fuehrt zu einer Quote-Route (kein Inline-JS,
+        # weil CSP script-src 'none' blockiert)
         quote_btn = (
-            f" <a href=\"#quote\" onclick=\"document.querySelector('textarea[name=body]').value="
-            f"'>>> {author} schrieb:\\n\\n';return false;\" "
+            f" <a href=\"/forum/{tid}/post/{idx}/quote\" "
             f"style=\"font-size:0.85em\">Zitieren</a>"
         )
         # Report-Button
@@ -1332,3 +1349,26 @@ def unban_user(index: int) -> bool:
         return False
     del bans[index]
     return save_forum(data)
+
+
+def render_quote_form(thread: dict, index: int) -> str:
+    posts = thread.get("posts", [])
+    if index < 0 or index >= len(posts):
+        return render_not_found()
+    author = _escape(posts[index].get("author", "?"))
+    body_raw = posts[index].get("body", "")
+    tid = _escape(thread["id"])
+    quoted = f">>> {author} schrieb:\n\n{body_raw}\n\n"
+    return (
+        f"<h1>Zitat von {author}</h1>\n"
+        f"<p><a href=\"/forum/{tid}\">← Zurück zum Thread</a></p>\n"
+        f"<form method=\"post\" action=\"/forum/{tid}/antwort\">\n"
+        f"  <p><label>Dein Name (optional):<br>"
+        f"<input name=\"author\" maxlength=\"60\" placeholder=\"Anonym\" "
+        f"style=\"width:100%\"></label></p>\n"
+        f"  <p><label>Antwort (mit Zitat):<br>"
+        f"<textarea name=\"body\" rows=\"10\" maxlength=\"4000\" required "
+        f"style=\"width:100%\">{_escape(quoted)}</textarea></label></p>\n"
+        f"  <p><button type=\"submit\" class=\"btn\">Antwort senden</button></p>\n"
+        f"</form>\n"
+    )

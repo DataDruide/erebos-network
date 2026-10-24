@@ -455,7 +455,11 @@ class HiddenServiceRuntime:
             logger.warning("HTTP-Timeout beim Lesen des Requests")
         except Exception as e:
             logger.error(f"HTTP-Fehler: {type(e).__name__}: {e}")
-            traceback.print_exc()
+            # Stacktrace nur bei EREBOS_DEBUG=1 (OWASP A10:2025):
+            # Im Produktivbetrieb keine Code-Pfade leaken.
+            import os as _os
+            if _os.environ.get("EREBOS_DEBUG") == "1":
+                traceback.print_exc()
         finally:
             writer.close()
 

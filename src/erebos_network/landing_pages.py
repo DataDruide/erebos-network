@@ -254,6 +254,20 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return _page("Health", address, forum.render_health())
 
     # --- Report posten ---
+    if "/post/" in path and path.endswith("/quote"):
+        head = path[: -len("/quote")]
+        parts = head.split("/post/")
+        if len(parts) == 2:
+            tid = parts[0].replace("/forum/", "")
+            try:
+                idx = int(parts[1])
+            except ValueError:
+                idx = -1
+            t = forum.find_thread(tid)
+            if t is None:
+                return _page("Nicht gefunden", address, forum.render_not_found())
+            return _page("Zitat", address, forum.render_quote_form(t, idx))
+
     if "/post/" in path and path.endswith("/report"):
         if method == "POST":
             head = path[: -len("/report")]
