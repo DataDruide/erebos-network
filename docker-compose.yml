@@ -53,6 +53,8 @@ services:
 
   hidden-service:
     build: .
+    volumes:
+      - hs-keys:/root/.erebos
     entrypoint: >
       python -u scripts/create_test_hidden_service.py
       --rendezvous-host 172.20.0.10
@@ -80,3 +82,6 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
+
+volumes:
+  hs-keys:
