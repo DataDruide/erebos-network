@@ -58,6 +58,9 @@ from .e2e import (
 
 logger = logging.getLogger(__name__)
 
+# Maximal erlaubte HTTP-Body-Groesse (Schutz vor Memory-DoS).
+MAX_HTTP_BODY_BYTES = 16384  # 16 KB
+
 
 # HTTP-Methoden, an denen wir echte HTTP-Anfragen im Datenstrom erkennen.
 HTTP_PREFIXES = (
@@ -357,6 +360,22 @@ class HiddenServiceRuntime:
                 content_length = int(headers.get("content-length", "0") or 0)
             except ValueError:
                 content_length = 0
+            # Schutz vor Memory-DoS: zu grosse Bodies ablehnen (HTTP 413).
+            if content_length > MAX_HTTP_BODY_BYTES:
+                logger.warning(
+                    f"HTTP 413: Content-Length {content_length} > "
+                    f"{MAX_HTTP_BODY_BYTES}"
+                )
+                body_413 = (
+                    "<!DOCTYPE html><html><head><title>413</title></head>"
+                    "<body><h1>Anfrage zu gross</h1>"
+                    "<p>Der Request-Body ueberschreitet das Limit.</p>"
+                    "</body></html>"
+                ).encode("utf-8")
+                resp = http_response(413, "text/html; charset=utf-8", body_413)
+                writer.write(resp)
+                await writer.drain()
+                return
             if content_length > len(body):
                 need = content_length - len(body)
                 while need > 0:

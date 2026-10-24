@@ -465,7 +465,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 def http_response(status: int, content_type: str, body: bytes,
                   location: str = "", set_cookie: str = "") -> bytes:
     reason = {200: "OK", 302: "Found", 403: "Forbidden", 404: "Not Found",
-              429: "Too Many Requests", 500: "Internal Server Error"}.get(status, "OK")
+              413: "Payload Too Large", 429: "Too Many Requests",
+              500: "Internal Server Error"}.get(status, "OK")
     headers = (
         f"HTTP/1.1 {status} {reason}\r\n"
         f"Content-Type: {content_type}\r\n"
