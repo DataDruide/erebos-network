@@ -112,7 +112,7 @@ def render_wiki(address: str) -> bytes:
 
 
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
-                body: bytes = b"", query: str = "") -> bytes:
+                body: bytes = b"", query: str = "", client_id: str = "") -> bytes:
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
@@ -125,7 +125,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Forum", address, forum.render_forum_list(admin=admin))
+        return _page("Forum", address, forum.render_forum_list(admin=admin, client_id=client_id))
     if path == "/forum/admin":
         if not admin:
             return _page(
@@ -135,7 +135,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 "<p>Admin-Token fehlt oder ist falsch.</p>"
                 "<a class=\"btn\" href=\"/forum\">← Zurück</a>",
             )
-        return _page("Admin", address, forum.render_admin_status())
+        return _page("Admin", address, forum.render_admin_status(client_id=client_id))
 
     if path == "/forum/admin/authors":
         if not admin:
@@ -163,6 +163,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 form.get("title", ""),
                 form.get("author", ""),
                 form.get("body", ""),
+                client_id=client_id,
             )
             if tid:
                 return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
@@ -180,7 +181,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         if rest.endswith("/antwort"):
             tid = rest[: -len("/antwort")]
             form = forum.parse_form_body(body)
-            ok = forum.add_reply(tid, form.get("author", ""), form.get("body", ""))
+            ok = forum.add_reply(tid, form.get("author", ""), form.get("body", ""), client_id=client_id)
             if not ok:
                 return _page(
                     "Rate-Limit",
@@ -252,7 +253,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
 
 def http_response(status: int, content_type: str, body: bytes,
-                  location: str = "") -> bytes:
+                  location: str = "", set_cookie: str = "") -> bytes:
     reason = {200: "OK", 302: "Found", 404: "Not Found"}.get(status, "OK")
     headers = (
         f"HTTP/1.1 {status} {reason}\r\n"
@@ -261,6 +262,8 @@ def http_response(status: int, content_type: str, body: bytes,
     )
     if location:
         headers += f"Location: {location}\r\n"
+    if set_cookie:
+        headers += f"Set-Cookie: {set_cookie}\r\n"
     headers += "Connection: close\r\n\r\n"
     return headers.encode("ascii") + body
 

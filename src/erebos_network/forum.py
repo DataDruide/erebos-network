@@ -5,8 +5,9 @@ import logging
 import os
 import secrets
 import time
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import parse_qs
 
 logger = logging.getLogger(__name__)
@@ -16,10 +17,29 @@ MAX_TITLE = 200
 MAX_AUTHOR = 60
 MAX_BODY = 4000
 
-# Rate-Limit: max. N Aktionen pro Zeitfenster (global, nicht pro Client).
-RATE_WINDOW_SECONDS = 600  # 10 Minuten
-RATE_MAX_THREADS = 10      # neue Threads pro Fenster
-RATE_MAX_REPLIES = 30      # Antworten pro Fenster
+# Rate-Limit pro Client (Cookie) und global.
+RATE_WINDOW_SECONDS = 600       # 10 Minuten
+RATE_MAX_THREADS = 10           # neue Threads pro Client/Fenster
+RATE_MAX_REPLIES = 30           # Antworten pro Client/Fenster
+GLOBAL_MAX_THREADS = 50         # Sicherheitsnetz global
+GLOBAL_MAX_REPLIES = 150        # Sicherheitsnetz global
+CLIENT_COOKIE = "forum_client_id"
+
+
+def get_or_create_client_id(cookie_header: str) -> Tuple[str, bool]:
+    """Liest forum_client_id aus dem Cookie-Header oder erzeugt eine neue ID.
+
+    Returns:
+        (client_id, is_new)
+    """
+    if cookie_header:
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith(CLIENT_COOKIE + "="):
+                value = part[len(CLIENT_COOKIE) + 1 :].strip()
+                if value and len(value) <= 64:
+                    return value, False
+    return uuid.uuid4().hex, True
 
 
 def admin_token() -> str:
@@ -34,14 +54,25 @@ def is_admin(token: Optional[str]) -> bool:
 def _ensure_structure(data: dict) -> dict:
     """Stellt sicher, dass admin_token und rate_log vorhanden sind."""
     if "admin_token" not in data:
-        # Wird nicht zum Pruefen genutzt (Env gewinnt), aber dokumentiert
-        # den Wert in der JSON-Datei.
         data["admin_token"] = admin_token()
     if "rate_log" not in data:
-        data["rate_log"] = {"threads": [], "replies": []}
+        data["rate_log"] = {
+            "threads": {},
+            "replies": {},
+            "global_threads": [],
+            "global_replies": [],
+        }
     else:
-        data["rate_log"].setdefault("threads", [])
-        data["rate_log"].setdefault("replies", [])
+        # Migration: altes Format {"threads": [ts,...]} -> {"threads": {client: [ts]}}
+        rl = data["rate_log"]
+        if isinstance(rl.get("threads"), list):
+            rl["threads"] = {}
+        if isinstance(rl.get("replies"), list):
+            rl["replies"] = {}
+        rl.setdefault("threads", {})
+        rl.setdefault("replies", {})
+        rl.setdefault("global_threads", [])
+        rl.setdefault("global_replies", [])
     return data
 
 
@@ -102,7 +133,8 @@ def _clean(value: str, max_len: int) -> str:
     return (value or "").strip()[:max_len]
 
 
-def create_thread(title: str, author: str, body: str) -> Optional[str]:
+def create_thread(title: str, author: str, body: str,
+                  client_id: str = "") -> Optional[str]:
     """Legt einen neuen Thread an. Gibt die Thread-ID zurueck (oder None)."""
     title = _clean(title, MAX_TITLE)
     body = _clean(body, MAX_BODY)
@@ -110,8 +142,8 @@ def create_thread(title: str, author: str, body: str) -> Optional[str]:
     if not title or not body:
         return None
     data = load_forum()
-    if not _check_rate(data, "threads"):
-        logger.warning("Rate-Limit erreicht: zu viele neue Threads")
+    if not _check_rate(data, client_id, "threads"):
+        logger.warning(f"Rate-Limit erreicht (client={client_id[:8]}): zu viele Threads")
         return None
     thread_id = secrets.token_hex(6)
     now = time.time()
@@ -126,21 +158,23 @@ def create_thread(title: str, author: str, body: str) -> Optional[str]:
             "created_at": now,
         }],
     })
-    _record_action(data, "threads")
+    _record_action(data, client_id, "threads")
+    _cleanup_rate_log(data)
     if save_forum(data):
         return thread_id
     return None
 
 
-def add_reply(thread_id: str, author: str, body: str) -> bool:
+def add_reply(thread_id: str, author: str, body: str,
+              client_id: str = "") -> bool:
     """Fuegt einem Thread eine Antwort hinzu."""
     body = _clean(body, MAX_BODY)
     author = _clean(author, MAX_AUTHOR) or "Anonym"
     if not body:
         return False
     data = load_forum()
-    if not _check_rate(data, "replies"):
-        logger.warning("Rate-Limit erreicht: zu viele Antworten")
+    if not _check_rate(data, client_id, "replies"):
+        logger.warning(f"Rate-Limit erreicht (client={client_id[:8]}): zu viele Antworten")
         return False
     for t in data["threads"]:
         if t["id"] == thread_id:
@@ -149,36 +183,75 @@ def add_reply(thread_id: str, author: str, body: str) -> bool:
                 "body": body,
                 "created_at": time.time(),
             })
-            _record_action(data, "replies")
+            _record_action(data, client_id, "replies")
+            _cleanup_rate_log(data)
             return save_forum(data)
     return False
 
 
-def _check_rate(data: dict, kind: str) -> bool:
-    """Prueft das Rate-Limit. True = erlaubt, False = geblockt."""
+def _check_rate(data: dict, client_id: str, kind: str) -> bool:
+    """Prueft das Rate-Limit (pro Client + global). True = erlaubt."""
     now = time.time()
-    log = data["rate_log"]
-    # Alte Eintraege (> RATE_WINDOW_SECONDS) entfernen
-    log[kind] = [t for t in log[kind] if now - t < RATE_WINDOW_SECONDS]
-    max_allowed = RATE_MAX_THREADS if kind == "threads" else RATE_MAX_REPLIES
-    return len(log[kind]) < max_allowed
+    rl = data["rate_log"]
+    # Per-Client: alte Eintraege entfernen
+    per_client = rl[kind].get(client_id, [])
+    per_client = [t for t in per_client if now - t < RATE_WINDOW_SECONDS]
+    rl[kind][client_id] = per_client
+    max_client = RATE_MAX_THREADS if kind == "threads" else RATE_MAX_REPLIES
+    if len(per_client) >= max_client:
+        return False
+    # Global: alte Eintraege entfernen
+    global_key = "global_" + kind
+    rl[global_key] = [t for t in rl[global_key] if now - t < RATE_WINDOW_SECONDS]
+    max_global = GLOBAL_MAX_THREADS if kind == "threads" else GLOBAL_MAX_REPLIES
+    if len(rl[global_key]) >= max_global:
+        return False
+    return True
 
 
-def _record_action(data: dict, kind: str) -> None:
-    data["rate_log"][kind].append(time.time())
+def _record_action(data: dict, client_id: str, kind: str) -> None:
+    now = time.time()
+    rl = data["rate_log"]
+    rl[kind].setdefault(client_id, []).append(now)
+    rl["global_" + kind].append(now)
 
 
-def rate_limit_status() -> dict:
+def _cleanup_rate_log(data: dict) -> None:
+    """Entfernt leere Per-Client-Listen und alte globale Eintraege."""
+    now = time.time()
+    rl = data["rate_log"]
+    for kind in ("threads", "replies"):
+        rl[kind] = {
+            cid: [t for t in ts if now - t < RATE_WINDOW_SECONDS]
+            for cid, ts in rl[kind].items()
+        }
+        rl[kind] = {cid: ts for cid, ts in rl[kind].items() if ts}
+        rl["global_" + kind] = [
+            t for t in rl["global_" + kind] if now - t < RATE_WINDOW_SECONDS
+        ]
+
+
+def rate_limit_status(client_id: str = "") -> dict:
     """Liefert den aktuellen Stand (fuer Doku/Tests)."""
     data = load_forum()
     now = time.time()
-    threads = [t for t in data["rate_log"]["threads"] if now - t < RATE_WINDOW_SECONDS]
-    replies = [t for t in data["rate_log"]["replies"] if now - t < RATE_WINDOW_SECONDS]
+    rl = data["rate_log"]
+    threads = [t for t in rl["threads"].get(client_id, []) if now - t < RATE_WINDOW_SECONDS]
+    replies = [t for t in rl["replies"].get(client_id, []) if now - t < RATE_WINDOW_SECONDS]
     return {
+        "client_id": client_id or "(kein Cookie)",
         "threads_used": len(threads),
         "threads_max": RATE_MAX_THREADS,
         "replies_used": len(replies),
         "replies_max": RATE_MAX_REPLIES,
+        "global_threads_used": len(
+            [t for t in rl["global_threads"] if now - t < RATE_WINDOW_SECONDS]
+        ),
+        "global_replies_used": len(
+            [t for t in rl["global_replies"] if now - t < RATE_WINDOW_SECONDS]
+        ),
+        "global_threads_max": GLOBAL_MAX_THREADS,
+        "global_replies_max": GLOBAL_MAX_REPLIES,
         "window_seconds": RATE_WINDOW_SECONDS,
     }
 
@@ -286,7 +359,7 @@ def _fmt_time(ts: float) -> str:
 # HTML-Renderer
 # ---------------------------------------------------------------------------
 
-def render_forum_list(admin: bool = False) -> str:
+def render_forum_list(admin: bool = False, client_id: str = "") -> str:
     data = load_forum()
     threads = data.get("threads", [])
     if not threads:
@@ -313,9 +386,16 @@ def render_forum_list(admin: bool = False) -> str:
                 f"<small>von {author} · {replies} Antwort(en) · {created}</small>"
                 f"{admin_btn}</li>\n"
             )
+    status = rate_limit_status(client_id)
+    client_status = (
+        f"<p><small>Dein Limit: {status['threads_used']} / {status['threads_max']} "
+        f"Threads, {status['replies_used']} / {status['replies_max']} Antworten "
+        f"(Fenster: {status['window_seconds'] // 60} Minuten)</small></p>\n"
+    )
     return (
         "<h1>Forum</h1>\n"
         "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
+        f"{client_status}"
         f"<ul>\n{items}\n</ul>\n"
         "<a class=\"btn\" href=\"/forum/neu\">Neuen Thread erstellen</a>\n"
         "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
@@ -397,17 +477,23 @@ def render_rate_limited(retry_after: int = 600) -> str:
     )
 
 
-def render_admin_status() -> str:
-    st = rate_limit_status()
+def render_admin_status(client_id: str = "") -> str:
+    st = rate_limit_status(client_id)
     return (
         "<h1>Admin-Status</h1>\n"
-        "<p>Aktuelle Rate-Limit-Auslastung:</p>\n"
+        f"<p>Client: <code>{_escape(st['client_id'])}</code></p>\n"
+        "<p>Aktuelle Rate-Limit-Auslastung (pro Client):</p>\n"
         "<ul>\n"
-        f"  <li>Neue Threads: {st['threads_used']} / {st['threads_max']} "
-        f"(Fenster: {st['window_seconds']}s)</li>\n"
+        f"  <li>Neue Threads: {st['threads_used']} / {st['threads_max']}</li>\n"
         f"  <li>Antworten: {st['replies_used']} / {st['replies_max']}</li>\n"
         "</ul>\n"
+        "<p>Global (Sicherheitsnetz):</p>\n"
+        "<ul>\n"
+        f"  <li>Neue Threads: {st['global_threads_used']} / {st['global_threads_max']}</li>\n"
+        f"  <li>Antworten: {st['global_replies_used']} / {st['global_replies_max']}</li>\n"
+        "</ul>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+        "<a class=\"btn\" href=\"/forum/admin/authors?admin=<token>\">Autoren</a>\n"
     )
 
 

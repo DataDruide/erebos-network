@@ -39,6 +39,7 @@ from .landing_pages import (
     parse_http_request,
     http_response,
 )
+from .forum import get_or_create_client_id, CLIENT_COOKIE
 from .tunnel import (
     ErebosTunnelClient,
     FRAME_DATA,
@@ -366,7 +367,6 @@ class HiddenServiceRuntime:
             logger.info(f"HTTP {method} {path} ({len(body)}B body)")
 
             # 3) Query-String aus dem Original-Request extrahieren
-            #    (parse_http_request gibt nur den Pfad zurueck)
             query = ""
             if b" " in raw:
                 try:
@@ -377,26 +377,34 @@ class HiddenServiceRuntime:
                 except Exception:
                     pass
 
-            # 4) Response erzeugen
+            # 4) Client-ID aus Cookie (oder neu erzeugen)
+            cookie_header = headers.get("cookie", "")
+            client_id, is_new_client = get_or_create_client_id(cookie_header)
+            if is_new_client:
+                logger.info(f"HTTP: neuer Client (cookie gesetzt: {client_id[:8]}...)")
+
+            # 5) Response erzeugen
             body_out = render_page(
                 path, self.address, f"{method} {path}",
-                method=method, body=body, query=query,
+                method=method, body=body, query=query, client_id=client_id,
             )
 
             # 3a) Redirect-Fall (POST /forum/*/antwort)
             if body_out.startswith(b"REDIRECT:"):
                 target = body_out[len("REDIRECT:"):].decode("utf-8", "replace")
                 resp = http_response(
-                    302, "text/plain; charset=utf-8", b"Redirecting...", location=target
+                    302, "text/plain; charset=utf-8", b"Redirecting...", location=target,
+                    set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
                 )
                 writer.write(resp)
                 await writer.drain()
                 return
 
             # 3b) Normale Seite
-            status = 404 if "404" in body_out[:200].decode("utf-8", "replace") else 200
-            # (vereinfacht: 404 nur bei explizitem render_not_found)
-            resp = http_response(200, "text/html; charset=utf-8", body_out)
+            resp = http_response(
+                200, "text/html; charset=utf-8", body_out,
+                set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
+            )
             writer.write(resp)
             await writer.drain()
         except asyncio.TimeoutError:
