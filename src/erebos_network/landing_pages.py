@@ -113,20 +113,41 @@ def render_wiki(address: str) -> bytes:
 
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 body: bytes = b"", query: str = "", client_id: str = "",
-                username: str = "", session_token: str = "") -> bytes:
+                username: str = "", session_token: str = "",
+                admin_cookie: str = "") -> bytes:
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
         q = parse_qs(query)
         admin_token_value = (q.get("admin", [""])[0] or "")
-    admin = forum.is_admin(admin_token_value)
+    # Admin: Cookie (bevorzugt) ODER Token in URL (Fallback)
+    admin = forum.is_admin_cookie(admin_cookie) or forum.is_admin(admin_token_value)
 
     if path == "/":
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=admin_token_value))
+        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=""))
+    if path == "/forum/admin/login":
+        # Setzt das Admin-Cookie. Token kommt aus ?admin=<token>.
+        if not admin_token_value:
+            return _page(
+                "Nicht erlaubt", address,
+                "<h1>Nicht erlaubt</h1><p>Token fehlt.</p>",
+            )
+        if not forum.is_admin(admin_token_value):
+            return _page(
+                "Nicht erlaubt", address,
+                "<h1>Nicht erlaubt</h1><p>Token ungueltig.</p>",
+            )
+        cookie_value = forum.admin_login(admin_token_value)
+        forum._store_admin_session(cookie_value)
+        return (
+            b"REDIRECT:/forum\nSET_ADMIN:"
+            + cookie_value.encode("utf-8")
+        )
+
     if path == "/forum/admin":
         if not admin:
             return _page(

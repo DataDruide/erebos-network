@@ -40,7 +40,8 @@ from .landing_pages import (
     parse_http_request,
     http_response,
 )
-from .forum import get_or_create_client_id, get_session_user, CLIENT_COOKIE, SESSION_COOKIE
+from .forum import (get_or_create_client_id, get_session_user,
+                   CLIENT_COOKIE, SESSION_COOKIE, ADMIN_COOKIE)
 from .tunnel import (
     ErebosTunnelClient,
     FRAME_DATA,
@@ -384,13 +385,15 @@ class HiddenServiceRuntime:
             if is_new_client:
                 logger.info(f"HTTP: neuer Client (cookie gesetzt: {client_id[:8]}...)")
 
-            # 4b) Session-Cookie lesen (optional)
+            # 4b) Session- und Admin-Cookie lesen (optional)
             session_token = ""
+            admin_cookie = ""
             for part in cookie_header.split(";"):
                 part = part.strip()
                 if part.startswith(SESSION_COOKIE + "="):
                     session_token = part[len(SESSION_COOKIE) + 1:].strip()
-                    break
+                elif part.startswith(ADMIN_COOKIE + "="):
+                    admin_cookie = part[len(ADMIN_COOKIE) + 1:].strip()
             username = get_session_user(session_token) or ""
 
             # 5) Response erzeugen
@@ -398,6 +401,7 @@ class HiddenServiceRuntime:
                 path, self.address, f"{method} {path}",
                 method=method, body=body, query=query, client_id=client_id,
                 username=username, session_token=session_token,
+                admin_cookie=admin_cookie,
             )
 
             # 3a) Rate-Limit-Fall (HTTP 429)
@@ -435,6 +439,11 @@ class HiddenServiceRuntime:
                     elif part.startswith(b"CLEAR_SESSION:"):
                         extra_cookies.append(
                             SESSION_COOKIE + "=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+                        )
+                    elif part.startswith(b"SET_ADMIN:"):
+                        admin_val = part[len("SET_ADMIN:"):].decode("utf-8", "replace")
+                        extra_cookies.append(
+                            ADMIN_COOKIE + "=" + admin_val + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600"
                         )
                 resp = http_response(
                     302, "text/plain; charset=utf-8", b"Redirecting...", location=target,

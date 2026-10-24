@@ -26,6 +26,8 @@ GLOBAL_MAX_THREADS = 50         # Sicherheitsnetz global
 GLOBAL_MAX_REPLIES = 150        # Sicherheitsnetz global
 CLIENT_COOKIE = "forum_client_id"
 SESSION_COOKIE = "forum_session"
+ADMIN_COOKIE = "forum_admin"
+ADMIN_COOKIE_TTL_SECONDS = 3600  # 1 Stunde
 PBKDF2_ITERATIONS = 200_000
 MIN_PASSWORD_LEN = 8
 MAX_USERNAME_LEN = 32
@@ -232,8 +234,58 @@ def admin_token() -> str:
     return os.environ.get("EREBOS_FORUM_ADMIN_TOKEN", "changeme")
 
 
+def admin_login(token: str) -> Optional[str]:
+    """Prueft das Token. Liefert Cookie-Wert (oder None).
+
+    Der Cookie-Wert ist ein frisch generiertes Secret, nicht das
+    Token selbst — damit steht das Token nicht im Cookie.
+    """
+    if not token or token != admin_token():
+        return None
+    return secrets.token_urlsafe(32)
+
+
 def is_admin(token: Optional[str]) -> bool:
     return bool(token) and token == admin_token()
+
+
+def is_admin_cookie(cookie_value: str) -> bool:
+    """Prueft, ob ein Cookie-Wert ein gueltiges Admin-Cookie ist.
+
+    Hinweis: Der Cookie-Wert ist ein Secret, das bei admin_login()
+    generiert wurde. Wir speichern ihn in forum.json["admin_sessions"].
+    """
+    if not cookie_value:
+        return False
+    data = load_forum()
+    sessions = data.get("admin_sessions", {})
+    sess = sessions.get(cookie_value)
+    if sess is None:
+        return False
+    if sess.get("expires_at", 0) < time.time():
+        del sessions[cookie_value]
+        save_forum(data)
+        return False
+    return True
+
+
+def _store_admin_session(cookie_value: str) -> None:
+    data = load_forum()
+    if "admin_sessions" not in data:
+        data["admin_sessions"] = {}
+    data["admin_sessions"][cookie_value] = {
+        "created_at": time.time(),
+        "expires_at": time.time() + ADMIN_COOKIE_TTL_SECONDS,
+    }
+    save_forum(data)
+
+
+def _cleanup_admin_sessions(data: dict) -> None:
+    now = time.time()
+    data["admin_sessions"] = {
+        tok: s for tok, s in data.get("admin_sessions", {}).items()
+        if s.get("expires_at", 0) >= now
+    }
 
 
 def _ensure_structure(data: dict) -> dict:
@@ -1077,13 +1129,16 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
             f" <strong style=\"color:#c0392b\">({open_reports} offen)</strong>"
             if open_reports > 0 else ""
         )
-        t = _escape(admin_token)
+        if admin_token:
+            suffix = "?admin=" + _escape(admin_token)
+        else:
+            suffix = ""
         admin_nav = (
             "<p><small>"
-            f"<a href=\"/forum/admin/authors?admin={t}\">Autoren</a> · "
-            f"<a href=\"/forum/admin/reports?admin={t}\">Meldungen{reports_badge}</a> · "
-            f"<a href=\"/forum/admin/bans?admin={t}\">Bans</a> · "
-            f"<a href=\"/forum/admin/modlog?admin={t}\">Mod-Log</a>"
+            f"<a href=\"/forum/admin/authors{suffix}\">Autoren</a> · "
+            f"<a href=\"/forum/admin/reports{suffix}\">Meldungen{reports_badge}</a> · "
+            f"<a href=\"/forum/admin/bans{suffix}\">Bans</a> · "
+            f"<a href=\"/forum/admin/modlog{suffix}\">Mod-Log</a>"
             "</small></p>\n"
         )
 
