@@ -1,0 +1,82 @@
+services:
+  peer1:
+    build: .
+    command: --peer --peer-port 9999 --ack-cover -v
+    environment:
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOST=0.0.0.0
+    networks:
+      erebos-net:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "9999:9999"
+      - "10999:10999/udp"
+
+  peer2:
+    build: .
+    command: --peer --peer-port 9998 --ack-cover -v
+    environment:
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOST=0.0.0.0
+    networks:
+      erebos-net:
+        ipv4_address: 172.20.0.11
+    ports:
+      - "9998:9998"
+      - "10998:10998/udp"
+
+  peer3:
+    build: .
+    command: --peer --peer-port 9997 --ack-cover -v
+    environment:
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOST=0.0.0.0
+    networks:
+      erebos-net:
+        ipv4_address: 172.20.0.12
+    ports:
+      - "9997:9997"
+      - "10997:10997/udp"
+
+  proxy:
+    build: .
+    command: --proxy --proxy-port 4448 -v
+    environment:
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PROXY_BIND=0.0.0.0
+    networks:
+      erebos-net:
+        ipv4_address: 172.20.0.13
+    ports:
+      - "4448:4448"
+
+
+  hidden-service:
+    build: .
+    entrypoint: >
+      python -u scripts/create_test_hidden_service.py
+      --rendezvous-host 172.20.0.10
+      --rendezvous-port 9999
+      --http-host 127.0.0.1
+      --http-port 8080
+      --bind-host 0.0.0.0
+      --bind-port 8080
+      --dht-peers 9997,9998,9999
+      --intro-points peer1:172.20.0.10:9999,peer2:172.20.0.11:9998,peer3:172.20.0.12:9997
+      --log-level INFO
+    environment:
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+    networks:
+      erebos-net:
+        ipv4_address: 172.20.0.14
+    depends_on:
+      - peer1
+      - peer2
+      - peer3
+
+networks:
+  erebos-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

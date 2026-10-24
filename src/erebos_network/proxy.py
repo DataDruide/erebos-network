@@ -215,7 +215,7 @@ class ErebosSocks5Server:
     def __init__(
         self,
         proxy,
-        host: str = "127.0.0.1",
+        host: str = None,  # None -> EREBOS_PROXY_BIND oder 127.0.0.1
         port: int = 4447,
         config: Optional[Socks5Config] = None,
         anonymity_provider=None,
@@ -223,6 +223,9 @@ class ErebosSocks5Server:
         auto_profile: bool = False,
     ):
         self.proxy = proxy
+        if host is None:
+            import os as _os
+            host = _os.environ.get("EREBOS_PROXY_BIND", "127.0.0.1")
         self.host = host
         self.port = port
         self.config = config or Socks5Config()
@@ -401,6 +404,7 @@ class ErebosSocks5Server:
                     own_id = "00" * 32
                     dht = DistributedDescriptorStore(own_id)
                     # Peers aus der Config eintragen
+                    from .peers_config import peer_host
                     for i, (peer_name, peer_pub) in enumerate(self.peer_pubs.items()):
                         # Peer-ID aus dem Namen ableiten (vereinfacht)
                         peer_id = f"{i:02x}" * 32
@@ -408,7 +412,7 @@ class ErebosSocks5Server:
                         port = 9997 + i  # peer1 -> 9997, peer2 -> 9998, ...
                         peer_info = PeerInfo(
                             peer_id=peer_id,
-                            address=f"127.0.0.1:{port}",
+                            address=f"{peer_host(peer_name)}:{port}",
                         )
                         dht.add_peer(peer_info)
                     self._descriptor_store = dht
