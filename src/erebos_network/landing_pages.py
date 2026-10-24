@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from . import forum
+
 logger = logging.getLogger(__name__)
 
 WIKI_PATH = Path("/app/wiki.json")
@@ -109,11 +111,45 @@ def render_wiki(address: str) -> bytes:
     return _page("Hidden Wiki", address, body)
 
 
-def render_page(path: str, address: str, request_line: str) -> bytes:
+def render_page(path: str, address: str, request_line: str, method: str = "GET",
+                body: bytes = b"") -> bytes:
     if path == "/":
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
+    if path == "/forum":
+        return _page("Forum", address, forum.render_forum_list())
+    if path == "/forum/neu":
+        if method == "POST":
+            form = forum.parse_form_body(body)
+            tid = forum.create_thread(
+                form.get("title", ""),
+                form.get("author", ""),
+                form.get("body", ""),
+            )
+            if tid:
+                return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+            return _page(
+                "Fehler",
+                address,
+                "<p>Thread konnte nicht erstellt werden "
+                "(Titel und Beitrag erforderlich).</p>"
+                + forum.render_new_thread_form(),
+            )
+        return _page("Neuer Thread", address, forum.render_new_thread_form())
+    if path.startswith("/forum/"):
+        rest = path[len("/forum/"):]
+        if rest.endswith("/antwort"):
+            tid = rest[: -len("/antwort")]
+            form = forum.parse_form_body(body)
+            forum.add_reply(tid, form.get("author", ""), form.get("body", ""))
+            # Redirect zurueck zum Thread
+            return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+        # Thread-Ansicht
+        t = forum.find_thread(rest)
+        if t is None:
+            return _page("Nicht gefunden", address, forum.render_not_found())
+        return _page(t["title"], address, forum.render_thread(t))
     return _page(
         "404 Nicht gefunden",
         address,
@@ -122,12 +158,45 @@ def render_page(path: str, address: str, request_line: str) -> bytes:
     )
 
 
-def http_response(status: int, content_type: str, body: bytes) -> bytes:
-    reason = {200: "OK", 404: "Not Found"}.get(status, "OK")
-    return (
+def http_response(status: int, content_type: str, body: bytes,
+                  location: str = "") -> bytes:
+    reason = {200: "OK", 302: "Found", 404: "Not Found"}.get(status, "OK")
+    headers = (
         f"HTTP/1.1 {status} {reason}\r\n"
         f"Content-Type: {content_type}\r\n"
         f"Content-Length: {len(body)}\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-    ).encode("ascii") + body
+    )
+    if location:
+        headers += f"Location: {location}\r\n"
+    headers += "Connection: close\r\n\r\n"
+    return headers.encode("ascii") + body
+
+
+def parse_http_request(data: bytes) -> tuple:
+    """Parst einen rohen HTTP-Request.
+
+    Returns:
+        (method, path, headers_dict, body_bytes)
+    """
+    if not data:
+        return ("GET", "/", {}, b"")
+    if b"\r\n\r\n" in data:
+        head, body = data.split(b"\r\n\r\n", 1)
+    else:
+        head, body = data, b""
+    lines = head.split(b"\r\n")
+    if not lines:
+        return ("GET", "/", {}, b"")
+    request_line = lines[0].decode("utf-8", "replace")
+    parts = request_line.split(" ")
+    method = parts[0] if parts else "GET"
+    target = parts[1] if len(parts) > 1 else "/"
+    path = target.split("?", 1)[0] or "/"
+    headers = {}
+    for line in lines[1:]:
+        if b":" in line:
+            k, v = line.split(b":", 1)
+            headers[k.decode("ascii", "replace").strip().lower()] = v.decode(
+                "utf-8", "replace"
+            ).strip()
+    return (method, path, headers, body)

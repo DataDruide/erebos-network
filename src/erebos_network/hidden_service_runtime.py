@@ -34,7 +34,11 @@ from .hidden_service import (
     IntroPoint,
     sign_descriptor,
 )
-from .landing_pages import render_page, parse_request_path, http_response
+from .landing_pages import (
+    render_page,
+    parse_http_request,
+    http_response,
+)
 from .tunnel import (
     ErebosTunnelClient,
     FRAME_DATA,
@@ -333,25 +337,55 @@ class HiddenServiceRuntime:
         logger.info(f"HTTP-Server läuft auf {self.bind_host}:{self.bind_port}")
 
     async def _default_http_handler(self, reader, writer) -> None:
-        """Standard-HTTP-Backend: Startseite + /wiki (aus wiki.json)."""
+        """HTTP-Backend: Startseite, Wiki, Forum (mit POST-Support)."""
         try:
-            request = await reader.read(4096)
-            first_line = ""
-            if request:
-                raw_first = request.split(b"\r\n", 1)[0]
-                first_line = raw_first.decode("utf-8", "replace")
-            path = parse_request_path(request)
-            logger.info(f"HTTP {path} ({first_line!r})")
+            # 1) Header lesen bis "\r\n\r\n"
+            raw = b""
+            while b"\r\n\r\n" not in raw and len(raw) < 16384:
+                chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+                if not chunk:
+                    break
+                raw += chunk
 
-            if path in ("/", "/wiki"):
-                body = render_page(path, self.address, first_line)
-                resp = http_response(200, "text/html; charset=utf-8", body)
-            else:
-                body = render_page(path, self.address, first_line)
-                resp = http_response(404, "text/html; charset=utf-8", body)
+            method, path, headers, body = parse_http_request(raw)
 
+            # 2) Body vollstaendig nachlesen, falls Content-Length angegeben
+            try:
+                content_length = int(headers.get("content-length", "0") or 0)
+            except ValueError:
+                content_length = 0
+            if content_length > len(body):
+                need = content_length - len(body)
+                while need > 0:
+                    chunk = await asyncio.wait_for(reader.read(min(need, 4096)), timeout=5.0)
+                    if not chunk:
+                        break
+                    body += chunk
+                    need -= len(chunk)
+
+            logger.info(f"HTTP {method} {path} ({len(body)}B body)")
+
+            # 3) Response erzeugen
+            body_out = render_page(path, self.address, f"{method} {path}", method=method, body=body)
+
+            # 3a) Redirect-Fall (POST /forum/*/antwort)
+            if body_out.startswith(b"REDIRECT:"):
+                target = body_out[len("REDIRECT:"):].decode("utf-8", "replace")
+                resp = http_response(
+                    302, "text/plain; charset=utf-8", b"Redirecting...", location=target
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # 3b) Normale Seite
+            status = 404 if "404" in body_out[:200].decode("utf-8", "replace") else 200
+            # (vereinfacht: 404 nur bei explizitem render_not_found)
+            resp = http_response(200, "text/html; charset=utf-8", body_out)
             writer.write(resp)
             await writer.drain()
+        except asyncio.TimeoutError:
+            logger.warning("HTTP-Timeout beim Lesen des Requests")
         except Exception as e:
             logger.error(f"HTTP-Fehler: {e}")
         finally:
