@@ -161,7 +161,7 @@ Kombination mit Limitierung 12: Nur ueber Erebos sicher.
 
 **Loesung (offen)**: Mit HTTPS (Limitierung 12) das Flag setzen.
 
-### 14. Admin-Token in URL sichtbar
+### 14. Admin-Token in URL sichtbar (gemildert: Admin-Cookie)
 
 Das Admin-Token wird als `?admin=<token>` in der URL uebergeben.
 Das landet in Logs, Browser-History, Referrer-Headern.
@@ -186,6 +186,37 @@ das Laden langsam, Schreiben blockiert.
 
 **Loesung (offen)**: SQLite statt JSON (Migration), oder
 regelmaessiger Cleanup alter Eintraege.
+
+## Sicherheits-Haertung (OWASP-orientiert)
+
+### Umgesetzt
+
+| Bereich | Massnahme |
+|---|---|
+| Security Headers (A05) | X-Content-Type-Options, X-Frame-Options,
+  Referrer-Policy, Permissions-Policy, CSP (script-src 'none') |
+| Login-Rate-Limit (A07) | max. 5 Fehlversuche pro Client / 5 Min -> HTTP 429 |
+| Session-Rotation (A07) | Login loescht alte Sessions (Session-Fixation-Schutz) |
+| Ban-Durchsetzung (A01) | ban_user() invalidiert alle Sessions des Users |
+| Markdown-Haertung (A03) | ASCII-only URLs, keine Steuerzeichen,
+  noopener noreferrer, XSS-Links werden als Text gerendert |
+| Exceptional Conditions (A10) | Stacktraces nur bei EREBOS_DEBUG=1 |
+| Quote ohne Inline-JS | /forum/<id>/post/<idx>/quote statt onclick |
+| Admin-Token (A01) | kurzlebiges Cookie (HttpOnly, SameSite=Strict,
+  1h TTL) statt URL-Parameter |
+
+### Bewusst akzeptiert
+
+- **CSP `style-src 'unsafe-inline'`**: Die Templates nutzen
+  Inline-Styles. Ein Umbau auf CSS-Klassen waere gross und
+  risikoreich. CSS-Exfiltration ist nur moeglich, wenn
+  HTML-Injection gelingt -- was durch _escape() und die
+  Markdown-Haertung verhindert wird.
+- **Kein HTTPS im Hidden Service** (Limitierung 12): Innerhalb
+  des Erebos-Tunnels durch E2E geschuetzt. Fuer direkten
+  Zugriff waere TLS noetig.
+- **Session-Cookie ohne `Secure`** (Limitierung 13): Wegen
+  HTTP. Mit HTTPS (12) nachruestbar.
 
 ## Lasttest-Ergebnisse
 
