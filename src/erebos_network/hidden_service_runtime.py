@@ -90,7 +90,11 @@ class HiddenServiceRuntime:
         self.rendezvous_port = rendezvous_port
         self.http_backend_host = http_backend_host
         self.http_backend_port = http_backend_port
-        self.intro_points = intro_points or [("peer1", "127.0.0.1:9997")]
+        self.intro_points = intro_points or [
+            ("peer1", "127.0.0.1:9999"),
+            ("peer2", "127.0.0.1:9998"),
+            ("peer3", "127.0.0.1:9997"),
+        ]
         self.dht_peers = dht_peers or [9997, 9998, 9999]
         self.ttl_seconds = ttl_seconds
         self.http_request_handler = http_request_handler
@@ -103,6 +107,16 @@ class HiddenServiceRuntime:
         self.public_key: Optional[bytes] = None
         self._stop_event = asyncio.Event()
         self._reconnecting = False
+        # B2: Health-Monitoring + Rotation
+        self._intro_failures = {}  # index -> consecutive failures
+        self._monitor_task = None
+        self._known_peers = [
+            ("peer1", "127.0.0.1:9999"),
+            ("peer2", "127.0.0.1:9998"),
+            ("peer3", "127.0.0.1:9997"),
+            ("peer4", "127.0.0.1:9996"),
+            ("peer5", "127.0.0.1:9995"),
+        ]
 
     # ------------------------------------------------------------------
     # Öffentliche API
@@ -115,7 +129,17 @@ class HiddenServiceRuntime:
         await self._start_http_backend()
         await self._register_at_rendezvous()
         logger.info(f"Hidden Service läuft: {self.address}")
-        await self._stop_event.wait()
+        # B2: Health-Monitoring starten
+        self._monitor_task = asyncio.create_task(self._monitor_intro_points())
+        try:
+            await self._stop_event.wait()
+        finally:
+            if self._monitor_task is not None:
+                self._monitor_task.cancel()
+                try:
+                    await self._monitor_task
+                except asyncio.CancelledError:
+                    pass
 
     def stop(self) -> None:
         """Beendet den Hidden-Service (run() kehrt zurück)."""
@@ -202,6 +226,76 @@ class HiddenServiceRuntime:
                 logger.error(f"Fehler beim Senden an Port {port}: {e}")
 
         logger.info(f"Descriptor veröffentlicht in DHT (Key: {key.hex()[:16]}...)")
+
+    async def _monitor_intro_points(self) -> None:
+        """Prueft alle 30s die Intro-Points und rotiert bei Ausfall.
+
+        Nach 3 aufeinanderfolgenden Fehlschlaegen wird der Intro-Point
+        durch einen anderen verfuegbaren Peer ersetzt und der Descriptor
+        neu veroeffentlicht.
+        """
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=30.0)
+                return  # stop_event gesetzt
+            except asyncio.TimeoutError:
+                pass
+            for i, (peer_id, addr) in enumerate(list(self.intro_points)):
+                try:
+                    healthy = await self._check_intro_point(peer_id, addr)
+                except Exception as e:
+                    logger.debug(f"Health-Check {peer_id} fehlgeschlagen: {e}")
+                    healthy = False
+                if healthy:
+                    self._intro_failures[i] = 0
+                else:
+                    failures = self._intro_failures.get(i, 0) + 1
+                    self._intro_failures[i] = failures
+                    logger.warning(
+                        f"Intro-Point {peer_id} ({addr}) nicht erreichbar "
+                        f"({failures}/3)"
+                    )
+                    if failures >= 3:
+                        await self._rotate_intro_point(i)
+                        self._intro_failures[i] = 0
+                        # Descriptor neu veroeffentlichen
+                        try:
+                            await self._publish_descriptor()
+                            logger.info(
+                                f"Descriptor nach Rotation neu veroeffentlicht"
+                            )
+                        except Exception as e:
+                            logger.error(f"Republish fehlgeschlagen: {e}")
+
+    async def _check_intro_point(self, peer_id: str, addr: str) -> bool:
+        """Baut einen Test-Tunnel zum Peer und prueft die Antwort."""
+        try:
+            host, port_str = addr.split(":")
+            port = int(port_str)
+            client = ErebosTunnelClient(host=host, port=port)
+            await asyncio.wait_for(client.connect(), timeout=5.0)
+            await client.close()
+            return True
+        except Exception:
+            return False
+
+    async def _rotate_intro_point(self, index: int) -> None:
+        """Ersetzt den Intro-Point an `index` durch einen anderen Peer."""
+        current_peers = {pid for pid, _ in self.intro_points}
+        # Finde einen Peer, der noch nicht als Intro-Point verwendet wird
+        for peer_id, addr in self._known_peers:
+            if peer_id not in current_peers:
+                old = self.intro_points[index]
+                self.intro_points[index] = (peer_id, addr)
+                logger.info(
+                    f"Intro-Point rotiert: {old[0]} ({old[1]}) -> "
+                    f"{peer_id} ({addr})"
+                )
+                return
+        logger.warning(
+            f"Keine Rotation moeglich: alle Peers sind bereits Intro-Points "
+            f"({current_peers})"
+        )
 
     async def _start_http_backend(self) -> None:
         handler = self.http_request_handler or self._default_http_handler

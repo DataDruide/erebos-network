@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ttl", type=int, default=3600)
     p.add_argument("--dht-peers", default="9997,9998,9999",
                    help="Komma-getrennte Peer-Ports für DHT-Publish")
-    p.add_argument("--intro-points", default="peer1:127.0.0.1:9997",
+    p.add_argument("--intro-points", default="peer1:127.0.0.1:9999,peer2:127.0.0.1:9998,peer3:127.0.0.1:9997",
                    help="Komma-getrennt, Format: peer_id:host:port")
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
