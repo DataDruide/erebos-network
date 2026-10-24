@@ -210,6 +210,63 @@ def delete_post(thread_id: str, index: int) -> bool:
     return False
 
 
+def edit_post(thread_id: str, index: int, new_body: str) -> bool:
+    """Editiert den Body eines Posts (nicht den Autor)."""
+    new_body = _clean(new_body, MAX_BODY)
+    if not new_body:
+        return False
+    data = load_forum()
+    for t in data["threads"]:
+        if t["id"] == thread_id:
+            posts = t.get("posts", [])
+            if index < 0 or index >= len(posts):
+                return False
+            posts[index]["body"] = new_body
+            posts[index]["edited_at"] = time.time()
+            return save_forum(data)
+    return False
+
+
+def delete_posts_by_author(author: str) -> dict:
+    """Loescht alle Posts eines Autors thread-uebergreifend."""
+    author = _clean(author, MAX_AUTHOR)
+    if not author:
+        return {"threads_deleted": 0, "posts_deleted": 0}
+    data = load_forum()
+    threads_deleted = 0
+    posts_deleted = 0
+    new_threads = []
+    for t in data["threads"]:
+        posts = t.get("posts", [])
+        if not posts:
+            new_threads.append(t)
+            continue
+        if posts[0].get("author") == author:
+            threads_deleted += 1
+            posts_deleted += len(posts)
+            continue
+        kept = [posts[0]] + [p for p in posts[1:] if p.get("author") != author]
+        removed = len(posts) - len(kept)
+        if removed > 0:
+            posts_deleted += removed
+            t["posts"] = kept
+        new_threads.append(t)
+    data["threads"] = new_threads
+    save_forum(data)
+    return {"threads_deleted": threads_deleted, "posts_deleted": posts_deleted}
+
+
+def list_authors() -> list:
+    """Liefert eine sortierte Liste aller Autoren mit Post-Zaehler."""
+    data = load_forum()
+    counts = {}
+    for t in data["threads"]:
+        for p in t.get("posts", []):
+            a = p.get("author", "?")
+            counts[a] = counts.get(a, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def find_thread(thread_id: str) -> Optional[dict]:
     data = load_forum()
     for t in data["threads"]:
@@ -286,6 +343,10 @@ def render_thread(thread: dict, admin: bool = False) -> str:
         author = _escape(p.get("author", "?"))
         body = _escape(p.get("body", "")).replace("\n", "<br>")
         created = _fmt_time(p.get("created_at", 0))
+        edited = p.get("edited_at")
+        edited_marker = ""
+        if edited:
+            edited_marker = f" <small><em>(bearbeitet {_fmt_time(edited)})</em></small>"
         admin_btn = ""
         if admin:
             label = "Thread löschen" if idx == 0 else "Post löschen"
@@ -295,10 +356,14 @@ def render_thread(thread: dict, admin: bool = False) -> str:
                 f"style=\"background:#c0392b;color:#fff;border:none;"
                 f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer\">"
                 f"{label}</button></form>"
+                f" <a href=\"/forum/{tid}/post/{idx}/edit\" "
+                f"style=\"background:#2980b9;color:#fff;text-decoration:none;"
+                f"padding:0.2em 0.5em;border-radius:3px;font-size:0.85em\">"
+                f"Bearbeiten</a>"
             )
         posts_html += (
             f"<div style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
-            f"  <p><strong>{author}</strong> <small>{created}</small>{admin_btn}</p>\n"
+            f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}{admin_btn}</p>\n"
             f"  <p>{body}</p>\n"
             f"</div>\n"
         )
@@ -343,4 +408,47 @@ def render_admin_status() -> str:
         f"  <li>Antworten: {st['replies_used']} / {st['replies_max']}</li>\n"
         "</ul>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
+
+def render_edit_form(thread: dict, index: int) -> str:
+    posts = thread.get("posts", [])
+    if index < 0 or index >= len(posts):
+        return render_not_found()
+    body_raw = posts[index].get("body", "")
+    tid = _escape(thread["id"])
+    return (
+        f"<h1>Post bearbeiten</h1>\n"
+        f"<p><a href=\"/forum/{tid}\">← Zurück zum Thread</a></p>\n"
+        f"<form method=\"post\" action=\"/forum/{tid}/post/{index}/edit\">\n"
+        f"  <p><label>Beitrag:<br>"
+        f"<textarea name=\"body\" rows=\"10\" maxlength=\"4000\" required "
+        f"style=\"width:100%\">{_escape(body_raw)}</textarea></label></p>\n"
+        f"  <p><button type=\"submit\" class=\"btn\">Speichern</button></p>\n"
+        f"</form>\n"
+    )
+
+
+def render_admin_authors() -> str:
+    rows = ""
+    for author, count in list_authors():
+        a = _escape(author)
+        rows += (
+            f"<li><strong>{a}</strong> — {count} Post(s) "
+            f"<form method=\"post\" action=\"/forum/admin/authors/delete\" "
+            f"style=\"display:inline\">"
+            f"<input type=\"hidden\" name=\"author\" value=\"{a}\">"
+            f"<button type=\"submit\" "
+            f"style=\"background:#c0392b;color:#fff;border:none;"
+            f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer\">"
+            f"Alle Posts löschen</button></form></li>\n"
+        )
+    if not rows:
+        rows = "<li><em>Noch keine Autoren.</em></li>"
+    return (
+        "<h1>Autoren-Verwaltung</h1>\n"
+        "<p>Alle Posts eines Autors thread-übergreifend löschen. "
+        "Wenn der Eröffnungsbeitrag betroffen ist, wird der ganze Thread "
+        "gelöscht.</p>\n"
+        f"<ul>\n{rows}</ul>\n"
     )

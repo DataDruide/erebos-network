@@ -136,6 +136,26 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 "<a class=\"btn\" href=\"/forum\">← Zurück</a>",
             )
         return _page("Admin", address, forum.render_admin_status())
+
+    if path == "/forum/admin/authors":
+        if not admin:
+            return _page(
+                "Nicht erlaubt", address,
+                "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+            )
+        return _page("Autoren", address, forum.render_admin_authors())
+
+    if path == "/forum/admin/authors/delete" and method == "POST":
+        if not admin:
+            return _page(
+                "Nicht erlaubt", address,
+                "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+            )
+        form = forum.parse_form_body(body)
+        author = form.get("author", "")
+        result = forum.delete_posts_by_author(author)
+        logger.info(f"Admin: {author} -> {result}")
+        return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
     if path == "/forum/neu":
         if method == "POST":
             form = forum.parse_form_body(body)
@@ -196,6 +216,28 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 idx = -1
             forum.delete_post(tid, idx)
             return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+
+        # /forum/<id>/post/<idx>/edit
+        if "/post/" in rest and rest.endswith("/edit"):
+            if not admin:
+                return _page(
+                    "Nicht erlaubt", address,
+                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+                )
+            head = rest[: -len("/edit")]
+            tid, idx_str = head.split("/post/", 1)
+            try:
+                idx = int(idx_str)
+            except ValueError:
+                idx = -1
+            t = forum.find_thread(tid)
+            if t is None:
+                return _page("Nicht gefunden", address, forum.render_not_found())
+            if method == "POST":
+                form = forum.parse_form_body(body)
+                forum.edit_post(tid, idx, form.get("body", ""))
+                return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+            return _page("Bearbeiten", address, forum.render_edit_form(t, idx))
 
         t = forum.find_thread(rest)
         if t is None:
