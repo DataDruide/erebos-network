@@ -128,7 +128,7 @@ pytest tests/test_proxy_erebos_e2e.py
 - [x] Persistente Descriptors in Peers (PeerDhtStore, Punkt 4)
 - [x] Parallele Verbindungen (Stream-Registry, Punkt 3)
 - [x] Produktiver Hidden-Service als Modul (HiddenServiceRuntime, Punkt 2)
-- [ ] Hidden-Service-Reconnect nach Peer-Neustart
+- [x] Hidden-Service-Reconnect nach Peer-Neustart (Reconnect-Loop mit Backoff; im Docker verifiziert: peer1 restart -> Reconnect in 1s)
 - [ ] Persistente Hidden-Service-Schluessel
 - [ ] Echte verteilte DHT
 - [ ] Multi-Intro-Point-Rotation
