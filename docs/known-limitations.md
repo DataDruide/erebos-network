@@ -96,6 +96,45 @@ Mit reinen Ports landet der Descriptor nur bei `rendezvous_host`
 (typisch peer1) — dann ist er bei peer1-Ausfall nicht mehr
 auffindbar.
 
+### 8. Admin-Token `changeme` ist Platzhalter
+
+Das Forum-Admin-Token wird in `docker-compose.yml` als
+`EREBOS_FORUM_ADMIN_TOKEN=changeme` gesetzt. Das ist ein
+**Platzhalter** — jeder, der die Doku liest, kennt ihn.
+
+**Loesung (offen fuer Produktion)**: Zufaelliges Token setzen
+(z.B. `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`)
+in einer `.env`-Datei (nicht im Repo) und in `docker-compose.yml`
+per `${EREBOS_FORUM_ADMIN_TOKEN}` referenzieren.
+
+### 9. Rate-Limit ist global, nicht pro Client
+
+Der Hidden Service sieht die Client-IP **nicht** (der Proxy reicht
+nur den HTTP-Request durch). Deshalb zaehlt das Rate-Limit global:
+10 neue Threads / 30 Antworten pro 10 Minuten im **gesamten** Forum.
+Ein einzelner Spammer kann das Limit fuer alle erreichen.
+
+**Loesung (offen)**: Client-Identitaet durch den Proxy (z.B. ein
+signiertes Client-Token, das der Proxy setzt). Erfordert Aenderungen
+am Proxy-Protokoll.
+
+### 10. Kein Editieren von Posts (nur Loeschen)
+
+Moderation kann Threads und Posts **loeschen**, aber nicht
+editieren. Ein Tippfehler im Eroeffnungsbeitrag erfordert
+Loeschen + Neuerstellen.
+
+**Loesung (offen)**: Editier-Formular mit vorausgefuelltem Inhalt,
+POST /forum/<id>/post/<idx>/edit.
+
+### 11. Kein Thread-uebergreifendes Loeschen aller Posts eines Autors
+
+Moderation arbeitet pro Thread/Post. Um alle Beitraege eines
+Autors zu entfernen, muss jeder Thread einzeln geoeffnet werden.
+
+**Loesung (offen)**: Admin-Seite mit Autoren-Liste und
+"Alle Posts von <Autor> loeschen".
+
 ## Lasttest-Ergebnisse
 
 | Parallele Verbindungen | Erfolgreich | Latenz (pro Verbindung) |
