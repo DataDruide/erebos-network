@@ -148,6 +148,13 @@ def unpack_relay_header(blob: bytes) -> tuple:
     if len(blob) < 3:
         raise ValueError(f"Relay-Header zu kurz: {len(blob)} Byte")
     next_frame_type = blob[0]
+    if next_frame_type not in (
+        FRAME_RELAY_WIRE,
+        FRAME_OPEN_WIRE,
+        FRAME_RENDEZVOUS_REQUEST_WIRE,
+        FRAME_RENDEZVOUS_REGISTER_WIRE,
+    ):
+        raise ValueError(f"Unbekannter Frame-Typ: {next_frame_type:#x}")
     next_port = struct.unpack("!H", blob[1:3])[0]
     return next_frame_type, next_port
 
@@ -206,8 +213,53 @@ def unpack_onion_2hop(
         ValueError: Wenn die Onion nicht entschluesselt werden kann.
     """
     plaintext = open_layer(hop_priv, onion_blob)
-    next_frame_type, next_port = unpack_relay_header(plaintext)
-    # Der Header hat eine feste Groesse (siehe pack_relay_header).
-    header_size = 1 + 2  # 1 Byte frame_type + 2 Byte port
-    next_blob = plaintext[header_size:]
-    return next_frame_type, next_port, next_blob
+    # Pruefe, ob die ersten 3 Bytes ein gueltiger Relay-Header sind
+    if len(plaintext) >= 3:
+        try:
+            next_frame_type, next_port = unpack_relay_header(plaintext[:3])
+            return next_frame_type, next_port, plaintext[3:]
+        except Exception:
+            pass
+    # Kein Header -> plaintext ist der Payload (innerste Schicht)
+    return None, None, plaintext
+
+
+def pack_onion_3hop(
+    hop1_x25519_pub: bytes,
+    hop2_x25519_pub: bytes,
+    hop3_x25519_pub: bytes,
+    payload: bytes,
+) -> bytes:
+    """Baut eine 3-Schicht-Onion: hop1 -> hop2 -> hop3 -> payload.
+
+    Args:
+        hop1_x25519_pub: X25519-Public-Key des ersten Hops (z.B. peer2).
+        hop2_x25519_pub: X25519-Public-Key des zweiten Hops (z.B. peer3).
+        hop3_x25519_pub: X25519-Public-Key des dritten Hops (z.B. peer1).
+        payload: Die eigentliche Nutzlast (z.B. Rendezvous-Request).
+
+    Returns:
+        Onion-Blob: [hop1_layer], die nach dem Entschluesseln
+        [hop2_layer] enthaelt, die nach dem Entschluesseln
+        [hop3_layer] enthaelt, die nach dem Entschluesseln `payload`.
+    """
+    # Innerste Schicht: fuer hop3, enthaelt NUR den payload.
+    inner_layer = seal_for(hop3_x25519_pub, payload)
+
+    # Mittlere Schicht: fuer hop2, enthaelt [header=0x14|9999][inner_layer].
+    mid_header = pack_relay_header(
+        next_frame_type=0x14,  # FRAME_RENDEZVOUS_REGISTER
+        next_port=9999,        # peer1 (hop3)
+    )
+    mid_plaintext = mid_header + inner_layer
+    mid_layer = seal_for(hop2_x25519_pub, mid_plaintext)
+
+    # Aeusserste Schicht: fuer hop1, enthaelt [header=0x14|9997][mid_layer].
+    outer_header = pack_relay_header(
+        next_frame_type=FRAME_RELAY_WIRE,  # 0x01: peer3 ist Relay
+        next_port=9997,        # peer3 (hop2)
+    )
+    outer_plaintext = outer_header + mid_layer
+    outer_layer = seal_for(hop1_x25519_pub, outer_plaintext)
+
+    return outer_layer

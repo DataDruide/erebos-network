@@ -474,23 +474,24 @@ class ErebosSocks5Server:
                             # Beide Richtungen laufen ueber peer3.
                             logger.info(f"[{conn_id}] Baue 2-Hop-Onion zu peer3 (Port 9997) -> peer1 (Port 9999)")
                             from .tunnel import ErebosTunnelClient, FRAME_RELAY
-                            from .onion import pack_onion_2hop
+                            from .onion import pack_onion_3hop
                             import json as _json
                             from pathlib import Path
 
                             keys_dir = Path("erebos_keys")
+                            peer2_pub = (keys_dir / "peer2_x25519.pub").read_bytes()
                             peer3_pub = (keys_dir / "peer3_x25519.pub").read_bytes()
                             peer1_pub = (keys_dir / "peer1_x25519.pub").read_bytes()
 
                             reg_key = host[:32]
                             reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
-                            onion = pack_onion_2hop(peer3_pub, peer1_pub, reg_payload)
+                            onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, reg_payload)
                             logger.info(f"[{conn_id}] Onion gebaut ({len(onion)}B)")
 
-                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9997)  # peer3
+                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9998)  # peer2
                             await rendezvous_client.connect()
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
-                            logger.info(f"[{conn_id}] 2-Hop-Onion an peer3 gesendet (peer3 -> peer1)")
+                            logger.info(f"[{conn_id}] 3-Hop-Onion an peer2 gesendet (peer2 -> peer3 -> peer1)")
 
                             # Warte auf 'ready' vom Rendezvous-Punkt
                             # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
