@@ -263,3 +263,32 @@ def pack_onion_3hop(
     outer_layer = seal_for(hop1_x25519_pub, outer_plaintext)
 
     return outer_layer
+
+
+def pack_onion_nhop(hops: list, payload: bytes) -> bytes:
+    """Baut eine N-Hop-Onion.
+
+    Args:
+        hops: Liste von (x25519_pub, next_port, next_frame_type).
+              Reihenfolge: aeusserster Hop zuerst, innerster Hop zuletzt.
+              Der letzte Hop bekommt KEINEN Header (nur payload).
+        payload: Die eigentliche Nutzlast.
+
+    Returns:
+        Onion-Blob: [hop0_layer], die nach dem Entschluesseln
+        [hop1_layer] enthaelt, ..., die nach dem Entschluesseln
+        `payload` enthaelt.
+    """
+    if not hops:
+        raise ValueError("Mindestens ein Hop noetig")
+
+    # Innerste Schicht: fuer den letzten Hop, nur payload
+    last_pub = hops[-1][0]
+    layer = seal_for(last_pub, payload)
+
+    # Aeussere Schichten: von innen nach aussen
+    for x25519_pub, next_port, next_frame_type in reversed(hops[:-1]):
+        header = pack_relay_header(next_frame_type, next_port)
+        layer = seal_for(x25519_pub, header + layer)
+
+    return layer
