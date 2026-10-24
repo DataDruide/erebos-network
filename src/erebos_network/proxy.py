@@ -480,7 +480,7 @@ class ErebosSocks5Server:
                             # Beide Richtungen laufen ueber peer3.
                             logger.info(f"[{conn_id}] Baue 2-Hop-Onion zu peer3 (Port 9997) -> peer1 (Port 9999)")
                             from .tunnel import ErebosTunnelClient, FRAME_RELAY
-                            from .onion import pack_onion_3hop
+                            from .onion import pack_onion_3hop, pack_onion_2hop
                             import json as _json
                             from pathlib import Path
 
@@ -502,9 +502,10 @@ class ErebosSocks5Server:
 
                             # Warte auf 'ready' vom Rendezvous-Punkt
                             # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
+                            ready_received = False
                             try:
                                 while True:
-                                    ready_raw = await asyncio.wait_for(rendezvous_client.receive(), timeout=60.0)
+                                    ready_raw = await asyncio.wait_for(rendezvous_client.receive(), timeout=15.0)
                                     if not ready_raw:
                                         break
                                     try:
@@ -512,18 +513,80 @@ class ErebosSocks5Server:
                                         logger.info(f"[{conn_id}] Rendezvous-Nachricht: {ready_data}")
                                         if ready_data.get("status") == "ready":
                                             logger.info(f"[{conn_id}] Rendezvous-Paar vollständig!")
-                                            # WICHTIG: SOCKS5-REP_SUCCESS jetzt senden,
-                                            # damit curl den HTTP-Request schicken kann.
-                                            # Sonst blockiert das spaetere reader.read()
-                                            # bis zum Timeout und wir lesen nie den Pfad.
-                                            await self._send_reply(writer, SOCKS5_REP_SUCCESS)
-                                            logger.info(f"[{conn_id}] SOCKS5-REP_SUCCESS gesendet (Client kann HTTP senden)")
+                                            ready_received = True
                                             break
                                         # Ignoriere 'ok'-Bestätigungen, warte auf 'ready'
                                     except json.JSONDecodeError:
                                         logger.warning(f"[{conn_id}] Ungültige Rendezvous-Nachricht")
                             except asyncio.TimeoutError:
-                                logger.warning(f"[{conn_id}] Timeout beim Warten auf 'ready'")
+                                logger.warning(f"[{conn_id}] Timeout beim Warten auf 'ready' (Standard-Pfad)")
+                            except (asyncio.IncompleteReadError, ConnectionResetError) as e:
+                                logger.warning(
+                                    f"[{conn_id}] Standard-Pfad-Verbindung verloren: "
+                                    f"{type(e).__name__} — Fallback wird versucht"
+                                )
+
+                            # -----------------------------------------------------------
+                            # FALLBACK: Wenn der Standard-Pfad (peer2 -> peer3 -> peer1)
+                            # nicht innerhalb von 15s 'ready' liefert, versuchen wir
+                            # peer3 -> peer2 -> peer1 (peer2 und peer3 getauscht).
+                            # Das ueberlebt einen peer3-Ausfall NICHT (peer3 ist der
+                            # erste Hop), aber einen peer2-Ausfall.
+                            #
+                            # Fuer peer3-Ausfall: 2-Hop-Fallback peer2 -> peer1.
+                            # -----------------------------------------------------------
+                            if not ready_received:
+                                logger.info(f"[{conn_id}] Fallback-Pfad wird versucht")
+                                try:
+                                    await rendezvous_client.close()
+                                except Exception:
+                                    pass
+
+                                # 2-Hop-Onion: peer2 -> peer1 (ohne peer3)
+                                onion_fb = pack_onion_2hop(peer2_pub, peer1_pub, reg_payload)
+                                logger.info(f"[{conn_id}] Fallback-Onion gebaut ({len(onion_fb)}B, 2-Hop)")
+
+                                try:
+                                    rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)
+                                    await asyncio.wait_for(rendezvous_client.connect(), timeout=5.0)
+                                    await rendezvous_client.send_typed(FRAME_RELAY, onion_fb)
+                                    logger.info(f"[{conn_id}] 2-Hop-Onion an peer2 gesendet (peer2 -> peer1)")
+                                    # Auf 'ready' warten (kuerzerer Timeout)
+                                    try:
+                                        while True:
+                                            ready_raw = await asyncio.wait_for(rendezvous_client.receive(), timeout=15.0)
+                                            if not ready_raw:
+                                                break
+                                            try:
+                                                ready_data = json.loads(ready_raw.decode("utf-8"))
+                                                logger.info(f"[{conn_id}] Fallback-Nachricht: {ready_data}")
+                                                if ready_data.get("status") == "ready":
+                                                    logger.info(f"[{conn_id}] Rendezvous-Paar vollständig (Fallback)!")
+                                                    ready_received = True
+                                                    break
+                                            except json.JSONDecodeError:
+                                                pass
+                                    except asyncio.TimeoutError:
+                                        logger.warning(f"[{conn_id}] Fallback-Timeout beim Warten auf 'ready'")
+                                    except (asyncio.IncompleteReadError, ConnectionResetError) as e:
+                                        logger.warning(
+                                            f"[{conn_id}] Fallback-Verbindung verloren: "
+                                            f"{type(e).__name__}"
+                                        )
+                                except Exception as e:
+                                    logger.error(f"[{conn_id}] Fallback-Pfad fehlgeschlagen: {e}")
+
+                            if not ready_received:
+                                logger.error(f"[{conn_id}] Alle Pfade fehlgeschlagen")
+                                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                                writer.close()
+                                return
+
+                            # Ab hier: 'ready' erhalten (Standard oder Fallback).
+                            # SOCKS5-REP_SUCCESS jetzt senden, damit curl den HTTP-Request
+                            # schicken kann.
+                            await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                            logger.info(f"[{conn_id}] SOCKS5-REP_SUCCESS gesendet (Client kann HTTP senden)")
 
                             # B3: E2E-Schluesselaustausch (optional, fallback Klartext)
                             import struct as _struct
