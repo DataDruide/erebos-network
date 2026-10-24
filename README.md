@@ -415,6 +415,41 @@ Erwartet: `HTTP/1.1 200 OK` mit 22 Bytes (`Hidden Service works!`).
 
 Siehe [docs/known-limitations.md](docs/known-limitations.md).
 
+### Erebos Community (Forum)
+
+Der Hidden Service liefert eine kleine Community-Plattform
+mit Kategorien, Suche, Accounts, Moderation und Spam-Schutz.
+
+| Route | Funktion |
+|---|---|
+| `/` | Startseite mit Regeln und Button zur Wiki |
+| `/wiki` | Hidden Wiki (JSON-basiert, erweiterbar) |
+| `/forum` | Kategorien-Uebersicht |
+| `/forum/<category>` | Thread-Liste (paginiert, sortierbar) |
+| `/forum/<id>` | Thread mit Antworten |
+| `/forum/neu` | Neuen Thread erstellen |
+| `/forum/search?q=...` | Volltextsuche |
+| `/forum/login` | Login |
+| `/forum/register` | Account erstellen |
+| `/forum/my-threads` | Eigene Threads |
+| `/forum/health` | Health-Endpunkt (Threads/Users/Reports) |
+
+**Features:**
+- Accounts (PBKDF2-HMAC-SHA256, 200k Iterationen) + Sessions
+- Markdown-Mini: `**fett**`, `*kursiv*`, `` `code` ``, `[text](url)`
+- Zitieren-Button pro Post
+- Reports (Melden-Button pro Post)
+- Admin-Moderation: Sticky/Locked, Ban-Liste, Mod-Log
+- Rate-Limit pro Client (Cookie) + global
+- Kategorien (Allgemein, Technik, Support, Off-Topic)
+
+**Admin-Zugang:** Token in `.env` (`EREBOS_FORUM_ADMIN_TOKEN`),
+per `?admin=<token>` in der URL. `.env.example` als Vorlage.
+
+**Sicherheit:** Nur ueber den Erebos-Proxy nutzen (HTTP ohne TLS
+im Hidden Service, aber E2E-verschluesselt im Tunnel). Siehe
+[docs/known-limitations.md](docs/known-limitations.md).
+
 ### Tests
 
     pytest -v

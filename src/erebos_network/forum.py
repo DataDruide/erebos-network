@@ -880,7 +880,7 @@ def render_rate_limited(retry_after: int = 600) -> str:
     )
 
 
-def render_admin_status(client_id: str = "") -> str:
+def render_admin_status(client_id: str = "", admin_token: str = "") -> str:
     st = rate_limit_status(client_id)
     return (
         "<h1>Admin-Status</h1>\n"
@@ -896,7 +896,7 @@ def render_admin_status(client_id: str = "") -> str:
         f"  <li>Antworten: {st['global_replies_used']} / {st['global_replies_max']}</li>\n"
         "</ul>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
-        "<a class=\"btn\" href=\"/forum/admin/authors?admin=<token>\">Autoren</a>\n"
+        f"<a class=\"btn\" href=\"/forum/admin/authors?admin={_escape(admin_token)}\">Autoren</a>\n"
     )
 
 
@@ -956,7 +956,8 @@ def _pagination_html(page: int, pages: int, base_url: str, sort: str) -> str:
     return "<p>" + " · ".join(parts) + "</p>\n"
 
 
-def render_categories(client_id: str = "", username: str = "", admin: bool = False) -> str:
+def render_categories(client_id: str = "", username: str = "", admin: bool = False,
+                      admin_token: str = "") -> str:
     cats = list_categories()
     status = rate_limit_status(client_id)
     client_status = (
@@ -997,12 +998,13 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
             f" <strong style=\"color:#c0392b\">({open_reports} offen)</strong>"
             if open_reports > 0 else ""
         )
+        t = _escape(admin_token)
         admin_nav = (
             "<p><small>"
-            "<a href=\"/forum/admin/authors?admin=<token>\">Autoren</a> · "
-            f"<a href=\"/forum/admin/reports?admin=<token>\">Meldungen{reports_badge}</a> · "
-            "<a href=\"/forum/admin/bans?admin=<token>\">Bans</a> · "
-            "<a href=\"/forum/admin/modlog?admin=<token>\">Mod-Log</a>"
+            f"<a href=\"/forum/admin/authors?admin={t}\">Autoren</a> · "
+            f"<a href=\"/forum/admin/reports?admin={t}\">Meldungen{reports_badge}</a> · "
+            f"<a href=\"/forum/admin/bans?admin={t}\">Bans</a> · "
+            f"<a href=\"/forum/admin/modlog?admin={t}\">Mod-Log</a>"
             "</small></p>\n"
         )
 

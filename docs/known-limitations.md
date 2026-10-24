@@ -96,7 +96,7 @@ Mit reinen Ports landet der Descriptor nur bei `rendezvous_host`
 (typisch peer1) — dann ist er bei peer1-Ausfall nicht mehr
 auffindbar.
 
-### 8. Admin-Token `changeme` ist Platzhalter
+### 8. Admin-Token `changeme` ist Platzhalter (geloest: .env)
 
 Das Forum-Admin-Token wird in `docker-compose.yml` als
 `EREBOS_FORUM_ADMIN_TOKEN=changeme` gesetzt. Das ist ein
@@ -107,7 +107,7 @@ Das Forum-Admin-Token wird in `docker-compose.yml` als
 in einer `.env`-Datei (nicht im Repo) und in `docker-compose.yml`
 per `${EREBOS_FORUM_ADMIN_TOKEN}` referenzieren.
 
-### 9. Rate-Limit ist global, nicht pro Client
+### 9. Rate-Limit ist global, nicht pro Client (geloest: Cookie)
 
 Der Hidden Service sieht die Client-IP **nicht** (der Proxy reicht
 nur den HTTP-Request durch). Deshalb zaehlt das Rate-Limit global:
@@ -118,7 +118,7 @@ Ein einzelner Spammer kann das Limit fuer alle erreichen.
 signiertes Client-Token, das der Proxy setzt). Erfordert Aenderungen
 am Proxy-Protokoll.
 
-### 10. Kein Editieren von Posts (nur Loeschen)
+### 10. Kein Editieren von Posts (nur Loeschen) (geloest: edit_post)
 
 Moderation kann Threads und Posts **loeschen**, aber nicht
 editieren. Ein Tippfehler im Eroeffnungsbeitrag erfordert
@@ -127,13 +127,58 @@ Loeschen + Neuerstellen.
 **Loesung (offen)**: Editier-Formular mit vorausgefuelltem Inhalt,
 POST /forum/<id>/post/<idx>/edit.
 
-### 11. Kein Thread-uebergreifendes Loeschen aller Posts eines Autors
+### 11. Kein Thread-uebergreifendes Loeschen aller Posts eines Autors (geloest)
 
 Moderation arbeitet pro Thread/Post. Um alle Beitraege eines
 Autors zu entfernen, muss jeder Thread einzeln geoeffnet werden.
 
 **Loesung (offen)**: Admin-Seite mit Autoren-Liste und
 "Alle Posts von <Autor> loeschen".
+
+### 12. Kein HTTPS (nur ueber Erebos-Proxy sicher)
+
+Der Hidden Service spricht HTTP, nicht HTTPS. Innerhalb des
+Erebos-Tunnels ist der Traffic durch die E2E-Verschluesselung
+(ChaCha20-Poly1305) geschuetzt. Aber: Wer den Hidden Service
+direkt erreicht (ohne Erebos-Proxy), sieht Passwoerter und
+Session-Cookies im Klartext.
+
+**Loesung (offen)**: TLS im HTTP-Backend, oder ein Hinweis
+auf der Startseite: "Nur ueber den Erebos-Proxy nutzen."
+
+### 13. Session-Cookie ohne `Secure`-Flag
+
+Das Session-Cookie (`forum_session`) wird mit `HttpOnly` und
+`SameSite=Lax` gesetzt, aber ohne `Secure` (weil HTTP). In
+Kombination mit Limitierung 12: Nur ueber Erebos sicher.
+
+**Loesung (offen)**: Mit HTTPS (Limitierung 12) das Flag setzen.
+
+### 14. Admin-Token in URL sichtbar
+
+Das Admin-Token wird als `?admin=<token>` in der URL uebergeben.
+Das landet in Logs, Browser-History, Referrer-Headern.
+
+**Loesung (offen)**: Admin-Token als Cookie (kurzlebig) oder
+per POST-Formular. Erfordert mehr UI-Arbeit.
+
+### 15. Forum hat keine Loeschfrist / keinen Datenexport
+
+Threads, Posts, Accounts bleiben unbegrenzt in `forum.json`.
+Es gibt keinen automatischen Cleanup, keine DSGVO-artige
+Loeschfrist, keinen Datenexport pro User.
+
+**Loesung (offen)**: Fuer Produktion: Cleanup-Job, Export-
+Endpunkt, Loeschfrist.
+
+### 16. `forum.json` waechst unbegrenzt
+
+Alle Threads/Posts/Accounts/Sessions/Reports/Bans/Mod-Log-
+Eintraege liegen in einer JSON-Datei. Bei vielen Posts wird
+das Laden langsam, Schreiben blockiert.
+
+**Loesung (offen)**: SQLite statt JSON (Migration), oder
+regelmaessiger Cleanup alter Eintraege.
 
 ## Lasttest-Ergebnisse
 

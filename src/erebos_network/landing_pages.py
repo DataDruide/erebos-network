@@ -126,7 +126,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/wiki":
         return render_wiki(address)
     if path == "/forum":
-        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin))
+        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=admin_token_value))
     if path == "/forum/admin":
         if not admin:
             return _page(
@@ -136,7 +136,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 "<p>Admin-Token fehlt oder ist falsch.</p>"
                 "<a class=\"btn\" href=\"/forum\">← Zurück</a>",
             )
-        return _page("Admin", address, forum.render_admin_status(client_id=client_id))
+        return _page("Admin", address, forum.render_admin_status(client_id=client_id, admin_token=admin_token_value))
 
     if path == "/forum/admin/authors":
         if not admin:
