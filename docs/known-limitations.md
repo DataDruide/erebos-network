@@ -187,6 +187,24 @@ das Laden langsam, Schreiben blockiert.
 **Loesung (offen)**: SQLite statt JSON (Migration), oder
 regelmaessiger Cleanup alter Eintraege.
 
+### 17. E2E-Payload-Grenze bei 8192 Bytes
+
+Der E2E-entschluesselte Payload im Rendezvous-Datenkanal ist
+auf 8192 Bytes begrenzt (eine `read()`-Operation im Tunnel).
+POST-Requests mit groesserem Body (>~8 KB inkl. Header) werden
+abgeschnitten: Der HTTP-Handler wartet auf die fehlenden Bytes
+und laeuft in einen Timeout.
+
+**Auswirkung**: Forum-Posts mit mehr als ~7000 Zeichen Body
+(nach URL-Encoding) schlagen fehl. Der ReDoS-Test mit 4000
+Sternen ist betroffen, der Test mit 1000 Sternen nicht.
+
+**Loesung (offen)**: `_keep_alive` muss `payload_data` in
+Chunks senden (mehrere `http_writer.write()`), und der
+E2E-decrypt muss groessere Payloads ermoeglichen (recv-Loop
+statt einzelnes `read()`). Erfordert Aenderungen am
+Tunnel- und E2E-Code.
+
 ## Sicherheits-Haertung (OWASP-orientiert)
 
 ### Umgesetzt
