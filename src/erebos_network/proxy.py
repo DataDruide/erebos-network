@@ -488,7 +488,8 @@ class ErebosSocks5Server:
                             onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, reg_payload)
                             logger.info(f"[{conn_id}] Onion gebaut ({len(onion)}B)")
 
-                            rendezvous_client = ErebosTunnelClient(host="127.0.0.1", port=9998)  # peer2
+                            from .peers_config import peer_host
+                            rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)  # peer2
                             await rendezvous_client.connect()
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
                             logger.info(f"[{conn_id}] 3-Hop-Onion an peer2 gesendet (peer2 -> peer3 -> peer1)")

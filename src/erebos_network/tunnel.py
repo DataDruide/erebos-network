@@ -533,8 +533,9 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
     wird unveraendert weitergegeben — kein weiteres Verpacken.
     """
     from .onion import unpack_relay_header, open_layer
+    from .peers_config import peer_host
 
-    NEXT_HOST = "127.0.0.1"
+    NEXT_HOST = "127.0.0.1"  # Fallback, wird nach unpack_relay_header gesetzt
 
     self_priv = (KEYS_DIR / f"{peer_name}_x25519").read_bytes()
     try:
@@ -552,6 +553,11 @@ async def _handle_relay(reader, writer, cipher, peer_name: str, first_payload: b
     except Exception as e:
         logger.error(f"Relay: Header-Fehler: {e}")
         return
+
+    # NEXT_HOST konfigurierbar (Docker / echte Peers)
+    next_peer_name = PORT_TO_PEER_NAME.get(next_port)
+    if next_peer_name:
+        NEXT_HOST = peer_host(next_peer_name)
 
     next_layer = decrypted[3:]
 
@@ -660,9 +666,12 @@ async def run_peer_server(port: int = PEER_PORT,
         logger.info(f"Kademlia-DHT laeuft auf UDP-Port {kad_port}")
         # Bootstrap: die anderen Peers als Bootstrap-Nodes
         bootstrap_nodes = []
+        from .peers_config import peer_host
         for other_port in (9997, 9998, 9999):
             if other_port != port:
-                bootstrap_nodes.append(("127.0.0.1", other_port + 1000))
+                other_name = PORT_TO_PEER_NAME.get(other_port)
+                other_host = peer_host(other_name) if other_name else "127.0.0.1"
+                bootstrap_nodes.append((other_host, other_port + 1000))
         if bootstrap_nodes:
             # Bootstrap mit Retry: die anderen Peers starten ggf. gleichzeitig.
             # Bis zu 5 Versuche mit 1s, 2s, 4s, 8s, 16s Backoff.
