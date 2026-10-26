@@ -347,3 +347,89 @@ def decrypt_mail(
 
     # 4) Entschluesseln
     return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+
+
+def sign_mail(ed25519_priv: bytes, mldsa_priv: bytes, payload: bytes,
+              mldsa_pub: bytes = None) -> dict:
+    """Signiert eine Mail hybrid (Ed25519 + ML-DSA-65) mit den gespeicherten
+    Private Keys.
+
+    Wichtig: KEIN generate_keypair() hier — das wuerde den internen Keypair
+    ueberschreiben und einen Pubkey liefern, der nicht zur Signatur passt.
+    Der mldsa_pub muss vom Keygen (in mail_keys) mitgegeben werden.
+
+    Args:
+        ed25519_priv: 32-Byte Ed25519 Private Key.
+        mldsa_priv:   ML-DSA-65 Secret Key (4032 Bytes).
+        payload:      Zu signierende Bytes.
+        mldsa_pub:    Optional. ML-DSA-65 Public Key (1952 Bytes). Wird nur
+                      fuer die Rueckgabe mitgegeben.
+
+    Returns:
+        dict mit ed25519 (hex), mldsa (hex), mldsa_pub (hex oder "").
+    """
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    # Ed25519-Signatur
+    ed_priv = Ed25519PrivateKey.from_private_bytes(ed25519_priv)
+    sig_ed = ed_priv.sign(payload)
+
+    # ML-DSA-65-Signatur mit gespeichertem Private Key
+    mldsa = oqs.Signature("ML-DSA-65", secret_key=mldsa_priv)
+    sig_mldsa = mldsa.sign(payload)
+
+    return {
+        "ed25519": sig_ed.hex(),
+        "mldsa": sig_mldsa.hex(),
+        "mldsa_pub": mldsa_pub.hex() if mldsa_pub else "",
+    }
+
+
+def verify_mail(ed25519_pub: bytes, payload: bytes,
+                signatures: dict, mldsa_pub: bytes = None) -> bool:
+    """Verifiziert eine Mail (Ed25519 + ML-DSA-65).
+
+    API-Bestaetigung (liboqs-python 0.16.0):
+        - verify(msg, sig, pub) ist die einzige Variante.
+        - verify(msg, sig) ohne pub -> TypeError.
+        - mldsa_pub muss bytes (1952 B) sein, keine Hex-String.
+
+    Args:
+        ed25519_pub: 32-Byte Ed25519 Public Key.
+        payload:     Die signierten Bytes.
+        signatures:  dict mit "ed25519" (hex) und "mldsa" (hex).
+        mldsa_pub:   ML-DSA-65 Public Key als bytes (1952 B). Wenn None,
+                     wird bytes.fromhex(signatures["mldsa_pub"]) versucht.
+
+    Returns:
+        True, wenn BEIDE Signaturen gueltig sind.
+    """
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    # Ed25519
+    try:
+        ed_pub = Ed25519PublicKey.from_public_bytes(ed25519_pub)
+        ed_pub.verify(bytes.fromhex(signatures["ed25519"]), payload)
+    except Exception:
+        return False
+
+    # ML-DSA-65: pub als bytes aufloesen
+    try:
+        if mldsa_pub is None:
+            pub_hex = signatures.get("mldsa_pub", "")
+            if not pub_hex:
+                return False
+            mldsa_pub = bytes.fromhex(pub_hex)
+        elif isinstance(mldsa_pub, str):
+            mldsa_pub = bytes.fromhex(mldsa_pub)
+        mldsa = oqs.Signature("ML-DSA-65")
+        # verify(msg, sig, pub) -- 3 Argumente, bestaetigt durch API-Test
+        ok = mldsa.verify(payload, bytes.fromhex(signatures["mldsa"]), mldsa_pub)
+        if not ok:
+            return False
+    except Exception:
+        return False
+
+    return True

@@ -8,7 +8,7 @@ from typing import Optional
 from . import forum
 from .forum_db import (load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys)
-from .crypto.hybrid_kem import encrypt_mail, decrypt_mail
+from .crypto.hybrid_kem import encrypt_mail, decrypt_mail, sign_mail, verify_mail
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,15 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     recipient_mlkem_pub=bytes.fromhex(recipient_keys["mlkem_pub"]),
                     plaintext=mail_body.encode("utf-8"),
                 )
-                # Speichern (body = Platzhalter, ciphertext = verschluesselt)
+                # Signieren (eigener Ed25519 + ML-DSA-65)
+                my_keys = get_or_create_mail_keys(anon_uuid)
+                signatures = sign_mail(
+                    ed25519_priv=bytes.fromhex(my_keys["ed25519_priv"]),
+                    mldsa_priv=bytes.fromhex(my_keys["mldsa_priv"]),
+                    payload=mail_body.encode("utf-8"),
+                    mldsa_pub=bytes.fromhex(my_keys["mldsa_pub"]),
+                )
+                # Speichern
                 save_mail(
                     owner_uuid=to_uuid,
                     sender_uuid=anon_uuid,
@@ -230,6 +238,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     body="",  # Klartext nicht speichern
                     encrypted=True,
                     encrypted_fields=encrypted,
+                    signatures=signatures,
+                    sender_verified=False,  # wird beim Empfaenger verifiziert
                 )
                 logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} PQ-verschluesselt gespeichert")
                 return b"REDIRECT:/mail"
@@ -259,7 +269,32 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                             "ciphertext": m["ciphertext"],
                         },
                     )
-                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>")
+                    # Signatur verifizieren
+                    sender_keys = get_mail_keys(m["sender_uuid"])
+                    verified = False
+                    if sender_keys and m.get("signature_ed25519"):
+                        try:
+                            # mldsa_pub bevorzugt aus der Mail-Zeile (mit der Signatur
+                            # gespeichert), Fallback auf sender_keys["mldsa_pub"].
+                            mldsa_pub_hex = m.get("signature_mldsa_pub") or \
+                                            (sender_keys or {}).get("mldsa_pub")
+                            verified = verify_mail(
+                                ed25519_pub=bytes.fromhex(sender_keys["ed25519_pub"]),
+                                payload=plaintext,
+                                signatures={
+                                    "ed25519": m["signature_ed25519"],
+                                    "mldsa": m["signature_mldsa"],
+                                    "mldsa_pub": mldsa_pub_hex,
+                                },
+                            )
+                        except Exception as e:
+                            logger.warning(f"Signatur-Verifikation fehlgeschlagen: {e}")
+                    verified_badge = (
+                        " <span style=\"color:green\">[verifiziert]</span>"
+                        if verified else
+                        " <span style=\"color:orange\">[nicht verifiziert]</span>"
+                    )
+                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>") + verified_badge
                 except Exception as e:
                     logger.error(f"Mail-Entschluesselung fehlgeschlagen: {e}")
                     body_html = "<em>[Entschluesselung fehlgeschlagen]</em>"

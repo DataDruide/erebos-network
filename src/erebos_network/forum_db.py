@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS mail_keys (
     mlkem_pub TEXT NOT NULL,
     x25519_priv TEXT NOT NULL,
     mlkem_priv TEXT NOT NULL,
+    ed25519_pub TEXT,
+    ed25519_priv TEXT,
+    mldsa_pub TEXT,
+    mldsa_priv TEXT,
     created_at REAL NOT NULL
 );
 
@@ -119,7 +123,11 @@ CREATE TABLE IF NOT EXISTS mailboxes (
     x25519_pub TEXT,
     mlkem_ct TEXT,
     nonce TEXT,
-    ciphertext TEXT
+    ciphertext TEXT,
+    signature_ed25519 TEXT,
+    signature_mldsa TEXT,
+    signature_mldsa_pub TEXT,
+    sender_verified INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_mailboxes_owner ON mailboxes(owner_uuid);
@@ -155,6 +163,7 @@ def get_db() -> sqlite3.Connection:
     _conn.commit()
     # Migration: fehlende Spalten in bestehenden Tabellen hinzufuegen
     _migrate_mailboxes(_conn)
+    _migrate_mail_keys(_conn)
     return _conn
 
 
@@ -177,6 +186,10 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
         ("mlkem_ct", "TEXT", "NULL"),
         ("nonce", "TEXT", "NULL"),
         ("ciphertext", "TEXT", "NULL"),
+        ("signature_ed25519", "TEXT", "NULL"),
+        ("signature_mldsa", "TEXT", "NULL"),
+        ("signature_mldsa_pub", "TEXT", "NULL"),
+        ("sender_verified", "INTEGER", "0"),
     ]
     for name, typ, default in new_columns:
         if name not in existing:
@@ -187,6 +200,26 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
                 logger.info(f"mailboxes: Spalte '{name}' hinzugefuegt")
             except Exception as e:
                 logger.warning(f"mailboxes: Spalte '{name}' konnte nicht hinzugefuegt werden: {e}")
+    conn.commit()
+
+
+def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
+    """Fuegt fehlende ed25519-Spalten zur mail_keys-Tabelle hinzu."""
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(mail_keys)")
+    }
+    for name, typ in [
+        ("ed25519_pub", "TEXT"),
+        ("ed25519_priv", "TEXT"),
+        ("mldsa_pub", "TEXT"),
+        ("mldsa_priv", "TEXT"),
+    ]:
+        if name not in existing:
+            try:
+                conn.execute(f"ALTER TABLE mail_keys ADD COLUMN {name} {typ}")
+                logger.info(f"mail_keys: Spalte '{name}' hinzugefuegt")
+            except Exception as e:
+                logger.warning(f"mail_keys: Spalte '{name}' konnte nicht hinzugefuegt werden: {e}")
     conn.commit()
 
 
@@ -446,7 +479,8 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
     conn = get_db()
     rows = conn.execute(
         "SELECT id, sender_uuid, subject, body, created_at, read, "
-        "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext "
+        "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
+        "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified "
         "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
         (owner_uuid, limit),
     ).fetchall()
@@ -463,25 +497,35 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
             "mlkem_ct": r[8],
             "nonce": r[9],
             "ciphertext": r[10],
+            "signature_ed25519": r[11],
+            "signature_mldsa": r[12],
+            "signature_mldsa_pub": r[13],
+            "sender_verified": bool(r[14]),
         }
         for r in rows
     ]
 
 
 def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
-              encrypted: bool = False, encrypted_fields: dict = None) -> bool:
-    """Speichert eine neue Mail (optional hybrid PQ-verschluesselt)."""
+              encrypted: bool = False, encrypted_fields: dict = None,
+              signatures: dict = None, sender_verified: bool = False) -> bool:
+    """Speichert eine neue Mail (optional hybrid PQ-verschluesselt + signiert)."""
     conn = get_db()
     try:
         with conn:
             if encrypted and encrypted_fields:
                 conn.execute(
                     "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, "
-                    "created_at, encrypted, x25519_pub, mlkem_ct, nonce, ciphertext) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "created_at, encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
+                    "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (owner_uuid, sender_uuid, subject, body, time.time(), 1,
                      encrypted_fields["x25519_pub"], encrypted_fields["mlkem_ct"],
-                     encrypted_fields["nonce"], encrypted_fields["ciphertext"]),
+                     encrypted_fields["nonce"], encrypted_fields["ciphertext"],
+                     (signatures or {}).get("ed25519", ""),
+                     (signatures or {}).get("mldsa", ""),
+                     (signatures or {}).get("mldsa_pub", ""),
+                     1 if sender_verified else 0),
                 )
             else:
                 conn.execute(
@@ -520,19 +564,85 @@ def get_or_create_mail_keys(uuid: str) -> dict:
 
     conn = get_db()
     row = conn.execute(
-        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv "
+        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
+        "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv "
         "FROM mail_keys WHERE uuid = ?",
         (uuid,),
     ).fetchone()
-    if row:
+    if row and row[4] and row[5] and row[6] and row[7]:
         return {
             "x25519_pub": row[0],
             "mlkem_pub": row[1],
             "x25519_priv": row[2],
             "mlkem_priv": row[3],
+            "ed25519_pub": row[4],
+            "ed25519_priv": row[5],
+            "mldsa_pub": row[6],
+            "mldsa_priv": row[7],
+        }
+    if row:
+        # Alte Zeile ohne Ed25519/mldsa -> nachgenerieren
+        import oqs
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        ed_pub_hex = row[4]
+        ed_priv_hex = row[5]
+        mldsa_pub_hex = row[6]
+        mldsa_priv_hex = row[7]
+
+        with conn:
+            if not (ed_pub_hex and ed_priv_hex):
+                ed_priv = Ed25519PrivateKey.generate()
+                ed_pub = ed_priv.public_key().public_bytes(
+                    serialization.Encoding.Raw, serialization.PublicFormat.Raw
+                )
+                ed_priv_raw = ed_priv.private_bytes(
+                    serialization.Encoding.Raw,
+                    serialization.PrivateFormat.Raw,
+                    serialization.NoEncryption(),
+                )
+                ed_pub_hex = ed_pub.hex()
+                ed_priv_hex = ed_priv_raw.hex()
+                conn.execute(
+                    "UPDATE mail_keys SET ed25519_pub = ?, ed25519_priv = ? WHERE uuid = ?",
+                    (ed_pub_hex, ed_priv_hex, uuid),
+                )
+            if not (mldsa_pub_hex and mldsa_priv_hex):
+                mldsa = oqs.Signature("ML-DSA-65")
+                mldsa_pub = mldsa.generate_keypair()  # Rueckgabe = Pubkey
+                mldsa_priv_hex = mldsa.export_secret_key().hex()
+                mldsa_pub_hex = mldsa_pub.hex()
+                conn.execute(
+                    "UPDATE mail_keys SET mldsa_pub = ?, mldsa_priv = ? WHERE uuid = ?",
+                    (mldsa_pub_hex, mldsa_priv_hex, uuid),
+                )
+
+        return {
+            "x25519_pub": row[0],
+            "mlkem_pub": row[1],
+            "x25519_priv": row[2],
+            "mlkem_priv": row[3],
+            "ed25519_pub": ed_pub_hex,
+            "ed25519_priv": ed_priv_hex,
+            "mldsa_pub": mldsa_pub_hex,
+            "mldsa_priv": mldsa_priv_hex,
         }
 
-    # Neu generieren
+    # Neu generieren (X25519 + ML-KEM + Ed25519 + ML-DSA)
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    ed_priv = Ed25519PrivateKey.generate()
+    ed_pub = ed_priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    ed_priv_raw = ed_priv.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+    mldsa = oqs.Signature("ML-DSA-65")
+    mldsa_pub = mldsa.generate_keypair()
+    mldsa_priv_raw = mldsa.export_secret_key()
     x_priv = X25519PrivateKey.generate()
     x_pub = x_priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -551,23 +661,36 @@ def get_or_create_mail_keys(uuid: str) -> dict:
         "mlkem_pub": mlkem_pub.hex(),
         "x25519_priv": x_priv_raw.hex(),
         "mlkem_priv": mlkem_priv.hex(),
+        "ed25519_pub": ed_pub.hex(),
+        "ed25519_priv": ed_priv_raw.hex(),
+        "mldsa_pub": mldsa_pub.hex(),
+        "mldsa_priv": mldsa_priv_raw.hex(),
     }
     with conn:
         conn.execute(
-            "INSERT INTO mail_keys (uuid, x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_keys (uuid, x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
+            "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (uuid, keys["x25519_pub"], keys["mlkem_pub"],
-             keys["x25519_priv"], keys["mlkem_priv"], time.time()),
+             keys["x25519_priv"], keys["mlkem_priv"],
+             keys["ed25519_pub"], keys["ed25519_priv"],
+             keys["mldsa_pub"], keys["mldsa_priv"], time.time()),
         )
     logger.info(f"Mail-Schluessel generiert fuer #{uuid[:8]}")
     return keys
 
 
 def get_mail_keys(uuid: str) -> dict:
-    """Laedt die Mail-Schluessel eines Clients (oder None)."""
+    """Laedt die Mail-Schluessel eines Clients (oder None).
+
+    Reine Lese-Variante — generiert KEINE Schluessel. Signatur-Spalten
+    (ed25519, mldsa) koennen bei alten Zeilen None sein; der Aufrufer
+    muss damit umgehen koennen.
+    """
     conn = get_db()
     row = conn.execute(
-        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv "
+        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
+        "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv "
         "FROM mail_keys WHERE uuid = ?",
         (uuid,),
     ).fetchone()
@@ -578,4 +701,8 @@ def get_mail_keys(uuid: str) -> dict:
         "mlkem_pub": row[1],
         "x25519_priv": row[2],
         "mlkem_priv": row[3],
+        "ed25519_pub": row[4],
+        "ed25519_priv": row[5],
+        "mldsa_pub": row[6],
+        "mldsa_priv": row[7],
     }
