@@ -121,7 +121,10 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         q = parse_qs(query)
         admin_token_value = (q.get("admin", [""])[0] or "")
     # Admin: Cookie (bevorzugt) ODER Token in URL (Fallback)
-    admin = forum.is_admin_cookie(admin_cookie) or forum.is_admin(admin_token_value)
+    admin = (
+        forum.is_admin_cookie(admin_cookie, client_id=client_id)
+        or forum.is_admin(admin_token_value)
+    )
 
     if path == "/":
         return render_landing(address, request_line)
@@ -142,7 +145,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 "<h1>Nicht erlaubt</h1><p>Token ungueltig.</p>",
             )
         cookie_value = forum.admin_login(admin_token_value)
-        forum._store_admin_session(cookie_value)
+        forum._store_admin_session(cookie_value, client_id=client_id)
         return (
             b"REDIRECT:/forum\nSET_ADMIN:"
             + cookie_value.encode("utf-8")

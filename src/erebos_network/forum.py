@@ -300,11 +300,16 @@ def is_admin(token: Optional[str]) -> bool:
     return bool(token) and token == admin_token()
 
 
-def is_admin_cookie(cookie_value: str) -> bool:
+def is_admin_cookie(cookie_value: str, client_id: str = "") -> bool:
     """Prueft, ob ein Cookie-Wert ein gueltiges Admin-Cookie ist.
 
-    Hinweis: Der Cookie-Wert ist ein Secret, das bei admin_login()
-    generiert wurde. Wir speichern ihn in forum.json["admin_sessions"].
+    Der Cookie-Wert ist ein Secret, das bei admin_login() generiert
+    wurde. Wir speichern ihn in forum.json["admin_sessions"].
+
+    Wenn client_id angegeben ist, muss die Session an genau diese
+    client_id gebunden sein (Schutz gegen Cookie-Diebstahl). Wenn
+    client_id leer ist, wird die Bindung nicht geprueft
+    (Backward-Compat).
     """
     if not cookie_value:
         return False
@@ -317,16 +322,25 @@ def is_admin_cookie(cookie_value: str) -> bool:
         del sessions[cookie_value]
         save_forum(data)
         return False
+    # Client-Bindung pruefen
+    bound_client = sess.get("client_id", "")
+    if bound_client and client_id and bound_client != client_id:
+        logger.warning(
+            f"Admin-Cookie fuer fremden Client verworfen "
+            f"(bound={bound_client[:8]}..., current={client_id[:8]}...)"
+        )
+        return False
     return True
 
 
-def _store_admin_session(cookie_value: str) -> None:
+def _store_admin_session(cookie_value: str, client_id: str = "") -> None:
     data = load_forum()
     if "admin_sessions" not in data:
         data["admin_sessions"] = {}
     data["admin_sessions"][cookie_value] = {
         "created_at": time.time(),
         "expires_at": time.time() + ADMIN_COOKIE_TTL_SECONDS,
+        "client_id": client_id,
     }
     save_forum(data)
 
