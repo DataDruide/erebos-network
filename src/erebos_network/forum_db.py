@@ -771,6 +771,120 @@ def get_or_create_mail_keys(uuid: str) -> dict:
     return keys
 
 
+def rotate_mail_keys(uuid: str) -> dict:
+    """Erzeugt einen neuen Key-Satz fuer uuid (Key-Rotation).
+
+    Nutzt exakt dieselbe Krypto-API wie get_or_create_mail_keys:
+        - X25519: cryptography.hazmat
+        - ML-KEM-1024: oqs.KeyEncapsulation("ML-KEM-1024")
+        - Ed25519: cryptography.hazmat
+        - ML-DSA-65: oqs.Signature("ML-DSA-65")
+
+    Der alte Satz bleibt in mail_key_history erhalten (fuer Verify alter
+    Mails), wird aber als revoked markiert:
+        revoked_at = now, superseded_by = "v(N+1)".
+
+    Returns:
+        dict mit den NEUEN Keys (gleiche Felder wie get_or_create_mail_keys)
+
+    Raises:
+        ValueError: wenn uuid keine aktiven mail_keys hat
+    """
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT key_version FROM mail_keys WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Keine mail_keys fuer uuid={uuid[:8]}")
+
+    old_version = row[0] or 1
+    new_version = old_version + 1
+    now = time.time()
+
+    # --- Neuen Key-Satz erzeugen (identisch zu get_or_create_mail_keys) ---
+    x_priv = X25519PrivateKey.generate()
+    x_pub = x_priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    x_priv_raw = x_priv.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+
+    mlkem = oqs.KeyEncapsulation("ML-KEM-1024")
+    mlkem_pub = mlkem.generate_keypair()
+    mlkem_priv = mlkem.export_secret_key()
+
+    ed_priv = Ed25519PrivateKey.generate()
+    ed_pub = ed_priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    ed_priv_raw = ed_priv.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+
+    mldsa = oqs.Signature("ML-DSA-65")
+    mldsa_pub = mldsa.generate_keypair()
+    mldsa_priv_raw = mldsa.export_secret_key()
+
+    keys = {
+        "x25519_pub": x_pub.hex(),
+        "mlkem_pub": mlkem_pub.hex(),
+        "x25519_priv": x_priv_raw.hex(),
+        "mlkem_priv": mlkem_priv.hex(),
+        "ed25519_pub": ed_pub.hex(),
+        "ed25519_priv": ed_priv_raw.hex(),
+        "mldsa_pub": mldsa_pub.hex(),
+        "mldsa_priv": mldsa_priv_raw.hex(),
+        "key_version": new_version,
+        "valid_from": now,
+        "revoked_at": None,
+        "superseded_by": None,
+    }
+
+    with conn:
+        # 1) Alte Version in History als revoked markieren
+        conn.execute(
+            "UPDATE mail_key_history SET revoked_at = ?, superseded_by = ? "
+            "WHERE uuid = ? AND key_version = ?",
+            (now, f"v{new_version}", uuid, old_version),
+        )
+        # 2) Neuen Satz in mail_keys eintragen
+        conn.execute(
+            "UPDATE mail_keys SET "
+            "x25519_pub = ?, mlkem_pub = ?, x25519_priv = ?, mlkem_priv = ?, "
+            "ed25519_pub = ?, ed25519_priv = ?, mldsa_pub = ?, mldsa_priv = ?, "
+            "key_version = ?, valid_from = ?, revoked_at = NULL, superseded_by = NULL "
+            "WHERE uuid = ?",
+            (keys["x25519_pub"], keys["mlkem_pub"],
+             keys["x25519_priv"], keys["mlkem_priv"],
+             keys["ed25519_pub"], keys["ed25519_priv"],
+             keys["mldsa_pub"], keys["mldsa_priv"],
+             new_version, now, uuid),
+        )
+        # 3) Neue Version in History als aktiv eintragen
+        conn.execute(
+            "INSERT INTO mail_key_history "
+            "(uuid, key_version, x25519_pub, mlkem_pub, ed25519_pub, mldsa_pub, "
+            "valid_from, revoked_at, superseded_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+            (uuid, new_version, keys["x25519_pub"], keys["mlkem_pub"],
+             keys["ed25519_pub"], keys["mldsa_pub"], now),
+        )
+
+    logger.info(f"mail_keys rotiert: uuid={uuid[:8]} v{old_version} -> v{new_version}")
+    return keys
+
+
 def get_mail_keys(uuid: str) -> dict:
     """Laedt die Mail-Schluessel eines Clients (oder None).
 
