@@ -2,6 +2,8 @@ services:
   peer1:
     build: .
     command: --peer --peer-port 9999 --ack-cover -v
+    volumes:
+      - ./erebos_keys:/app/erebos_keys:ro
     environment:
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
       - EREBOS_PEER_HOST=0.0.0.0
@@ -15,6 +17,8 @@ services:
   peer2:
     build: .
     command: --peer --peer-port 9998 --ack-cover -v
+    volumes:
+      - ./erebos_keys:/app/erebos_keys:ro
     environment:
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
       - EREBOS_PEER_HOST=0.0.0.0
@@ -28,6 +32,8 @@ services:
   peer3:
     build: .
     command: --peer --peer-port 9997 --ack-cover -v
+    volumes:
+      - ./erebos_keys:/app/erebos_keys:ro
     environment:
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
       - EREBOS_PEER_HOST=0.0.0.0
@@ -41,6 +47,8 @@ services:
   proxy:
     build: .
     command: --proxy --proxy-port 4448 -v
+    volumes:
+      - ./erebos_keys:/app/erebos_keys:ro
     environment:
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
       - EREBOS_PROXY_BIND=0.0.0.0
@@ -55,6 +63,7 @@ services:
     build: .
     volumes:
       - hs-keys:/root/.erebos
+      - ./erebos_keys:/app/erebos_keys:ro
       - ./wiki.json:/app/wiki.json:ro
       - ./forum.db:/app/forum.db
     environment:

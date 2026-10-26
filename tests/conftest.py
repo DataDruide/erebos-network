@@ -36,13 +36,21 @@ def _write_x25519_pair(keys_dir: Path, name: str) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def generate_test_keys():
-    """Erzeugt X25519-Keypairs für peer1..peer3 (session-scoped, autouse).
+    """Stellt sicher, dass X25519-Keypairs fuer peer1..peer3 existieren.
 
-    Überschreibt vorhandene Dateien IMMER — falls vorherige Läufe
-    inkonsistente Zufallsbytes hinterlassen haben.
+    Ueberschreibt vorhandene Dateien NICHT — sonst werden bei jedem
+    pytest-Lauf die Keys neu generiert, was den Docker-Betrieb
+    zerschiessen wuerde (Proxy und Peers haetten unterschiedliche
+    Keys -> Onion-Tunnel bricht mit InvalidTag).
+
+    Zum Regenerieren: Dateien loeschen, dann pytest laufen lassen.
     """
     KEYS_DIR.mkdir(exist_ok=True)
     for i in (1, 2, 3):
+        priv_path = KEYS_DIR / f"peer{i}_x25519"
+        pub_path = KEYS_DIR / f"peer{i}_x25519.pub"
+        if priv_path.exists() and pub_path.exists():
+            continue  # bestehende Keys behalten
         _write_x25519_pair(KEYS_DIR, f"peer{i}")
     yield
 
