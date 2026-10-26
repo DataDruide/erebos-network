@@ -281,9 +281,38 @@ class ErebosSocks5Server:
         self.entry_host = cfg.entry_host
 
     def _select_three_hops(self) -> list[str]:
-        """Wählt 3 Peers aus dem Pool (delegiert an freie Funktion)."""
+        """Wählt 3 Peers aus dem Pool (delegiert an freie Funktion).
+
+        Peer-Diversität (opt-in via EREBOS_STRICT_DIVERSITY=1):
+        Die drei Hops müssen unterschiedliche IPs haben. In Docker
+        ist das immer der Fall (172.20.0.10/11/12). In echten
+        Netzwerken verhindert es, dass ein Angreifer alle Hops
+        aus einem Subnetz kontrolliert.
+        """
+        import os as _os
         pool = self.config.peer_pool
-        hops = select_three_hops(pool, self.config.entry_strategy, self._rr_offset)
+        strict = _os.environ.get("EREBOS_STRICT_DIVERSITY") == "1"
+
+        if strict:
+            # Alle Kombinationen durchprobieren, erste mit
+            # unterschiedlichen IPs nehmen.
+            from itertools import combinations
+            from .peers_config import peer_host
+            for combo in combinations(pool, 3):
+                ips = {peer_host(p) for p in combo}
+                if len(ips) == 3:
+                    hops = list(combo)
+                    break
+            else:
+                # Keine Kombination mit 3 unterschiedlichen IPs
+                hops = select_three_hops(
+                    pool, self.config.entry_strategy, self._rr_offset
+                )
+        else:
+            hops = select_three_hops(
+                pool, self.config.entry_strategy, self._rr_offset
+            )
+
         if self.config.entry_strategy == "round_robin" and len(pool) >= 3:
             self._rr_offset = (self._rr_offset + 1) % len(pool)
         return hops
@@ -612,6 +641,12 @@ class ErebosSocks5Server:
                                     if len(resp) < 3:
                                         continue
                                     sid = _struct.unpack(">H", resp[:2])[0]
+                                    # Cover-Traffic (stream_id=0xFFFF) verwerfen
+                                    if sid == 0xFFFF:
+                                        logger.info(
+                                            f"[{conn_id}] Cover-Traffic empfangen (E2E-Phase), verworfen"
+                                        )
+                                        continue
                                     flag = resp[2]
                                     if sid == stream_id and flag == E2E_FLAG_KEY_RESP:
                                         e2e_key = e2e_client.process_key_response(resp[3:])
@@ -665,6 +700,12 @@ class ErebosSocks5Server:
                                             continue
                                         import struct as _struct
                                         resp_stream_id = _struct.unpack(">H", resp[:2])[0]
+                                        # Cover-Traffic (stream_id=0xFFFF) verwerfen
+                                        if resp_stream_id == 0xFFFF:
+                                            logger.info(
+                                                f"[{conn_id}] Cover-Traffic empfangen, verworfen"
+                                            )
+                                            continue
                                         resp_e2e_flag = resp[2]
                                         resp_payload = resp[3:]
                                         # Nur Antworten fuer die EIGENE Stream-ID akzeptieren

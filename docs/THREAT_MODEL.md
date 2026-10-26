@@ -1,347 +1,104 @@
-# Erebos Network - Bedrohungsmodell
+# Erebos Bedrohungsmodell
 
-Version: 1.0
-Status: Prototyp
+Version: 2.0
+Status: Forschungsprototyp
 
-## Angreifer-Modelle
+Dieses Dokument beschreibt, was Erebos schuetzt und was nicht.
+Es ist bewusst ehrlich -- Erebos ist ein Forschungsprototyp, kein
+Produktions-Anonymitaetsnetzwerk.
 
-### 1. Passiver Netzwerk-Beobachter
+## Was Erebos schuetzt
 
-Faehigkeit: Sieht Traffic zwischen Knoten.
+### 1. Inhalt (Ende-zu-Ende-Verschluesselung)
 
-Abwehr:
-- Threefish-512 verschluesselt alle Nachrichten
-- Padding macht alle Nachrichten gleich gross
-- Cover-Traffic verschleiert echte Nutzung
+- Schutz gegen: Jeden Peer im Pfad, den Rendezvous-Punkt, den
+  Proxy, den Hidden-Service-Container.
+- Mechanismus: X25519 + ML-KEM-1024 (Hybrid-KEM) +
+  ChaCha20-Poly1305. Schluessel nur zwischen Client und Hidden
+  Service (E2E_KEY_INIT / E2E_KEY_RESP).
+- Grenze: Inhalt geschuetzt, Metadaten nicht.
 
-### 2. Aktiver Netzwerk-Angreifer
+### 2. Lokale Angreifer (einzelne Peers)
 
-Faehigkeit: Kann Traffic modifizieren.
+- Schutz gegen: Einen Angreifer, der EINEN Peer kontrolliert.
+- Mechanismus: 3-Hop-Onion-Routing. Jeder Hop sieht nur
+  Vorgaenger und Nachfolger.
+- Grenze: Ein Angreifer, der ZWEI Peers kontrolliert, kann den
+  Pfad rekonstruieren.
 
-Abwehr:
-- Ende-zu-Ende-Verschluesselung
-- SLH-DSA-Signaturen
-- Mixnet-Delays
+### 3. DHT-Integritaet
 
-### 3. Globaler Beobachter
+- Schutz gegen: Gefaelschte Descriptors.
+- Mechanismus: Ed25519-Signaturpruefung in
+  DistributedDescriptorStore._verify_descriptor_value.
+- Grenze: Ein Angreifer mit gueltigem Private Key (Key-Kompromitt)
+  wird nicht erkannt.
 
-Faehigkeit: Sieht alle Knoten gleichzeitig.
+### 4. Web-Schicht (Forum)
 
-Abwehr:
-- Mixnet mit Batching + Delays
-- Cover-Traffic
-- Timing-Korrelation schwer
-
-### 4. Sybil-Angreifer
-
-Faehigkeit: Betreibt viele Knoten.
-
-Abwehr:
-- Proof-of-Work
-- Reputation + Decay
-- Konsens mit Quorum
-
-### 5. Quanten-Computer
-
-Faehigkeit: Bricht klassische Krypto (Shor's Algorithmus), insbesondere
-Harvest-Now-Decrypt-Later auf aufgezeichnete Transport-Sessions.
-
-Abwehr:
-- Transport-Handshake: Hybrid X25519 + ML-KEM-1024 (NIST Level 5)
-- Paket-Signaturen: SLH-DSA-SHA2-256s
-- Paket-Verschluesselung: Threefish-512 (256-Bit PQ)
-- Session-Key = HKDF-SHA256(x25519_shared || mlkem_shared)
-
-Grenzen:
-- Transport-Signaturen sind Ed25519 (klassisch). Ein Quanten-
-  Computer koennte eine Session faelschly signieren, aber NICHT
-  eine aufgezeichnete Session rueckwirkend entschluesseln, weil
-  der Session-Key einen ephemeren X25519-Anteil hat.
-- Der Vertraulichkeits-Anteil des Handshakes ist PQ, der
-  Authentizitaets-Anteil klassisch.
-
-
-### 7. Server-Timing-Angriff
-
-Faehigkeit: Server korreliert Anfragen zeitlich.
-
-Abwehr:
-- Client-Hygiene: Timing-Jitter (0-2000ms)
-- Request-Padding (1024B-Bloecke)
-- Rate-Limiting (60/min)
-
-### 8. DoS-Angriff (Descriptor Flood)
-
-Faehigkeit: Flutet Netzwerk mit Descriptors.
-
-Abwehr:
-- Descriptor-Groessen-Limit (64KB)
-- Pro-Peer-Limit (100)
-- Total-Limit (10K)
-- Memory-Limit (10MB/Peer)
-- TTL-Cleanup
-
-### 9. Mixnode-Adversaer
-
-Faehigkeit: Bösartige Mixnodes korrelieren Traffic.
-
-Abwehr:
-- alpha-SS Pfad-Auswahl
-- K-HF (K-Highest-Reputation-First)
-- K/W (Reputation-gewichtet)
-- Reduziert Angreifer-Impact um bis zu 80%
-
-
-### 10. Exit-Gateway-Angreifer
-
-Faehigkeit: Sieht Traffic am Exit-Gateway.
-
-Abwehr:
-- End-to-End Modus (kein Exit noetig)
-- Hidden Services (beidseitig anonym)
-- Mixnet schuetzt auch Exit-Traffic
-
-### 11. Framing-Angreifer
-
-Faehigkeit: Low-Stake-Nodes beschaedigen High-Reputation-Nodes.
-
-Abwehr:
-- VRF-Reputation (Hash-Commitments)
-- Replay-Schutz
-- Konfidenz-Metrik
-- Min. verifizierte Ratings fuer Trust
-
-### 12. Hidden-Service-Angreifer
-
-Faehigkeit: Kompromittiert HSDir, deanonymisiert Service.
-
-Abwehr:
-- Rendezvous-Punkte (kein direkter Kontakt)
-- Introduction-Points (3+ pro Service)
-- PQ-Krypto fuer Descriptor
-- TTL-basierte Rotation
-
-### 13. Fingerprinting-Angreifer
-
-Faehigkeit: Erkennt Anwendung an Traffic-Mustern.
-
-Abwehr:
-- Size-Noise (zufaellige Payload-Groessen)
-- Protocol-Cover (HTTP/HTTPS/DNS/NTP/QUIC)
-- Timing-Noise (0-100ms)
-- Cover-Messages auf App-Ebene
-
-
-### 14. Eclipse-Angreifer
-
-Faehigkeit: Flutet Routing-Tabelle mit bösartigen Peers.
-
-Abwehr:
-- Subnetz-Diversity (max. 2 Peers pro /24)
-- Loopback/Link-Local exempt
-- Angreifer braucht 50+ VPS
-
-### 15. Descriptor-Flood-Angreifer
-
-Faehigkeit: Flutet HSDirs mit Fake-Descriptors.
-
-Abwehr:
-- Größen-Limit (64 KB)
-- Pro-Service-Limit (10)
-- Global-Limit (10.000)
-- Rate-Limit (5/min)
-- Proof-of-Work
-- TTL-Cleanup
-
-### 16. Chain-Reorg-Angreifer
-
-Faehigkeit: Rollt Monero-Chain zurück (18-Block-Reorg 2025).
-
-Abwehr:
-- Chain-Height-Tracking
-- Reorg-Detection
-- Block-Hash-Mismatch-Check
-- Payment-Invalidierung
-- 20/30 Bestätigungen
-
-
-### 17. ML-Correlation-Angreifer
-
-Faehigkeit: ML-basierte Traffic-Correlation (RECTor).
-
-Abwehr:
-- Predictive Perturbation (Augur)
-- TrafficPredictor (Markov/Transformer)
-- RateShaper (Token-Bucket)
-- F1: 0.9756 -> 0.0114
-
-### 18. Shape-Analyse-Angreifer
-
-Faehigkeit: Shape-basierte Flow-Correlation (Nym).
-
-Abwehr:
-- Flow-Splitting (S=4)
-- Cover-Injection (I=2.0)
-- Markov-Paket-Allocation (p=0.9)
-- PR-AUC: 0.9998 -> 0.0699
-
-### 19. Intersection-Angreifer
-
-Faehigkeit: Deanonymisiert Hidden Service durch Intersection.
-
-Abwehr:
-- Intro-Point-Rotation (18-24h)
-- Health-Rotation (>=3 Fehler)
-- Age-Rotation (>24h)
-- Intersection-Detection (gleicher Peer in N Sessions)
-- Exponential Backoff
-
-### 20. IoT-Sybil-Angreifer
-
-Faehigkeit: Botnetz aus 100k IoT-Geraeten (Kimwolf).
-
-Abwehr:
-- Dynamic PoW (Difficulty skaliert)
-- IP-Rate-Limit (5/Stunde)
-- Subnetz-Rate-Limit (20/Stunde)
-- Attack-Detection (>100/min)
-- Reputation-Bypass
-
-
-### 21. Website-Fingerprinting-Angreifer
-
-Faehigkeit: Erkennt Website an Traffic-Mustern (FMWF).
-
-Abwehr:
-- TGTO (Template-Guided Obfuscation)
-- TraceMorpher (Resampling + Scaling)
-- SplashInjector (kurze Perturbationen)
-- WF: 96% -> 36% (60% Reduktion)
-- FRUGAL: ASR 2.68% bei 30% Overhead
-
-### 22. Monero-Timing-Angreifer
-
-Faehigkeit: OSPEAD MAP-Decoder (1-in-4.2).
-
-Abwehr:
-- Poisson-Embargo (2% -> 0.37%)
-- OSPEAD-Decoys (1-in-4.2 -> ~1-in-16)
-- Peer-Fallback (keine stille Degradierung)
-- Cover-Txs (10-20%)
-- FCMP++-Ready (100M+ Anonymitaet)
-
-### 23. HS-Fingerprinting-Angreifer
-
-Faehigkeit: BurstToCell-Attn (98.1% Accuracy).
-
-Abwehr:
-- BurstBreaker (Threshold=5, Padding=3)
-- SplashHS (1-4 Bloecke, 64-128B)
-- ResponsePadding (128B)
-- Break-Pad: TPR 76.84% bei 29% Overhead
-
-### 24. TCP-Header-Tagging-Angreifer
-
-Faehigkeit: Versteckt Tags in TCP/IP-Headern.
-
-Abwehr:
-- IPIDNormalizer (Randomisierung)
-- TimestampScrubber (untere Bits)
-- WindowNormalizer (Standardwert)
-- OptionScrubber (Optionen entfernt)
-- TLSRecordPadder (TLS-Padding)
-
-### 6. Zensur-Angreifer
-
-Faehigkeit: Blockiert Netzwerk.
-
-Abwehr:
-- I2P dezentral
-- Tor mit Bridges (geplant)
-- Cover-Traffic als HTTP/HTTPS
-
-### 25. Onion-Relay-Peer
-
-Faehigkeit: Betreibt einen Relay-Knoten und sieht den Verkehr, der
-durch ihn laeuft.
-
-Abwehr:
-- Onion-Layer: Ziel verschluesselt mit dem Public-Key des Exit-Knotens
-- Relay oeffnet nur seine eigene X25519-Schicht
-- Relay sieht ausschliesslich die Adresse des naechsten Knotens
-- Relay sieht NICHT das Ziel, NICHT den Ursprung, NICHT die Hop-Anzahl
-- Transport-Tunnel-Rekonstruktion: Relay baut einen frischen
-  X25519-Handshake zum Nachbarn (kein gemeinsamer Key mit Client)
-- Padding auf 256-Byte-Bloecke verhindert Ziel-Laengen-Leak
-
-Grenzen:
-- Relay kennt die Adresse des naechsten Hops (Topologie-Leak lokal)
-- Zwei kollaborierende Relays koennen Verbindung rekonstruieren
-- Timing-Korrelation bleibt moeglich (siehe 3. Globaler Beobachter)
-
-### 26. Ende-zu-Ende-Beobachter auf einem Hop
-
-Faehigkeit: Schneidet einen einzelnen Transport-Tunnel zwischen
-zwei Peers mit, ohne die Endpunkte zu kontrollieren.
-
-Abwehr:
-- ChaCha20-Poly1305 pro Transport-Tunnel
-- Ephemere X25519-Keys pro Handshake -> Forward Secrecy
-- HKDF-SHA256 Schluesselableitung mit festem Info-Label
-- Ed25519-Signatur des X25519-Pubkeys (Authentizitaet)
-
-Was der Beobachter sieht:
-- Frame-Typen (FRAME_RELAY/FRAME_OPEN/FRAME_DATA) im Klartext
-- Frame-Groessen (aber Layer sind gepolstert)
-- Timing und Frequenz der Frames
-
-Was er NICHT sieht:
-- Ziel
-- Ursprungs-Client
-- Anzahl Hops
-- Inhalt der Nutzdaten
-
-### 27. Layer-Laengen-Analyse
-
-Faehigkeit: Analysiert die Groesse verschluesselter Onion-Layer, um
-auf die Laenge des Zielnamens zu schliessen.
-
-Abwehr:
-- Padding auf 256-Byte-Bloecke (BLOCK_SIZE = 256)
-- 4-Byte-Laengenpraefix im Klartext verhindert Fehlinterpretation
-- Schichtlaenge = 60 + N * 256 Byte, N >= 1
-- Alle Ziele bis 252 Byte Zielname -> identische Layer-Laenge
-
-Beispiel:
-
-| Zielname-Laenge | Layer-Laenge |
-|-----------------|--------------|
-| 1-252 Byte      | 316 Byte     |
-| 253-508 Byte    | 572 Byte     |
-| 509-764 Byte    | 828 Byte     |
-
-Grenzen:
-- Sehr lange Zielnamen (>252 Byte) haben eine unterscheidbare Klasse
-- Padding macht nur die LAENGE konstant, nicht das Timing
+- Schutz gegen: XSS, CSRF (SameSite), Clickjacking
+  (X-Frame-Options), MIME-Sniffing, Brute-Force (Login-Rate-Limit),
+  Session-Fixation (Rotation), Memory-DoS (Content-Length-Limit),
+  ReDoS (lineare Markdown-Verarbeitung).
+- Grenze: Kein HTTPS (nur ueber Erebos-Proxy sicher),
+  Admin-Token im Login-Aufruf sichtbar.
 
 ## Was Erebos NICHT schuetzt
 
-- Endpunkt-Kompromittierung
-- Nutzer-Fehler (Passwoerter, Metadaten)
-- Metadaten-Analyse
-- 0-Day-Exploits
-- Supply-Chain-Angriffe
-- Physical Access
+### 1. Globale Traffic-Analyse
 
-## Vergleich mit Tor/I2P
+- Angreifer: Globaler passiver Beobachter, der Entry- und
+  Exit-Traffic korreliert.
+- Warum nicht: Kein Mixing (wie Nym), keine adaptiven
+  Padding-Maschinen (wie Tor). 1024-Byte-Padding und 5s-Cover-
+  Traffic erschweren Timing-Korrelation, verhindern sie nicht.
+- Vergleich: Tor ist ebenfalls verwundbar. Nym behauptet Schutz,
+  aber IACR-2026 zeigt Shape-Angriff-Verwundbarkeit.
 
-| Angriff | Tor | I2P | Erebos |
-|---------|-----|-----|--------|
-| Passiver Beobachter | Ja | Ja | Ja |
-| Aktiver Angreifer | Ja | Ja | Ja |
-| Globaler Beobachter | Teilweise | Teilweise | Ja |
-| Sybil | Teilweise | Teilweise | Ja |
-| Quanten-Computer | Nein | Nein | Ja |
-| Zensur | Ja | Ja | Ja |
-| Onion-Relay-Peer | Ja | Nein | Ja |
-| Layer-Laengen-Analyse | Ja | Nein | Ja |
+### 2. Sybil-Angriffe
+
+- Angreifer: Kontrolliert viele Peers.
+- Warum nicht: Kein oekonomischer Sybil-Schutz (kein Staking).
+  Peer-Liste statisch. Peer-Diversitaet (EREBOS_STRICT_DIVERSITY=1)
+  verhindert nur, dass alle Hops aus EINEM Subnetz kommen.
+- Vergleich: Tor hat keinen Sybil-Schutz. Nym hat oekonomischen
+  Schutz, aber Framing-Angriffe bleiben moeglich.
+
+### 3. Rendezvous-Punkt-Kompromittierung
+
+- Angreifer: Kontrolliert den Rendezvous-Punkt (peer1).
+- Warum nicht: Der Rendezvous-Punkt sieht, welche .erebos-Adresse
+  mit welchem Client kommuniziert (Metadaten). Inhalt bleibt
+  geschuetzt (E2E).
+- Vergleich: Tor hat das gleiche Problem.
+
+### 4. Harvest-Now-Decrypt-Later
+
+- Angreifer: Zeichnet heute auf, entschluesselt in 10-20 Jahren.
+- Warum nicht: Erebos nutzt Hybrid-KEM (X25519 + ML-KEM-1024).
+  Post-quanten-sicher, solange ML-KEM-1024 haelt. Vorteil
+  gegenueber Tor (klassische Krypto).
+
+## Was Erebos besonders macht
+
+1. Post-Quanten-Krypto von Anfang an (Tor: klassisch, Nym: geplant).
+2. Kleine, verstaendliche Codebasis (debugbar in einer Session).
+3. Web-Community als Teil des Stacks (Forum, Accounts, Moderation).
+
+## Was Erebos NICHT ist
+
+- Kein Tor-Ersatz (kein Schutz gegen globale Traffic-Analyse).
+- Kein Nym-Ersatz (kein Mixing, kein Staking-Sybil-Schutz).
+- Kein Produktionsnetzwerk (17 Limitierungen, 13 geloest).
+
+## Empfehlung fuer Nutzer
+
+- Nur ueber den Erebos-Proxy nutzen (nicht direkt).
+- Nicht fuer sicherheitskritische Anwendungen.
+- Sicherheitsluecken an den Maintainer melden (SECURITY.md).
+
+## Referenzen
+
+- Tor: https://support.torproject.org/about/attacks-on-onion-routing/
+- Nym: https://nymtech.net/
+- Erebos: docs/known-limitations.md

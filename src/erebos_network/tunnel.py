@@ -47,7 +47,7 @@ MAX_FRAME = 65536
 #   1024 = Padding auf 1024-Byte-Grenzen (empfohlen)
 # Kann per Environment-Variable überschrieben werden:
 #   EREBOS_PADDING_BLOCK=1024 python -m erebos_network --proxy
-PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "256"))
+PADDING_BLOCK_SIZE = int(os.environ.get("EREBOS_PADDING_BLOCK", "1024"))
 
 # Frame-Typen (erstes Byte im entschluesselten Frame einer Tunnel-Session)
 
