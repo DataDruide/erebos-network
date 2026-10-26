@@ -72,6 +72,59 @@ def _page(title: str, address: str, body: str) -> bytes:
     return html.encode("utf-8")
 
 
+def render_welcome(address: str, client_id: str, request_line: str) -> bytes:
+    """Anonyme Begruessungsseite: UUID, Dienste, Status auf einen Blick."""
+    import hashlib as _hashlib
+    import uuid as _uuid
+
+    # Anonyme UUID aus client_id ableiten (deterministisch, nicht rueckfuehrbar)
+    if client_id:
+        # uuid5 mit fester Namespace -> deterministisch, aber ohne client_id
+        # nicht reproduzierbar. Die UUID ist NICHT die client_id.
+        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+    else:
+        anon_uuid = str(_uuid.uuid4())
+
+    short_id = anon_uuid[:8]
+
+    body = (
+        "<h1>Willkommen im Erebos-Netzwerk</h1>\n"
+        "<p>Du bist anonym verbunden. Diese Seite zeigt dir alles auf einen Blick.</p>\n"
+        "<h2>Deine anonyme Kennung</h2>\n"
+        f"<p><code>{_escape(anon_uuid)}</code></p>\n"
+        f"<p><small>Kurz-ID: <strong>#{_escape(short_id)}</strong> · "
+        "Diese Kennung ist nur fuer diese Verbindung gueltig und nicht "
+        "rueckfuehrbar auf deine IP oder Person.</small></p>\n"
+        "<h2>Verbindung</h2>\n"
+        "<ul>\n"
+        "  <li><strong>Status:</strong> Verbunden ueber Erebos-Netzwerk</li>\n"
+        "  <li><strong>Verschluesselung:</strong> Ende-zu-Ende (X25519 + ML-KEM-1024 + ChaCha20-Poly1305)</li>\n"
+        "  <li><strong>Routing:</strong> 3-Hop-Onion (Proxy &rarr; peer2 &rarr; peer3 &rarr; peer1 &rarr; Hidden Service)</li>\n"
+        "  <li><strong>Deine IP:</strong> fuer den Hidden Service nicht sichtbar</li>\n"
+        "</ul>\n"
+        "<h2>Verfuegbare Dienste</h2>\n"
+        "<ul>\n"
+        "  <li><a href=\"/wiki\"><strong>Hidden Wiki</strong></a> — Verzeichnis der Dienste</li>\n"
+        "  <li><a href=\"/forum\"><strong>Erebos Community</strong></a> — Forum mit Threads und Antworten</li>\n"
+        "  <li><a href=\"/regeln\"><strong>Regeln</strong></a> — was hier erlaubt ist und was nicht</li>\n"
+        "  <li><a href=\"/forum/health\"><strong>Health</strong></a> — Status des Dienstes</li>\n"
+        "</ul>\n"
+        "<h2>Deine Rechte</h2>\n"
+        "<ul>\n"
+        "  <li>Kein Login, kein Passwort, keine E-Mail-Adresse noetig.</li>\n"
+        "  <li>Keine personenbezogenen Daten werden gespeichert.</li>\n"
+        "  <li>Deine IP ist fuer den Hidden Service nicht sichtbar.</li>\n"
+        "  <li>Der Inhalt deiner Anfragen ist Ende-zu-Ende verschluesselt.</li>\n"
+        "</ul>\n"
+        f"<p><em>Deine Anfrage:</em> <code>{_escape(request_line)}</code></p>\n"
+        f"<p><small>Hidden-Service-Adresse: <code>{_escape(address)}</code></small></p>\n"
+        "<a class=\"btn\" href=\"/wiki\">Zur Hidden Wiki &rarr;</a>\n"
+        "<a class=\"btn\" href=\"/forum\">Zum Forum &rarr;</a>\n"
+        "<a class=\"btn\" href=\"/regeln\">Zu den Regeln &rarr;</a>\n"
+    )
+    return _page("Willkommen bei Erebos", address, body)
+
+
 def render_landing(address: str, request_line: str) -> bytes:
     body = (
         "<h1>Willkommen im Erebos-Netzwerk</h1>\n"
@@ -127,6 +180,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     )
 
     if path == "/":
+        return render_welcome(address, client_id, request_line)
+    if path == "/regeln":
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
