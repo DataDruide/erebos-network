@@ -9,11 +9,19 @@ import time
 import uuid
 from pathlib import Path
 from typing import Optional, Tuple
+
+from .forum_db import (
+    get_db as _get_db,
+    load_forum_from_db as _load_from_db,
+    save_forum_to_db as _save_to_db,
+    migrate_from_json as _migrate_from_json,
+)
 from urllib.parse import parse_qs
 
 logger = logging.getLogger(__name__)
 
-FORUM_PATH = Path("/app/forum.json")
+FORUM_JSON_PATH = Path("/app/forum.json")  # nur fuer Migration
+FORUM_PATH = FORUM_JSON_PATH  # Backward-Compat
 MAX_TITLE = 200
 MAX_AUTHOR = 60
 MAX_BODY = 4000
@@ -353,12 +361,27 @@ def _cleanup_admin_sessions(data: dict) -> None:
     }
 
 
+_MIGRATED = False
+
+
 def _ensure_structure(data: dict) -> dict:
+    global _MIGRATED
+    if not _MIGRATED:
+        try:
+            _migrate_from_json(FORUM_JSON_PATH)
+        except Exception as e:
+            logger.warning(f"Migration fehlgeschlagen: {e}")
+        _MIGRATED = True
     """Stellt sicher, dass admin_token, rate_log, categories vorhanden sind."""
     if "admin_token" not in data:
         data["admin_token"] = admin_token()
-    if "categories" not in data:
+    if not data.get("categories"):
+        # Keine Kategorien in DB -> Defaults anlegen
         data["categories"] = list(DEFAULT_CATEGORIES)
+        try:
+            save_forum(data)
+        except Exception as e:
+            logger.warning(f"Kategorien konnten nicht gespeichert werden: {e}")
     else:
         # Sicherstellen, dass jede Kategorie id und name hat
         data["categories"] = [
@@ -410,33 +433,22 @@ def _escape(text: str) -> str:
 
 
 def load_forum() -> dict:
-    """Laedt die Forum-Daten aus FORUM_PATH (oder initialisiert leer)."""
+    """Laedt die Forum-Daten aus SQLite (oder initialisiert leer)."""
     try:
-        if FORUM_PATH.exists():
-            data = json.loads(FORUM_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "threads" in data:
-                return _ensure_structure(data)
+        data = _load_from_db()
+        if isinstance(data, dict) and "threads" in data:
+            return _ensure_structure(data)
     except Exception as e:
-        logger.warning(f"Forum-JSON konnte nicht geladen werden: {e}")
+        logger.warning(f"Forum-DB konnte nicht geladen werden: {e}")
     return _ensure_structure({"threads": []})
 
 
 def save_forum(data: dict) -> bool:
-    """Schreibt die Forum-Daten nach FORUM_PATH.
-
-    Hinweis: Direkt-Schreiben (kein tmp+rename), weil forum.json als
-    Docker-Bind-Mount eingehaengt ist. rename() ueber die Mount-Grenze
-    hinweg schlaegt mit EXDEV/EBUSY fehl (macOS Docker Desktop).
-    """
+    """Schreibt die Forum-Daten nach SQLite (Transaktion)."""
     try:
-        FORUM_PATH.parent.mkdir(parents=True, exist_ok=True)
-        FORUM_PATH.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        return True
+        return _save_to_db(data)
     except Exception as e:
-        logger.error(f"Forum-JSON konnte nicht geschrieben werden: {e}")
+        logger.error(f"Forum-DB konnte nicht geschrieben werden: {e}")
         return False
 
 

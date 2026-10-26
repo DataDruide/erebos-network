@@ -38,3 +38,6 @@ cover-calibration.json
 traffic-stats*.json
 cover-analysis*.json
 .env
+forum.db
+forum.db-wal
+forum.db-shm
