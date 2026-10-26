@@ -240,6 +240,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     encrypted_fields=encrypted,
                     signatures=signatures,
                     sender_verified=False,  # wird beim Empfaenger verifiziert
+                    sender_key_version=my_keys.get("key_version", 1),
                 )
                 logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} PQ-verschluesselt gespeichert")
                 return b"REDIRECT:/mail"

@@ -147,7 +147,8 @@ CREATE TABLE IF NOT EXISTS mailboxes (
     signature_ed25519 TEXT,
     signature_mldsa TEXT,
     signature_mldsa_pub TEXT,
-    sender_verified INTEGER DEFAULT 0
+    sender_verified INTEGER DEFAULT 0,
+    sender_key_version INTEGER DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_mailboxes_owner ON mailboxes(owner_uuid);
@@ -211,6 +212,7 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
         ("signature_mldsa", "TEXT", "NULL"),
         ("signature_mldsa_pub", "TEXT", "NULL"),
         ("sender_verified", "INTEGER", "0"),
+        ("sender_key_version", "INTEGER", "1"),
     ]
     for name, typ, default in new_columns:
         if name not in existing:
@@ -548,7 +550,8 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
     rows = conn.execute(
         "SELECT id, sender_uuid, subject, body, created_at, read, "
         "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
-        "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified "
+        "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified, "
+        "sender_key_version "
         "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
         (owner_uuid, limit),
     ).fetchall()
@@ -569,6 +572,7 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
             "signature_mldsa": r[12],
             "signature_mldsa_pub": r[13],
             "sender_verified": bool(r[14]),
+            "sender_key_version": r[15] or 1,
         }
         for r in rows
     ]
@@ -576,7 +580,8 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
 
 def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
               encrypted: bool = False, encrypted_fields: dict = None,
-              signatures: dict = None, sender_verified: bool = False) -> bool:
+              signatures: dict = None, sender_verified: bool = False,
+              sender_key_version: int = 1) -> bool:
     """Speichert eine neue Mail (optional hybrid PQ-verschluesselt + signiert)."""
     conn = get_db()
     try:
@@ -585,15 +590,17 @@ def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
                 conn.execute(
                     "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, "
                     "created_at, encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
-                    "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified, "
+                    "sender_key_version) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (owner_uuid, sender_uuid, subject, body, time.time(), 1,
                      encrypted_fields["x25519_pub"], encrypted_fields["mlkem_ct"],
                      encrypted_fields["nonce"], encrypted_fields["ciphertext"],
                      (signatures or {}).get("ed25519", ""),
                      (signatures or {}).get("mldsa", ""),
                      (signatures or {}).get("mldsa_pub", ""),
-                     1 if sender_verified else 0),
+                     1 if sender_verified else 0,
+                     sender_key_version),
                 )
             else:
                 conn.execute(
