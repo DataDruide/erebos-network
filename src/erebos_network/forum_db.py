@@ -190,6 +190,7 @@ def get_db() -> sqlite3.Connection:
     _migrate_mailboxes(_conn)
     _migrate_mail_keys(_conn)
     _migrate_mail_key_history(_conn)
+    _migrate_incomplete_mail_keys(_conn)
     _backfill_key_history_privkeys(_conn)
     return _conn
 
@@ -335,34 +336,98 @@ def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_migration_running = False
+
+
+def _migrate_incomplete_mail_keys(conn: sqlite3.Connection) -> None:
+    """Ruft get_or_create_mail_keys fuer alle UUIDs mit unvollstaendigen Keys auf.
+
+    Idempotent. Reentrancy-Guard verhindert Endlosrekursion, weil
+    get_or_create_mail_keys intern get_db() aufruft.
+    """
+    global _migration_running
+    if _migration_running:
+        return
+    _migration_running = True
+    try:
+        rows = conn.execute(
+            "SELECT uuid FROM mail_keys "
+            "WHERE ed25519_pub IS NULL OR mldsa_pub IS NULL "
+            "   OR ed25519_priv IS NULL OR mldsa_priv IS NULL"
+        ).fetchall()
+        for (uuid,) in rows:
+            try:
+                get_or_create_mail_keys(uuid)
+                logger.info(f"mail_keys: {uuid[:8]} nachgeneriert")
+            except Exception as e:
+                logger.warning(f"mail_keys: {uuid[:8]} Migration fehlgeschlagen: {e}")
+    finally:
+        _migration_running = False
+
+
 def _backfill_key_history_privkeys(conn: sqlite3.Connection) -> None:
-    """Traegt die aktuellen mail_keys-Privkeys in die zugehoerige
-    mail_key_history-Zeile ein, falls sie dort fehlen.
+    """Stellt sicher, dass fuer jede vollstaendige mail_keys-Zeile ein
+    History-Eintrag mit Privkeys existiert.
+
+    - Wenn der History-Eintrag fehlt: INSERT (mit allen Pub+Privkeys).
+    - Wenn er existiert: UPDATE der Privkeys (COALESCE, idempotent).
 
     Idempotent. Betrifft nur die AKTIVE Version (key_version ==
     mail_keys.key_version), weil aeltere Versionen keine Privkeys
     mehr in mail_keys haben.
     """
     rows = conn.execute(
-        "SELECT m.uuid, m.key_version, m.x25519_priv, m.mlkem_priv, "
-        "m.ed25519_priv, m.mldsa_priv "
+        "SELECT m.uuid, m.key_version, m.x25519_pub, m.mlkem_pub, "
+        "m.ed25519_pub, m.mldsa_pub, "
+        "m.x25519_priv, m.mlkem_priv, m.ed25519_priv, m.mldsa_priv, "
+        "COALESCE(m.valid_from, m.created_at) "
         "FROM mail_keys m "
         "WHERE m.ed25519_priv IS NOT NULL AND m.mldsa_priv IS NOT NULL"
     ).fetchall()
+    inserted = 0
     updated = 0
     for r in rows:
-        conn.execute(
-            "UPDATE mail_key_history SET "
-            "x25519_priv = COALESCE(x25519_priv, ?), "
-            "mlkem_priv = COALESCE(mlkem_priv, ?), "
-            "ed25519_priv = COALESCE(ed25519_priv, ?), "
-            "mldsa_priv = COALESCE(mldsa_priv, ?) "
-            "WHERE uuid = ? AND key_version = ?",
-            (r[2], r[3], r[4], r[5], r[0], r[1]),
-        )
-        updated += conn.total_changes
+        # Existiert schon ein History-Eintrag fuer diese (uuid, version)?
+        exists = conn.execute(
+            "SELECT 1 FROM mail_key_history WHERE uuid = ? AND key_version = ?",
+            (r[0], r[1]),
+        ).fetchone()
+
+        if not exists:
+            # INSERT: komplette Zeile (Pub + Priv + Valid_from)
+            try:
+                conn.execute(
+                    "INSERT INTO mail_key_history "
+                    "(uuid, key_version, x25519_pub, mlkem_pub, ed25519_pub, mldsa_pub, "
+                    " x25519_priv, mlkem_priv, ed25519_priv, mldsa_priv, "
+                    " valid_from, revoked_at, superseded_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                    (r[0], r[1], r[2], r[3], r[4], r[5],
+                     r[6], r[7], r[8], r[9], r[10]),
+                )
+                inserted += 1
+            except Exception as e:
+                logger.warning(
+                    f"mail_key_history: INSERT fuer {r[0][:8]} v{r[1]} "
+                    f"fehlgeschlagen: {e}"
+                )
+        else:
+            # UPDATE: nur die Privkeys (idempotent via COALESCE)
+            conn.execute(
+                "UPDATE mail_key_history SET "
+                "x25519_priv = COALESCE(x25519_priv, ?), "
+                "mlkem_priv = COALESCE(mlkem_priv, ?), "
+                "ed25519_priv = COALESCE(ed25519_priv, ?), "
+                "mldsa_priv = COALESCE(mldsa_priv, ?) "
+                "WHERE uuid = ? AND key_version = ?",
+                (r[6], r[7], r[8], r[9], r[0], r[1]),
+            )
+            updated += conn.total_changes
+
+    if inserted:
+        logger.info(f"mail_key_history: {inserted} Eintraege angelegt")
     if updated:
-        logger.info(f"mail_key_history: Privkeys fuer aktive Version nachgetragen")
+        logger.info(f"mail_key_history: {updated} Privkeys nachgetragen")
     conn.commit()
 
 
