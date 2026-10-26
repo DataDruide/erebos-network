@@ -205,6 +205,35 @@ E2E-decrypt muss groessere Payloads ermoeglichen (recv-Loop
 statt einzelnes `read()`). Erfordert Aenderungen am
 Tunnel- und E2E-Code.
 
+### 18. Login-Rate-Limit-Umgehung per Cookie-Reset (geloest)
+
+Bisher pruefte das Login-Rate-Limit nur pro Client-ID (Cookie).
+Ein Angreifer konnte den Cookie loeschen und ein frisches Limit
+bekommen.
+
+**Geloest:** GLOBAL_LOGIN_MAX_FAILURES=50 pro 5 Minuten. Ein
+globales Sicherheitsnetz zusaetzlich zum per-Client-Limit (5).
+Nach 50 Fehlversuchen ueber alle Clients hinweg wird jeder
+weitere Login-Versuch mit HTTP 429 blockiert.
+
+### 19. Admin-Cookie nicht an Client gebunden (geloest)
+
+Bisher funktionierte ein gestohlenes Admin-Cookie von jedem
+Client.
+
+**Geloest:** admin_sessions speichert client_id. is_admin_cookie
+prueft die Bindung. Ein Cookie von Client A funktioniert nicht
+bei Client B (HTTP 403 / "Nicht erlaubt").
+
+### 20. Kein globales HTTP-Request-Limit (geloest)
+
+Bisher gab es kein Limit fuer eingehende HTTP-Requests. Ein
+Angreifer konnte den Dienst mit vielen Requests fluten.
+
+**Geloest:** MAX_HTTP_REQUESTS_PER_WINDOW=500 pro 60s. Bei
+Ueberschreitung: HTTP 429. Der Check laeuft VOR dem
+Header-Lesen (verhindert Blockade durch riesige Header).
+
 ## Sicherheits-Haertung (OWASP-orientiert)
 
 ### Umgesetzt
