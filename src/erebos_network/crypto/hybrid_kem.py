@@ -433,3 +433,62 @@ def verify_mail(ed25519_pub: bytes, payload: bytes,
         return False
 
     return True
+
+# ============================================================
+# 3-Zustands-Verifikation (Rotation-aware)
+# ============================================================
+
+VERIFIED = "verified"                    # Signatur gueltig, aktuelle Version
+VERIFIED_OUTDATED = "verified_outdated"  # Signatur gueltig, aeltere Version
+VERIFY_FAILED = "failed"                 # Signatur ungueltig oder Version fehlt
+
+
+def verify_mail_with_status(
+    ed25519_pub: bytes,
+    payload: bytes,
+    signatures: dict,
+    mldsa_pub: bytes = None,
+    sender_key_version: int = None,
+    sender_current_version: int = None,
+) -> str:
+    """Verifiziert eine Mail und liefert einen 3-Zustands-String.
+
+    Args:
+        ed25519_pub:            32-Byte Ed25519 Public Key (der Version,
+                                mit der signiert wurde).
+        payload:                Signierte Bytes.
+        signatures:             dict mit "ed25519" (hex), "mldsa" (hex),
+                                "mldsa_pub" (hex, optional).
+        mldsa_pub:              ML-DSA-65 Public Key (bytes, 1952 B).
+        sender_key_version:     Die Version, mit der die Mail signiert
+                                wurde (aus mailboxes.sender_key_version).
+        sender_current_version: Die aktuell aktive Version des Senders
+                                (aus mail_keys.key_version).
+
+    Returns:
+        VERIFIED             - Signatur gueltig + aktuelle Version
+        VERIFIED_OUTDATED    - Signatur gueltig + aeltere Version
+        VERIFY_FAILED        - Signatur ungueltig oder Daten fehlen
+    """
+    # Erst die eigentliche kryptographische Pruefung
+    ok = verify_mail(
+        ed25519_pub=ed25519_pub,
+        payload=payload,
+        signatures=signatures,
+        mldsa_pub=mldsa_pub,
+    )
+    if not ok:
+        return VERIFY_FAILED
+
+    # Signatur ist kryptographisch gueltig.
+    # Wenn Versions-Info fehlt: als VERIFIED behandeln (rueckwaertskompatibel).
+    if sender_key_version is None or sender_current_version is None:
+        return VERIFIED
+
+    if sender_key_version == sender_current_version:
+        return VERIFIED
+    if sender_key_version < sender_current_version:
+        return VERIFIED_OUTDATED
+    # sender_key_version > sender_current_version -> unmoeglich (Mail aus
+    # der Zukunft) -> als VERIFY_FAILED behandeln.
+    return VERIFY_FAILED

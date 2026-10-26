@@ -123,6 +123,10 @@ CREATE TABLE IF NOT EXISTS mail_key_history (
     mlkem_pub TEXT NOT NULL,
     ed25519_pub TEXT,
     mldsa_pub TEXT,
+    x25519_priv TEXT,
+    mlkem_priv TEXT,
+    ed25519_priv TEXT,
+    mldsa_priv TEXT,
     valid_from REAL NOT NULL,
     revoked_at REAL,
     superseded_by TEXT,
@@ -186,6 +190,7 @@ def get_db() -> sqlite3.Connection:
     _migrate_mailboxes(_conn)
     _migrate_mail_keys(_conn)
     _migrate_mail_key_history(_conn)
+    _backfill_key_history_privkeys(_conn)
     return _conn
 
 
@@ -213,6 +218,7 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
         ("signature_mldsa_pub", "TEXT", "NULL"),
         ("sender_verified", "INTEGER", "0"),
         ("sender_key_version", "INTEGER", "1"),
+        ("recipient_key_version", "INTEGER", "1"),
     ]
     for name, typ, default in new_columns:
         if name not in existing:
@@ -228,6 +234,41 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
 
 def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
     """Fuegt fehlende ed25519-Spalten zur mail_keys-Tabelle hinzu."""
+    # mail_key_history anlegen (idempotent, auch auf bestehender DB)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mail_key_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT NOT NULL,
+            key_version INTEGER NOT NULL,
+            x25519_pub TEXT NOT NULL,
+            mlkem_pub TEXT NOT NULL,
+            ed25519_pub TEXT,
+            mldsa_pub TEXT,
+            valid_from REAL NOT NULL,
+            revoked_at REAL,
+            superseded_by TEXT,
+            UNIQUE(uuid, key_version)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_keyhist_uuid "
+                 "ON mail_key_history(uuid, key_version)")
+    # Privkey-Spalten nachziehen (Ansatz B)
+    hist_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(mail_key_history)")
+    }
+    for name, typ in [
+        ("x25519_priv", "TEXT"),
+        ("mlkem_priv", "TEXT"),
+        ("ed25519_priv", "TEXT"),
+        ("mldsa_priv", "TEXT"),
+    ]:
+        if name not in hist_cols:
+            try:
+                conn.execute(f"ALTER TABLE mail_key_history ADD COLUMN {name} {typ}")
+                logger.info(f"mail_key_history: Spalte '{name}' hinzugefuegt")
+            except Exception as e:
+                logger.warning(f"mail_key_history: '{name}' nicht hinzugefuegt: {e}")
+
     existing = {
         row[1] for row in conn.execute("PRAGMA table_info(mail_keys)")
     }
@@ -290,6 +331,37 @@ def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
 
     if inserted:
         logger.info(f"mail_key_history: {inserted} Eintraege migriert")
+    conn.commit()
+
+
+def _backfill_key_history_privkeys(conn: sqlite3.Connection) -> None:
+    """Traegt die aktuellen mail_keys-Privkeys in die zugehoerige
+    mail_key_history-Zeile ein, falls sie dort fehlen.
+
+    Idempotent. Betrifft nur die AKTIVE Version (key_version ==
+    mail_keys.key_version), weil aeltere Versionen keine Privkeys
+    mehr in mail_keys haben.
+    """
+    rows = conn.execute(
+        "SELECT m.uuid, m.key_version, m.x25519_priv, m.mlkem_priv, "
+        "m.ed25519_priv, m.mldsa_priv "
+        "FROM mail_keys m "
+        "WHERE m.ed25519_priv IS NOT NULL AND m.mldsa_priv IS NOT NULL"
+    ).fetchall()
+    updated = 0
+    for r in rows:
+        conn.execute(
+            "UPDATE mail_key_history SET "
+            "x25519_priv = COALESCE(x25519_priv, ?), "
+            "mlkem_priv = COALESCE(mlkem_priv, ?), "
+            "ed25519_priv = COALESCE(ed25519_priv, ?), "
+            "mldsa_priv = COALESCE(mldsa_priv, ?) "
+            "WHERE uuid = ? AND key_version = ?",
+            (r[2], r[3], r[4], r[5], r[0], r[1]),
+        )
+        updated += conn.total_changes
+    if updated:
+        logger.info(f"mail_key_history: Privkeys fuer aktive Version nachgetragen")
     conn.commit()
 
 
@@ -551,7 +623,7 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
         "SELECT id, sender_uuid, subject, body, created_at, read, "
         "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
         "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified, "
-        "sender_key_version "
+        "sender_key_version, recipient_key_version "
         "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
         (owner_uuid, limit),
     ).fetchall()
@@ -573,6 +645,7 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
             "signature_mldsa_pub": r[13],
             "sender_verified": bool(r[14]),
             "sender_key_version": r[15] or 1,
+            "recipient_key_version": r[16] or 1,
         }
         for r in rows
     ]
@@ -581,7 +654,8 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
 def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
               encrypted: bool = False, encrypted_fields: dict = None,
               signatures: dict = None, sender_verified: bool = False,
-              sender_key_version: int = 1) -> bool:
+              sender_key_version: int = 1,
+              recipient_key_version: int = 1) -> bool:
     """Speichert eine neue Mail (optional hybrid PQ-verschluesselt + signiert)."""
     conn = get_db()
     try:
@@ -591,8 +665,8 @@ def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
                     "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, "
                     "created_at, encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
                     "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified, "
-                    "sender_key_version) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "sender_key_version, recipient_key_version) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (owner_uuid, sender_uuid, subject, body, time.time(), 1,
                      encrypted_fields["x25519_pub"], encrypted_fields["mlkem_ct"],
                      encrypted_fields["nonce"], encrypted_fields["ciphertext"],
@@ -600,7 +674,7 @@ def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
                      (signatures or {}).get("mldsa", ""),
                      (signatures or {}).get("mldsa_pub", ""),
                      1 if sender_verified else 0,
-                     sender_key_version),
+                     sender_key_version, recipient_key_version),
                 )
             else:
                 conn.execute(
@@ -883,6 +957,44 @@ def rotate_mail_keys(uuid: str) -> dict:
 
     logger.info(f"mail_keys rotiert: uuid={uuid[:8]} v{old_version} -> v{new_version}")
     return keys
+
+
+def get_mail_keys_by_version(uuid: str, key_version: int) -> dict:
+    """Laedt einen bestimmten Key-Satz aus mail_key_history (inkl. Privkeys).
+
+    Wird bei Ansatz B genutzt, um alte Mails zu entschluesseln, die mit
+    einer aelteren Empfaenger-Version verschluesselt wurden.
+
+    Returns:
+        dict mit x25519_pub, mlkem_pub, ed25519_pub, mldsa_pub,
+        x25519_priv, mlkem_priv, ed25519_priv, mldsa_priv,
+        valid_from, revoked_at, superseded_by; oder None wenn nicht
+        vorhanden.
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT x25519_pub, mlkem_pub, ed25519_pub, mldsa_pub, "
+        "x25519_priv, mlkem_priv, ed25519_priv, mldsa_priv, "
+        "valid_from, revoked_at, superseded_by "
+        "FROM mail_key_history WHERE uuid = ? AND key_version = ?",
+        (uuid, key_version),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "x25519_pub": row[0],
+        "mlkem_pub": row[1],
+        "ed25519_pub": row[2],
+        "mldsa_pub": row[3],
+        "x25519_priv": row[4],
+        "mlkem_priv": row[5],
+        "ed25519_priv": row[6],
+        "mldsa_priv": row[7],
+        "valid_from": row[8],
+        "revoked_at": row[9],
+        "superseded_by": row[10],
+        "key_version": key_version,
+    }
 
 
 def get_mail_keys(uuid: str) -> dict:
