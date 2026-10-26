@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Optional
 
 from . import forum
-from .forum_db import load_mails, save_mail, mark_mail_read
+from .forum_db import (load_mails, save_mail, mark_mail_read,
+                       get_or_create_mail_keys, get_mail_keys)
+from .crypto.hybrid_kem import encrypt_mail, decrypt_mail
 
 logger = logging.getLogger(__name__)
 
@@ -206,19 +208,30 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         short_id = anon_uuid[:8]
 
         if method == "POST":
-            # Neue Mail speichern
+            # Neue Mail speichern (hybrid PQ-verschluesselt)
             form = forum.parse_form_body(body)
             to_uuid = form.get("to_uuid", "").strip()
             subject = form.get("subject", "").strip()
             mail_body = form.get("body", "").strip()
             if to_uuid and subject and mail_body:
+                # Empfaenger-Schluessel holen (oder generieren)
+                recipient_keys = get_or_create_mail_keys(to_uuid)
+                # Verschluesseln
+                encrypted = encrypt_mail(
+                    recipient_x25519_pub=bytes.fromhex(recipient_keys["x25519_pub"]),
+                    recipient_mlkem_pub=bytes.fromhex(recipient_keys["mlkem_pub"]),
+                    plaintext=mail_body.encode("utf-8"),
+                )
+                # Speichern (body = Platzhalter, ciphertext = verschluesselt)
                 save_mail(
                     owner_uuid=to_uuid,
                     sender_uuid=anon_uuid,
                     subject=subject,
-                    body=mail_body,
+                    body="",  # Klartext nicht speichern
+                    encrypted=True,
+                    encrypted_fields=encrypted,
                 )
-                logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} gespeichert")
+                logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} PQ-verschluesselt gespeichert")
                 return b"REDIRECT:/mail"
             return _page(
                 "Mail", address,
@@ -228,10 +241,30 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
         # GET: Mails anzeigen + Formular
         mails = load_mails(anon_uuid)
+        # Eigene Schluessel laden (fuer Entschluesselung)
+        my_keys = get_mail_keys(anon_uuid)
         rows = ""
         for m in mails:
             unread = " <strong>[neu]</strong>" if not m["read"] else ""
-            body_html = _escape(m["body"]).replace("\n", "<br>")
+            # Entschluesseln, falls verschluesselt
+            if m.get("encrypted") and my_keys:
+                try:
+                    plaintext = decrypt_mail(
+                        recipient_x25519_priv=bytes.fromhex(my_keys["x25519_priv"]),
+                        recipient_mlkem_priv=bytes.fromhex(my_keys["mlkem_priv"]),
+                        encrypted={
+                            "x25519_pub": m["x25519_pub"],
+                            "mlkem_ct": m["mlkem_ct"],
+                            "nonce": m["nonce"],
+                            "ciphertext": m["ciphertext"],
+                        },
+                    )
+                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>")
+                except Exception as e:
+                    logger.error(f"Mail-Entschluesselung fehlgeschlagen: {e}")
+                    body_html = "<em>[Entschluesselung fehlgeschlagen]</em>"
+            else:
+                body_html = _escape(m["body"]).replace("\n", "<br>")
             rows += (
                 f"<li><strong>{_escape(m['subject'])}</strong>{unread}<br>"
                 f"<small>von #{_escape(m['sender_uuid'][:8])} · "

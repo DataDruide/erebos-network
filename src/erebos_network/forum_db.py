@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT
 );
 
+CREATE TABLE IF NOT EXISTS mail_keys (
+    uuid TEXT PRIMARY KEY,
+    x25519_pub TEXT NOT NULL,
+    mlkem_pub TEXT NOT NULL,
+    x25519_priv TEXT NOT NULL,
+    mlkem_priv TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS mailboxes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_uuid TEXT NOT NULL,
@@ -105,7 +114,12 @@ CREATE TABLE IF NOT EXISTS mailboxes (
     subject TEXT NOT NULL,
     body TEXT NOT NULL,
     created_at REAL NOT NULL,
-    read INTEGER DEFAULT 0
+    read INTEGER DEFAULT 0,
+    encrypted INTEGER DEFAULT 0,
+    x25519_pub TEXT,
+    mlkem_ct TEXT,
+    nonce TEXT,
+    ciphertext TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_mailboxes_owner ON mailboxes(owner_uuid);
@@ -139,7 +153,41 @@ def get_db() -> sqlite3.Connection:
     # SCHEMA IMMER anwenden (idempotent durch IF NOT EXISTS)
     _conn.executescript(SCHEMA)
     _conn.commit()
+    # Migration: fehlende Spalten in bestehenden Tabellen hinzufuegen
+    _migrate_mailboxes(_conn)
     return _conn
+
+
+def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
+    """Fuegt fehlende Spalten zur mailboxes-Tabelle hinzu (idempotent).
+
+    CREATE TABLE IF NOT EXISTS legt eine Tabelle nur an, wenn sie
+    fehlt. Wenn sie schon existiert (z.B. aus einer frueheren
+    Version), fehlen die neuen Spalten. ALTER TABLE ADD COLUMN
+    fuegt sie hinzu — ohne Datenverlust.
+    """
+    # Pruefe, welche Spalten existieren
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(mailboxes)")
+    }
+    # Neue Spalten (Name, Typ, Default)
+    new_columns = [
+        ("encrypted", "INTEGER", "0"),
+        ("x25519_pub", "TEXT", "NULL"),
+        ("mlkem_ct", "TEXT", "NULL"),
+        ("nonce", "TEXT", "NULL"),
+        ("ciphertext", "TEXT", "NULL"),
+    ]
+    for name, typ, default in new_columns:
+        if name not in existing:
+            try:
+                conn.execute(
+                    f"ALTER TABLE mailboxes ADD COLUMN {name} {typ} DEFAULT {default}"
+                )
+                logger.info(f"mailboxes: Spalte '{name}' hinzugefuegt")
+            except Exception as e:
+                logger.warning(f"mailboxes: Spalte '{name}' konnte nicht hinzugefuegt werden: {e}")
+    conn.commit()
 
 
 def load_forum_from_db() -> dict:
@@ -397,7 +445,8 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
     """Laedt die Mails eines Owners (neueste zuerst)."""
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, sender_uuid, subject, body, created_at, read "
+        "SELECT id, sender_uuid, subject, body, created_at, read, "
+        "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext "
         "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
         (owner_uuid, limit),
     ).fetchall()
@@ -409,21 +458,37 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
             "body": r[3],
             "created_at": r[4],
             "read": bool(r[5]),
+            "encrypted": bool(r[6]),
+            "x25519_pub": r[7],
+            "mlkem_ct": r[8],
+            "nonce": r[9],
+            "ciphertext": r[10],
         }
         for r in rows
     ]
 
 
-def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str) -> bool:
-    """Speichert eine neue Mail in der Mailbox des Empfaengers."""
+def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str,
+              encrypted: bool = False, encrypted_fields: dict = None) -> bool:
+    """Speichert eine neue Mail (optional hybrid PQ-verschluesselt)."""
     conn = get_db()
     try:
         with conn:
-            conn.execute(
-                "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (owner_uuid, sender_uuid, subject, body, time.time()),
-            )
+            if encrypted and encrypted_fields:
+                conn.execute(
+                    "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, "
+                    "created_at, encrypted, x25519_pub, mlkem_ct, nonce, ciphertext) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (owner_uuid, sender_uuid, subject, body, time.time(), 1,
+                     encrypted_fields["x25519_pub"], encrypted_fields["mlkem_ct"],
+                     encrypted_fields["nonce"], encrypted_fields["ciphertext"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (owner_uuid, sender_uuid, subject, body, time.time()),
+                )
         return True
     except Exception as e:
         logger.error(f"Mail konnte nicht gespeichert werden: {e}")
@@ -440,3 +505,77 @@ def mark_mail_read(mail_id: int) -> bool:
     except Exception as e:
         logger.error(f"Mail konnte nicht als gelesen markiert werden: {e}")
         return False
+
+
+def get_or_create_mail_keys(uuid: str) -> dict:
+    """Laedt oder generiert die Mail-Schluessel eines Clients.
+
+    Returns:
+        dict mit x25519_pub, mlkem_pub, x25519_priv, mlkem_priv (hex).
+    """
+    import secrets as _secrets
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    import oqs
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv "
+        "FROM mail_keys WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row:
+        return {
+            "x25519_pub": row[0],
+            "mlkem_pub": row[1],
+            "x25519_priv": row[2],
+            "mlkem_priv": row[3],
+        }
+
+    # Neu generieren
+    x_priv = X25519PrivateKey.generate()
+    x_pub = x_priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    x_priv_raw = x_priv.private_bytes(
+        serialization.Encoding.Raw,
+        serialization.PrivateFormat.Raw,
+        serialization.NoEncryption(),
+    )
+    mlkem = oqs.KeyEncapsulation("ML-KEM-1024")
+    mlkem_pub = mlkem.generate_keypair()
+    mlkem_priv = mlkem.export_secret_key()
+
+    keys = {
+        "x25519_pub": x_pub.hex(),
+        "mlkem_pub": mlkem_pub.hex(),
+        "x25519_priv": x_priv_raw.hex(),
+        "mlkem_priv": mlkem_priv.hex(),
+    }
+    with conn:
+        conn.execute(
+            "INSERT INTO mail_keys (uuid, x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (uuid, keys["x25519_pub"], keys["mlkem_pub"],
+             keys["x25519_priv"], keys["mlkem_priv"], time.time()),
+        )
+    logger.info(f"Mail-Schluessel generiert fuer #{uuid[:8]}")
+    return keys
+
+
+def get_mail_keys(uuid: str) -> dict:
+    """Laedt die Mail-Schluessel eines Clients (oder None)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv "
+        "FROM mail_keys WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "x25519_pub": row[0],
+        "mlkem_pub": row[1],
+        "x25519_priv": row[2],
+        "mlkem_priv": row[3],
+    }

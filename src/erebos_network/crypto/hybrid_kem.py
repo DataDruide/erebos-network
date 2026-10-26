@@ -271,3 +271,79 @@ class HybridKEM:
             "nist_level": 5,
             "security": "hybrid (classical + PQ)",
         }
+
+
+def encrypt_mail(
+    recipient_x25519_pub: bytes,
+    recipient_mlkem_pub: bytes,
+    plaintext: bytes,
+) -> dict:
+    """Verschluesselt eine Mail hybrid (X25519 + ML-KEM-1024 + ChaCha20-Poly1305).
+
+    Returns:
+        dict mit x25519_pub (hex), mlkem_ct (hex), nonce (hex), ciphertext (hex).
+    """
+    import os as _os
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.x25519 import (
+        X25519PrivateKey, X25519PublicKey,
+    )
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    # 1) X25519: ephemeres Paar, Shared Secret
+    eph = X25519PrivateKey.generate()
+    eph_pub = eph.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    shared_x = eph.exchange(X25519PublicKey.from_public_bytes(recipient_x25519_pub))
+
+    # 2) ML-KEM-1024: encapsulate
+    mlkem = oqs.KeyEncapsulation("ML-KEM-1024")
+    mlkem_ct, shared_mlkem = mlkem.encap_secret(recipient_mlkem_pub)
+
+    # 3) Hybrid-Schluessel (HKDF)
+    key = derive_hybrid_key(shared_x, shared_mlkem, info=b"erebos-mail-v1")
+
+    # 4) ChaCha20-Poly1305
+    nonce = _os.urandom(12)
+    ct = ChaCha20Poly1305(key).encrypt(nonce, plaintext, None)
+
+    return {
+        "x25519_pub": eph_pub.hex(),
+        "mlkem_ct": mlkem_ct.hex(),
+        "nonce": nonce.hex(),
+        "ciphertext": ct.hex(),
+    }
+
+
+def decrypt_mail(
+    recipient_x25519_priv: bytes,
+    recipient_mlkem_priv: bytes,
+    encrypted: dict,
+) -> bytes:
+    """Entschluesselt eine hybrid verschluesselte Mail."""
+    import oqs
+    from cryptography.hazmat.primitives.asymmetric.x25519 import (
+        X25519PrivateKey, X25519PublicKey,
+    )
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    eph_pub = bytes.fromhex(encrypted["x25519_pub"])
+    mlkem_ct = bytes.fromhex(encrypted["mlkem_ct"])
+    nonce = bytes.fromhex(encrypted["nonce"])
+    ct = bytes.fromhex(encrypted["ciphertext"])
+
+    # 1) X25519: Shared Secret
+    priv = X25519PrivateKey.from_private_bytes(recipient_x25519_priv)
+    shared_x = priv.exchange(X25519PublicKey.from_public_bytes(eph_pub))
+
+    # 2) ML-KEM-1024: decapsulate
+    mlkem = oqs.KeyEncapsulation("ML-KEM-1024", recipient_mlkem_priv)
+    shared_mlkem = mlkem.decap_secret(mlkem_ct)
+
+    # 3) Hybrid-Schluessel
+    key = derive_hybrid_key(shared_x, shared_mlkem, info=b"erebos-mail-v1")
+
+    # 4) Entschluesseln
+    return ChaCha20Poly1305(key).decrypt(nonce, ct, None)
