@@ -563,3 +563,13 @@ MPL 2.0 - siehe LICENSE
 - Nym - Mixnet-Forschung
 - NIST - Post-Quanten-Standards
 - Monero - Anonymes Payment
+
+## Backup & Wiederherstellung
+
+Siehe [`docs/backup-restore.md`](docs/backup-restore.md) fuer die vollstaendige
+Anleitung. Kurzfassung:
+
+    ./scripts/backup.sh                                    # Backup erzeugen
+    ./scripts/restore.sh backups/erebos-YYYYMMDD-HHMMSS/   # Backup einspielen
+
+WARNUNG: Das Backup enthaelt alle Privkeys - verschluesselt speichern!
