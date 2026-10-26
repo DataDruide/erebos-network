@@ -7,8 +7,11 @@ from typing import Optional
 
 from . import forum
 from .forum_db import (load_mails, save_mail, mark_mail_read,
-                       get_or_create_mail_keys, get_mail_keys)
-from .crypto.hybrid_kem import encrypt_mail, decrypt_mail
+                       get_or_create_mail_keys, get_mail_keys,
+                       get_mail_keys_by_version, set_mail_verified)
+from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
+                                verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
+                                VERIFY_FAILED)
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +225,15 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     recipient_mlkem_pub=bytes.fromhex(recipient_keys["mlkem_pub"]),
                     plaintext=mail_body.encode("utf-8"),
                 )
-                # Speichern (body = Platzhalter, ciphertext = verschluesselt)
+                # Signieren (eigener Ed25519 + ML-DSA-65)
+                my_keys = get_or_create_mail_keys(anon_uuid)
+                signatures = sign_mail(
+                    ed25519_priv=bytes.fromhex(my_keys["ed25519_priv"]),
+                    mldsa_priv=bytes.fromhex(my_keys["mldsa_priv"]),
+                    payload=mail_body.encode("utf-8"),
+                    mldsa_pub=bytes.fromhex(my_keys["mldsa_pub"]),
+                )
+                # Speichern
                 save_mail(
                     owner_uuid=to_uuid,
                     sender_uuid=anon_uuid,
@@ -230,6 +241,10 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     body="",  # Klartext nicht speichern
                     encrypted=True,
                     encrypted_fields=encrypted,
+                    signatures=signatures,
+                    sender_verified=False,  # wird beim Empfaenger verifiziert
+                    sender_key_version=my_keys.get("key_version", 1),
+                    recipient_key_version=recipient_keys.get("key_version", 1),
                 )
                 logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} PQ-verschluesselt gespeichert")
                 return b"REDIRECT:/mail"
@@ -249,9 +264,26 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             # Entschluesseln, falls verschluesselt
             if m.get("encrypted") and my_keys:
                 try:
+                    # Empfaenger-Version aus der Mail
+                    r_version = m.get("recipient_key_version") or 1
+                    my_current_version = (my_keys or {}).get("key_version") or 1
+
+                    # Bei alter Empfaenger-Version: Privkeys aus History
+                    if r_version == my_current_version:
+                        decrypt_keys = my_keys
+                    else:
+                        decrypt_keys = get_mail_keys_by_version(
+                            anon_uuid, r_version
+                        )
+                        if not decrypt_keys:
+                            raise RuntimeError(
+                                f"Keine Empfaenger-Key-Version v{r_version} "
+                                f"fuer eigene UUID in History"
+                            )
+
                     plaintext = decrypt_mail(
-                        recipient_x25519_priv=bytes.fromhex(my_keys["x25519_priv"]),
-                        recipient_mlkem_priv=bytes.fromhex(my_keys["mlkem_priv"]),
+                        recipient_x25519_priv=bytes.fromhex(decrypt_keys["x25519_priv"]),
+                        recipient_mlkem_priv=bytes.fromhex(decrypt_keys["mlkem_priv"]),
                         encrypted={
                             "x25519_pub": m["x25519_pub"],
                             "mlkem_ct": m["mlkem_ct"],
@@ -259,7 +291,66 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                             "ciphertext": m["ciphertext"],
                         },
                     )
-                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>")
+                    # Signatur verifizieren
+                    sender_keys = get_mail_keys(m["sender_uuid"])
+                    # Rotation-bewusste Verifikation (3 Zustaende + Persistenz)
+                    persisted_status = m.get("sender_verified") or 0
+
+                    if persisted_status != 0:
+                        # Status ist bereits in DB persistiert -> kein Re-Verify
+                        verified = persisted_status
+                    else:
+                        # Erster GET: Verify + persistieren
+                        mail_key_version = m.get("sender_key_version") or 1
+                        current_keys = sender_keys or {}
+                        current_version = current_keys.get("key_version") or 1
+
+                        if mail_key_version == current_version:
+                            version_keys = current_keys
+                        else:
+                            version_keys = get_mail_keys_by_version(
+                                m["sender_uuid"], mail_key_version
+                            )
+
+                        verified = VERIFY_FAILED  # Default
+                        if version_keys and m.get("signature_ed25519"):
+                            try:
+                                mldsa_pub_hex = (version_keys.get("mldsa_pub")
+                                                 or m.get("signature_mldsa_pub") or "")
+                                mldsa_pub_bytes = (bytes.fromhex(mldsa_pub_hex)
+                                                   if mldsa_pub_hex else None)
+                                verified = verify_mail_with_status(
+                                    ed25519_pub=bytes.fromhex(version_keys["ed25519_pub"]),
+                                    payload=plaintext,
+                                    signatures={
+                                        "ed25519": m["signature_ed25519"],
+                                        "mldsa": m["signature_mldsa"],
+                                        "mldsa_pub": mldsa_pub_hex,
+                                    },
+                                    mldsa_pub=mldsa_pub_bytes,
+                                    sender_key_version=mail_key_version,
+                                    sender_current_version=current_version,
+                                )
+                            except Exception as e:
+                                logger.warning(f"Signatur-Verifikation fehlgeschlagen: {e}")
+                                verified = VERIFY_FAILED
+
+                        # Persistieren als Zahl
+                        status_map = {VERIFIED: 1, VERIFIED_OUTDATED: 2, VERIFY_FAILED: 3}
+                        status_num = status_map.get(verified, 3)
+                        try:
+                            set_mail_verified(m["id"], status_num)
+                        except Exception as e:
+                            logger.warning(f"sender_verified persistieren fehlgeschlagen: {e}")
+
+                    if verified == VERIFIED or verified == 1:
+                        verified_badge = " <span style=\"color:green\">[verifiziert]</span>"
+                    elif verified == VERIFIED_OUTDATED or verified == 2:
+                        verified_badge = (" <span style=\"color:orange\">"
+                                          "[Signatur veraltet \u2014 Schluessel rotiert]</span>")
+                    else:
+                        verified_badge = " <span style=\"color:red\">[nicht verifiziert]</span>"
+                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>") + verified_badge
                 except Exception as e:
                     logger.error(f"Mail-Entschluesselung fehlgeschlagen: {e}")
                     body_html = "<em>[Entschluesselung fehlgeschlagen]</em>"

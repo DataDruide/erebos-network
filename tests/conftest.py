@@ -45,3 +45,62 @@ def generate_test_keys():
     for i in (1, 2, 3):
         _write_x25519_pair(KEYS_DIR, f"peer{i}")
     yield
+
+# ============================================================
+# Mail-Rotation + Persistenz-Fixtures (Phase 2b + Rotation)
+# ============================================================
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    """Frische sqlite-DB pro Test, gepatched in forum_db.
+
+    Setzt forum_db.DB_PATH auf eine temporaere Datei und resettet
+    die gecachte Connection, damit get_db() neu initialisiert
+    (inkl. aller _migrate_*-Funktionen).
+    """
+    from erebos_network import forum_db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(forum_db, "DB_PATH", test_db)
+    monkeypatch.setattr(forum_db, "_conn", None)
+
+    conn = forum_db.get_db()
+    assert conn is not None
+    yield test_db
+
+    try:
+        conn.close()
+    except Exception:
+        pass
+    monkeypatch.setattr(forum_db, "_conn", None)
+
+
+@pytest.fixture
+def uuid_a():
+    return "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
+@pytest.fixture
+def uuid_b():
+    return "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+@pytest.fixture
+def fresh_keys_a(temp_db, uuid_a):
+    """Erzeugt v1-Keys fuer uuid_a."""
+    from erebos_network.forum_db import get_or_create_mail_keys
+    return get_or_create_mail_keys(uuid_a)
+
+
+@pytest.fixture
+def fresh_keys_b(temp_db, uuid_b):
+    """Erzeugt v1-Keys fuer uuid_b (Empfaenger)."""
+    from erebos_network.forum_db import get_or_create_mail_keys
+    return get_or_create_mail_keys(uuid_b)
+
+
+@pytest.fixture
+def rotated_keys_a(temp_db, uuid_a, fresh_keys_a):
+    """v1 -> v2 Rotation fuer uuid_a. Returnt v2-Keys."""
+    from erebos_network.forum_db import rotate_mail_keys
+    return rotate_mail_keys(uuid_a)
