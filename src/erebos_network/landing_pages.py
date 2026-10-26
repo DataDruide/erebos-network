@@ -8,7 +8,7 @@ from typing import Optional
 from . import forum
 from .forum_db import (load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
-                       get_mail_keys_by_version)
+                       get_mail_keys_by_version, set_mail_verified)
 from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
                                 verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
                                 VERIFY_FAILED)
@@ -293,44 +293,59 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     )
                     # Signatur verifizieren
                     sender_keys = get_mail_keys(m["sender_uuid"])
-                    # Rotation-bewusste Verifikation (3 Zustaende)
-                    mail_key_version = m.get("sender_key_version") or 1
-                    current_keys = sender_keys or {}
-                    current_version = current_keys.get("key_version") or 1
+                    # Rotation-bewusste Verifikation (3 Zustaende + Persistenz)
+                    persisted_status = m.get("sender_verified") or 0
 
-                    if mail_key_version == current_version:
-                        version_keys = current_keys
+                    if persisted_status != 0:
+                        # Status ist bereits in DB persistiert -> kein Re-Verify
+                        verified = persisted_status
                     else:
-                        version_keys = get_mail_keys_by_version(
-                            m["sender_uuid"], mail_key_version
-                        )
+                        # Erster GET: Verify + persistieren
+                        mail_key_version = m.get("sender_key_version") or 1
+                        current_keys = sender_keys or {}
+                        current_version = current_keys.get("key_version") or 1
 
-                    verified = False  # Fallback fuer alte Logik
-                    if version_keys and m.get("signature_ed25519"):
-                        try:
-                            mldsa_pub_hex = (version_keys.get("mldsa_pub")
-                                             or m.get("signature_mldsa_pub") or "")
-                            mldsa_pub_bytes = (bytes.fromhex(mldsa_pub_hex)
-                                               if mldsa_pub_hex else None)
-                            verified = verify_mail_with_status(
-                                ed25519_pub=bytes.fromhex(version_keys["ed25519_pub"]),
-                                payload=plaintext,
-                                signatures={
-                                    "ed25519": m["signature_ed25519"],
-                                    "mldsa": m["signature_mldsa"],
-                                    "mldsa_pub": mldsa_pub_hex,
-                                },
-                                mldsa_pub=mldsa_pub_bytes,
-                                sender_key_version=mail_key_version,
-                                sender_current_version=current_version,
+                        if mail_key_version == current_version:
+                            version_keys = current_keys
+                        else:
+                            version_keys = get_mail_keys_by_version(
+                                m["sender_uuid"], mail_key_version
                             )
-                        except Exception as e:
-                            logger.warning(f"Signatur-Verifikation fehlgeschlagen: {e}")
-                            verified = VERIFY_FAILED
 
-                    if verified == VERIFIED:
+                        verified = VERIFY_FAILED  # Default
+                        if version_keys and m.get("signature_ed25519"):
+                            try:
+                                mldsa_pub_hex = (version_keys.get("mldsa_pub")
+                                                 or m.get("signature_mldsa_pub") or "")
+                                mldsa_pub_bytes = (bytes.fromhex(mldsa_pub_hex)
+                                                   if mldsa_pub_hex else None)
+                                verified = verify_mail_with_status(
+                                    ed25519_pub=bytes.fromhex(version_keys["ed25519_pub"]),
+                                    payload=plaintext,
+                                    signatures={
+                                        "ed25519": m["signature_ed25519"],
+                                        "mldsa": m["signature_mldsa"],
+                                        "mldsa_pub": mldsa_pub_hex,
+                                    },
+                                    mldsa_pub=mldsa_pub_bytes,
+                                    sender_key_version=mail_key_version,
+                                    sender_current_version=current_version,
+                                )
+                            except Exception as e:
+                                logger.warning(f"Signatur-Verifikation fehlgeschlagen: {e}")
+                                verified = VERIFY_FAILED
+
+                        # Persistieren als Zahl
+                        status_map = {VERIFIED: 1, VERIFIED_OUTDATED: 2, VERIFY_FAILED: 3}
+                        status_num = status_map.get(verified, 3)
+                        try:
+                            set_mail_verified(m["id"], status_num)
+                        except Exception as e:
+                            logger.warning(f"sender_verified persistieren fehlgeschlagen: {e}")
+
+                    if verified == VERIFIED or verified == 1:
                         verified_badge = " <span style=\"color:green\">[verifiziert]</span>"
-                    elif verified == VERIFIED_OUTDATED:
+                    elif verified == VERIFIED_OUTDATED or verified == 2:
                         verified_badge = (" <span style=\"color:orange\">"
                                           "[Signatur veraltet \u2014 Schluessel rotiert]</span>")
                     else:

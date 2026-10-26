@@ -219,6 +219,7 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
         ("sender_verified", "INTEGER", "0"),
         ("sender_key_version", "INTEGER", "1"),
         ("recipient_key_version", "INTEGER", "1"),
+        ("verified_at", "REAL", "NULL"),
     ]
     for name, typ, default in new_columns:
         if name not in existing:
@@ -616,6 +617,24 @@ def migrate_from_json(json_path: Path) -> int:
     return 0
 
 
+def set_mail_verified(mail_id: int, verified: int) -> None:
+    """Persistiert den Verifikations-Status einer Mail.
+
+    Args:
+        mail_id: mailboxes.id
+        verified: 0=nicht geprueft, 1=VERIFIED, 2=VERIFIED_OUTDATED,
+                  3=VERIFY_FAILED
+
+    Setzt zusaetzlich verified_at = now.
+    """
+    conn = get_db()
+    with conn:
+        conn.execute(
+            "UPDATE mailboxes SET sender_verified = ?, verified_at = ? WHERE id = ?",
+            (verified, time.time(), mail_id),
+        )
+
+
 def load_mails(owner_uuid: str, limit: int = 50) -> list:
     """Laedt die Mails eines Owners (neueste zuerst)."""
     conn = get_db()
@@ -623,7 +642,7 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
         "SELECT id, sender_uuid, subject, body, created_at, read, "
         "encrypted, x25519_pub, mlkem_ct, nonce, ciphertext, "
         "signature_ed25519, signature_mldsa, signature_mldsa_pub, sender_verified, "
-        "sender_key_version, recipient_key_version "
+        "sender_key_version, recipient_key_version, verified_at "
         "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
         (owner_uuid, limit),
     ).fetchall()
@@ -643,9 +662,10 @@ def load_mails(owner_uuid: str, limit: int = 50) -> list:
             "signature_ed25519": r[11],
             "signature_mldsa": r[12],
             "signature_mldsa_pub": r[13],
-            "sender_verified": bool(r[14]),
+            "sender_verified": int(r[14] or 0),
             "sender_key_version": r[15] or 1,
             "recipient_key_version": r[16] or 1,
+            "verified_at": r[17],
         }
         for r in rows
     ]
