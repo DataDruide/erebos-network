@@ -37,6 +37,10 @@ SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 Tage
 # Client-ID in 5 Minuten.
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_MAX_FAILURES = 5
+# Globales Sicherheitsnetz: max. 50 Fehlversuche pro Fenster insgesamt.
+# Verhindert Umgehung durch Cookie-Löschen (neue client_id = neues Limit).
+GLOBAL_LOGIN_MAX_FAILURES = 50
+GLOBAL_LOGIN_KEY = "_global_"
 
 # Markdown-Mini: nur fett, kursiv, Code, Links (sicher escaped)
 import re as _re
@@ -101,21 +105,49 @@ def register_user(username: str, password: str) -> Tuple[bool, str]:
 
 
 def _check_login_rate(client_id: str) -> bool:
-    """True = erlaubt, False = zu viele Fehlversuche."""
+    """True = erlaubt, False = zu viele Fehlversuche.
+
+    Prueft sowohl das per-Client-Limit (LOGIN_MAX_FAILURES) als auch
+    das globale Sicherheitsnetz (GLOBAL_LOGIN_MAX_FAILURES). Letzteres
+    verhindert Umgehung durch Cookie-Loeschen (neue client_id).
+    """
     data = _ensure_accounts(load_forum())
     failures = data.setdefault("login_failures", {})
     now = time.time()
-    attempts = [t for t in failures.get(client_id, []) if now - t < LOGIN_WINDOW_SECONDS]
-    failures[client_id] = attempts
+
+    # Per-Client: alte Eintraege entfernen
+    per_client = [t for t in failures.get(client_id, []) if now - t < LOGIN_WINDOW_SECONDS]
+    failures[client_id] = per_client
+
+    # Global: alte Eintraege entfernen
+    global_attempts = [
+        t for t in failures.get(GLOBAL_LOGIN_KEY, [])
+        if now - t < LOGIN_WINDOW_SECONDS
+    ]
+    failures[GLOBAL_LOGIN_KEY] = global_attempts
+
     save_forum(data)
-    return len(attempts) < LOGIN_MAX_FAILURES
+
+    if len(per_client) >= LOGIN_MAX_FAILURES:
+        return False
+    if len(global_attempts) >= GLOBAL_LOGIN_MAX_FAILURES:
+        logger.warning(
+            f"Login-Rate-Limit GLOBAL erreicht "
+            f"({len(global_attempts)}/{GLOBAL_LOGIN_MAX_FAILURES} in "
+            f"{LOGIN_WINDOW_SECONDS}s)"
+        )
+        return False
+    return True
 
 
 def _record_login_failure(client_id: str) -> None:
     data = _ensure_accounts(load_forum())
     failures = data.setdefault("login_failures", {})
-    failures.setdefault(client_id, []).append(time.time())
+    now = time.time()
+    failures.setdefault(client_id, []).append(now)
+    failures.setdefault(GLOBAL_LOGIN_KEY, []).append(now)
     count = len(failures[client_id])
+    global_count = len(failures[GLOBAL_LOGIN_KEY])
     save_forum(data)
     # Sicherheits-Warnung (OWASP A09:2025 Logging & Alerting)
     if count >= LOGIN_MAX_FAILURES:
@@ -125,9 +157,19 @@ def _record_login_failure(client_id: str) -> None:
         )
     elif count == 1:
         logger.info(f"Login-Fehlversuch (client={client_id[:16]}...)")
+    if global_count >= GLOBAL_LOGIN_MAX_FAILURES:
+        logger.warning(
+            f"SECURITY: GLOBALES Login-Rate-Limit erreicht "
+            f"({global_count} Fehlversuche in {LOGIN_WINDOW_SECONDS}s)"
+        )
 
 
 def _clear_login_failures(client_id: str) -> None:
+    """Loescht die per-Client-Fehlversuche nach erfolgreichem Login.
+
+    Die globalen Fehlversuche bleiben erhalten (sonst koennte ein
+    erfolgreicher Login das globale Sicherheitsnetz zuruecksetzen).
+    """
     data = _ensure_accounts(load_forum())
     failures = data.setdefault("login_failures", {})
     if client_id in failures:
