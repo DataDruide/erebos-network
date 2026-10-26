@@ -61,6 +61,10 @@ logger = logging.getLogger(__name__)
 # Maximal erlaubte HTTP-Body-Groesse (Schutz vor Memory-DoS).
 MAX_HTTP_BODY_BYTES = 16384  # 16 KB
 
+# Globales HTTP-Request-Limit (Schutz vor Flooding/DoS).
+MAX_HTTP_REQUESTS_PER_WINDOW = 500
+HTTP_WINDOW_SECONDS = 60
+
 
 # HTTP-Methoden, an denen wir echte HTTP-Anfragen im Datenstrom erkennen.
 HTTP_PREFIXES = (
@@ -129,6 +133,8 @@ class HiddenServiceRuntime:
         self.private_key: Optional[ed25519.Ed25519PrivateKey] = None
         self.public_key: Optional[bytes] = None
         self._stop_event = asyncio.Event()
+        # HTTP-Request-Limit (global, pro Fenster)
+        self._http_request_log = []
         self._reconnecting = False
         # B2: Health-Monitoring + Rotation
         self._intro_failures = {}  # index -> consecutive failures
@@ -344,6 +350,36 @@ class HiddenServiceRuntime:
 
     async def _default_http_handler(self, reader, writer) -> None:
         """HTTP-Backend: Startseite, Wiki, Forum (mit POST-Support)."""
+        # 0) Globales HTTP-Request-Limit (Schutz vor Flooding/DoS)
+        import time as _time
+        now = _time.time()
+        self._http_request_log = [
+            t for t in self._http_request_log
+            if now - t < HTTP_WINDOW_SECONDS
+        ]
+        if len(self._http_request_log) >= MAX_HTTP_REQUESTS_PER_WINDOW:
+            logger.warning(
+                f"HTTP-Rate-Limit erreicht "
+                f"({len(self._http_request_log)}/{MAX_HTTP_REQUESTS_PER_WINDOW} "
+                f"in {HTTP_WINDOW_SECONDS}s)"
+            )
+            body_429 = (
+                "<!DOCTYPE html><html><head><title>429</title></head>"
+                "<body><h1>Zu viele Anfragen</h1>"
+                "<p>Bitte warte einen Moment und versuche es erneut.</p>"
+                "</body></html>"
+            ).encode("utf-8")
+            resp = http_response(429, "text/html; charset=utf-8", body_429)
+            try:
+                writer.write(resp)
+                await writer.drain()
+            except Exception:
+                pass
+            finally:
+                writer.close()
+            return
+        self._http_request_log.append(now)
+
         try:
             # 1) Header lesen bis "\r\n\r\n" (früh abbrechen)
             raw = b""
@@ -525,6 +561,8 @@ class HiddenServiceRuntime:
         """
         # E2E-Server pro stream_id
         e2e_servers = {}
+        # Cover-Traffic-Task starten (Timing-Obfuskation)
+        cover_task = asyncio.create_task(self._cover_traffic_loop(client))
         try:
             while True:
                 try:
@@ -672,6 +710,37 @@ class HiddenServiceRuntime:
             logger.error(f"keep_alive Fehler: {type(e).__name__}: {e}")
             if not self._stop_event.is_set():
                 asyncio.create_task(self._reconnect_loop())
+
+    async def _cover_traffic_loop(self, client) -> None:
+        """Sendet alle 5s ein FRAME_DATA mit Zufallsdaten.
+
+        Der Client (Proxy) verwirft es (stream_id=0xFFFF).
+        Erhoeht die Grundlast und erschwert Timing-Korrelation.
+        """
+        import os as _os
+        import struct as _struct
+        COVER_INTERVAL = 5.0
+        COVER_SIZE = 512
+        sent = 0
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=COVER_INTERVAL
+                )
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                stream_id = 0xFFFF
+                payload = _os.urandom(COVER_SIZE)
+                framed = _struct.pack(">H", stream_id) + bytes([0x00]) + payload
+                await client.send_typed(FRAME_DATA, framed)
+                sent += 1
+                if sent % 4 == 1:
+                    logger.info(f"Cover-Traffic gesendet ({COVER_SIZE}B, #{sent})")
+            except Exception as e:
+                logger.debug(f"Cover-Traffic fehlgeschlagen: {e}")
+                return
 
     async def _reconnect_loop(self) -> None:
         """Verbindet sich nach Abbruch neu mit dem Rendezvous-Punkt.
