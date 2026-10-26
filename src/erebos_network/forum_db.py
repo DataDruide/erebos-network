@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS categories (
     description TEXT
 );
 
+CREATE TABLE IF NOT EXISTS mailboxes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_uuid TEXT NOT NULL,
+    sender_uuid TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    read INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_mailboxes_owner ON mailboxes(owner_uuid);
 CREATE INDEX IF NOT EXISTS idx_threads_category ON threads(category_id);
 CREATE INDEX IF NOT EXISTS idx_threads_created ON threads(created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
@@ -108,7 +119,12 @@ _conn: Optional[sqlite3.Connection] = None
 
 
 def get_db() -> sqlite3.Connection:
-    """Liefert die (einmalige) SQLite-Verbindung."""
+    """Liefert die (einmalige) SQLite-Verbindung.
+
+    Das Schema wird IMMER angewendet (idempotent durch
+    CREATE TABLE IF NOT EXISTS). So werden neue Tabellen auch
+    dann angelegt, wenn die DB schon existiert.
+    """
     global _conn
     if _conn is None:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -119,9 +135,10 @@ def get_db() -> sqlite3.Connection:
         _conn.execute("PRAGMA foreign_keys=ON")
         # Sofort nach jedem Schreiben auf Platte (kein Buffering)
         _conn.execute("PRAGMA synchronous=FULL")
-        _conn.executescript(SCHEMA)
-        _conn.commit()
         logger.info(f"SQLite-DB initialisiert: {DB_PATH}")
+    # SCHEMA IMMER anwenden (idempotent durch IF NOT EXISTS)
+    _conn.executescript(SCHEMA)
+    _conn.commit()
     return _conn
 
 
@@ -374,3 +391,52 @@ def migrate_from_json(json_path: Path) -> int:
         logger.info(f"Migration: {n} Threads aus {json_path} importiert")
         return n
     return 0
+
+
+def load_mails(owner_uuid: str, limit: int = 50) -> list:
+    """Laedt die Mails eines Owners (neueste zuerst)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, sender_uuid, subject, body, created_at, read "
+        "FROM mailboxes WHERE owner_uuid = ? ORDER BY created_at DESC LIMIT ?",
+        (owner_uuid, limit),
+    ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "sender_uuid": r[1],
+            "subject": r[2],
+            "body": r[3],
+            "created_at": r[4],
+            "read": bool(r[5]),
+        }
+        for r in rows
+    ]
+
+
+def save_mail(owner_uuid: str, sender_uuid: str, subject: str, body: str) -> bool:
+    """Speichert eine neue Mail in der Mailbox des Empfaengers."""
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO mailboxes (owner_uuid, sender_uuid, subject, body, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (owner_uuid, sender_uuid, subject, body, time.time()),
+            )
+        return True
+    except Exception as e:
+        logger.error(f"Mail konnte nicht gespeichert werden: {e}")
+        return False
+
+
+def mark_mail_read(mail_id: int) -> bool:
+    """Markiert eine Mail als gelesen."""
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute("UPDATE mailboxes SET read = 1 WHERE id = ?", (mail_id,))
+        return True
+    except Exception as e:
+        logger.error(f"Mail konnte nicht als gelesen markiert werden: {e}")
+        return False

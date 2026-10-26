@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import forum
+from .forum_db import load_mails, save_mail, mark_mail_read
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,15 @@ def _load_wiki_entries() -> list:
     except Exception as e:
         logger.warning(f"Wiki-JSON konnte nicht geladen werden: {e}")
     return []
+
+
+def _format_timestamp(ts: float) -> str:
+    """Formatiert einen Unix-Timestamp als lesbares Datum."""
+    import time as _time
+    try:
+        return _time.strftime("%Y-%m-%d %H:%M", _time.localtime(ts))
+    except Exception:
+        return "?"
 
 
 def _escape(text: str) -> str:
@@ -104,6 +114,7 @@ def render_welcome(address: str, client_id: str, request_line: str) -> bytes:
         "</ul>\n"
         "<h2>Verfuegbare Dienste</h2>\n"
         "<ul>\n"
+        "  <li><a href=\"/mail\"><strong>Mail</strong></a> — anonyme Nachrichten (UUID-basiert)</li>\n"
         "  <li><a href=\"/wiki\"><strong>Hidden Wiki</strong></a> — Verzeichnis der Dienste</li>\n"
         "  <li><a href=\"/forum\"><strong>Erebos Community</strong></a> — Forum mit Threads und Antworten</li>\n"
         "  <li><a href=\"/regeln\"><strong>Regeln</strong></a> — was hier erlaubt ist und was nicht</li>\n"
@@ -185,6 +196,72 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
+    if path == "/mail":
+        # Anonyme UUID aus client_id ableiten (wie auf der Startseite)
+        import uuid as _uuid
+        if client_id:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        else:
+            anon_uuid = str(_uuid.uuid4())
+        short_id = anon_uuid[:8]
+
+        if method == "POST":
+            # Neue Mail speichern
+            form = forum.parse_form_body(body)
+            to_uuid = form.get("to_uuid", "").strip()
+            subject = form.get("subject", "").strip()
+            mail_body = form.get("body", "").strip()
+            if to_uuid and subject and mail_body:
+                save_mail(
+                    owner_uuid=to_uuid,
+                    sender_uuid=anon_uuid,
+                    subject=subject,
+                    body=mail_body,
+                )
+                logger.info(f"Mail von #{short_id} an #{to_uuid[:8]} gespeichert")
+                return b"REDIRECT:/mail"
+            return _page(
+                "Mail", address,
+                "<h1>Mail</h1><p>Alle Felder sind erforderlich.</p>"
+                "<a class=\"btn\" href=\"/mail\">← Zurück</a>",
+            )
+
+        # GET: Mails anzeigen + Formular
+        mails = load_mails(anon_uuid)
+        rows = ""
+        for m in mails:
+            unread = " <strong>[neu]</strong>" if not m["read"] else ""
+            body_html = _escape(m["body"]).replace("\n", "<br>")
+            rows += (
+                f"<li><strong>{_escape(m['subject'])}</strong>{unread}<br>"
+                f"<small>von #{_escape(m['sender_uuid'][:8])} · "
+                f"{_format_timestamp(m['created_at'])}</small>"
+                f"<p>{body_html}</p></li>\n"
+            )
+        if not rows:
+            rows = "<li><em>Keine Mails.</em></li>"
+
+        body_html = (
+            f"<h1>Mail</h1>\n"
+            f"<p>Deine anonyme Adresse: <code>{_escape(anon_uuid)}</code> "
+            f"(Kurz-ID: <strong>#{_escape(short_id)}</strong>)</p>\n"
+            "<h2>Neue Mail senden</h2>\n"
+            "<form method=\"post\" action=\"/mail\">\n"
+            "  <p><label>An (UUID des Empfaengers):<br>"
+            "  <input name=\"to_uuid\" required style=\"width:100%\" "
+            "placeholder=\"z.B. 132aa4b3-74de-54e2-b5f5-525012af0264\"></label></p>\n"
+            "  <p><label>Betreff:<br>"
+            "  <input name=\"subject\" required maxlength=\"200\" style=\"width:100%\"></label></p>\n"
+            "  <p><label>Nachricht:<br>"
+            "  <textarea name=\"body\" rows=\"6\" maxlength=\"4000\" required style=\"width:100%\"></textarea></label></p>\n"
+            "  <p><button type=\"submit\" class=\"btn\">Senden</button></p>\n"
+            "</form>\n"
+            "<h2>Deine Mails</h2>\n"
+            f"<ul>\n{rows}\n</ul>\n"
+            "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
+        )
+        return _page("Mail", address, body_html)
+
     if path == "/forum":
         return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=""))
     if path == "/forum/admin/login":
