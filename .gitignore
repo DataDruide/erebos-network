@@ -42,3 +42,5 @@ forum.db
 forum.db-wal
 forum.db-shm
 backups/
+backups/cron.log
+docker-compose.yml.bak
