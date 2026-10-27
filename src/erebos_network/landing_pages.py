@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Optional
 
 from . import forum
+from .onboarding import render_onboard, render_welcome_onboarded
 from .forum_db import (load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
                        rotate_mail_keys,
-                       check_rotate_rate_limit, record_rotate)
+                       check_rotate_rate_limit, record_rotate,
+                       create_identity, get_identity)
 from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
                                 verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
                                 VERIFIED_EXPIRED, VERIFY_FAILED)
@@ -198,6 +200,14 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     )
 
     if path == "/":
+        # Onboarding: wenn Client existiert, aber noch keine Identity
+        # -> automatisch zu /onboard
+        import uuid as _uuid
+        if client_id:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+            ident = get_identity(anon_uuid)
+            if ident is None or ident.get("onboarded_at") is None:
+                return b"REDIRECT:/onboard"
         return render_welcome(address, client_id, request_line)
     if path == "/regeln":
         return render_landing(address, request_line)
@@ -215,6 +225,31 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         if method == "POST":
             return _handle_rotate_post(anon_uuid, address)
         return _render_rotate_confirm(anon_uuid, address)
+
+    if path == "/onboard":
+        import uuid as _uuid
+        if not client_id:
+            return _page(
+                "Onboarding", address,
+                "<h1>Onboarding</h1><p>Keine Session. Bitte lade die Seite neu.</p>",
+            )
+        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        return render_onboard(anon_uuid, address, _page, _escape)
+
+    if path == "/welcome/ack":
+        if method == "POST":
+            return b"REDIRECT:/mail"
+        return b"REDIRECT:/welcome"
+
+    if path == "/welcome":
+        import uuid as _uuid
+        if not client_id:
+            return _page(
+                "Willkommen", address,
+                "<h1>Willkommen</h1><p>Keine Session. Bitte lade die Seite neu.</p>",
+            )
+        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        return render_welcome_onboarded(anon_uuid, address, _page, _escape)
 
     if path == "/mail":
         # Anonyme UUID aus client_id ableiten (wie auf der Startseite)

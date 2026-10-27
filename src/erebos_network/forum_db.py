@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
     password_hash TEXT NOT NULL,
     salt TEXT NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    mail_uuid TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -142,6 +143,16 @@ CREATE TABLE IF NOT EXISTS rotate_rate_limit (
     last_rotate REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS identities (
+    uuid TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    forum_username TEXT UNIQUE,
+    created_at REAL NOT NULL,
+    onboarded_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_identities_email ON identities(email);
+
 CREATE TABLE IF NOT EXISTS mailboxes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_uuid TEXT NOT NULL,
@@ -195,6 +206,7 @@ def get_db() -> sqlite3.Connection:
     _conn.commit()
     # Migration: fehlende Spalten in bestehenden Tabellen hinzufuegen
     _migrate_mailboxes(_conn)
+    _migrate_identities(_conn)
     _migrate_mail_keys(_conn)
     _migrate_mail_key_history(_conn)
     _migrate_incomplete_mail_keys(_conn)
@@ -238,6 +250,31 @@ def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
                 logger.info(f"mailboxes: Spalte '{name}' hinzugefuegt")
             except Exception as e:
                 logger.warning(f"mailboxes: Spalte '{name}' konnte nicht hinzugefuegt werden: {e}")
+    conn.commit()
+
+
+def _migrate_identities(conn: sqlite3.Connection) -> None:
+    """Legt identities-Tabelle an und ergaenzt users.mail_uuid."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS identities (
+            uuid TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            forum_username TEXT UNIQUE,
+            created_at REAL NOT NULL,
+            onboarded_at REAL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_identities_email ON identities(email)")
+    # users.mail_uuid nachziehen (falls die Tabelle existiert)
+    existing_users = {
+        row[1] for row in conn.execute("PRAGMA table_info(users)")
+    }
+    if existing_users and "mail_uuid" not in existing_users:
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN mail_uuid TEXT")
+            logger.info("users: Spalte 'mail_uuid' hinzugefuegt")
+        except Exception as e:
+            logger.warning(f"users.mail_uuid nicht hinzugefuegt: {e}")
     conn.commit()
 
 
@@ -1201,6 +1238,108 @@ def auto_rotate_expiring_keys(days_before: float = None,
             result["failed"].append((uuid, str(e)))
 
     return result
+
+
+def create_identity(uuid: str) -> dict:
+    """Erstellt eine Identitaet fuer die UUID.
+
+    - Erzeugt E-Mail-Adresse `<kurzform>@erebos`
+    - Erzeugt Forum-Username `erebos_<kurzform>` (falls nicht vorhanden)
+    - Ruft get_or_create_mail_keys auf (Mail-Postfach)
+    - Markiert Identitaet als onboarded
+
+    Idempotent: mehrfacher Aufruf aendert nichts.
+
+    Returns:
+        dict mit uuid, email, forum_username, mail_keys, forum_user
+    """
+    import secrets as _secrets
+    import hashlib as _hashlib
+    import time as _time
+
+    conn = get_db()
+    short = uuid.replace("-", "")[:8]
+    email = f"{short}@erebos"
+    forum_username = f"erebos_{short}"
+
+    # 1) Identity-Zeile anlegen (oder bestehende nutzen)
+    row = conn.execute(
+        "SELECT email, forum_username, onboarded_at FROM identities WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row is None:
+        with conn:
+            conn.execute(
+                "INSERT INTO identities (uuid, email, forum_username, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (uuid, email, forum_username, _time.time()),
+            )
+        email = email
+        forum_username = forum_username
+    else:
+        email, forum_username, _onboarded = row
+
+    # 2) Mail-Keys sicherstellen (idempotent)
+    mail_keys = get_or_create_mail_keys(uuid)
+
+    # 3) Forum-User sicherstellen (falls nicht vorhanden)
+    forum_user = None
+    existing = conn.execute(
+        "SELECT username FROM users WHERE username = ?",
+        (forum_username,),
+    ).fetchone()
+    if existing is None:
+        # Zufaelliges Passwort generieren (User kann es aendern)
+        pw = _secrets.token_urlsafe(24)
+        salt = _secrets.token_hex(16)
+        pw_hash = _hashlib.sha256((salt + pw).encode("utf-8")).hexdigest()
+        with conn:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, salt, created_at, mail_uuid) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (forum_username, pw_hash, salt, _time.time(), uuid),
+            )
+        forum_user = {
+            "username": forum_username,
+            "password": pw,  # einmalig zurueckgeben
+        }
+        logger.info(f"Identity: Forum-User '{forum_username}' fuer {uuid[:8]}")
+    else:
+        forum_user = {"username": forum_username, "password": None}
+
+    # 4) onboarded_at setzen
+    with conn:
+        conn.execute(
+            "UPDATE identities SET onboarded_at = ? WHERE uuid = ?",
+            (_time.time(), uuid),
+        )
+
+    return {
+        "uuid": uuid,
+        "email": email,
+        "forum_username": forum_username,
+        "mail_keys": mail_keys,
+        "forum_user": forum_user,
+    }
+
+
+def get_identity(uuid: str) -> dict:
+    """Laedt eine Identitaet (oder None)."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT uuid, email, forum_username, created_at, onboarded_at "
+        "FROM identities WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "uuid": row[0],
+        "email": row[1],
+        "forum_username": row[2],
+        "created_at": row[3],
+        "onboarded_at": row[4],
+    }
 
 
 def check_rotate_rate_limit(uuid: str) -> tuple:
