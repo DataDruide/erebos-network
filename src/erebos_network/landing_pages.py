@@ -22,7 +22,7 @@ from .pages_forum import (
     render_forum_admin_ban, render_forum_admin_bans_unban,
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
     render_forum_toggle_sticky, render_forum_toggle_locked,
-    render_forum_category,
+    render_forum_category, render_forum_thread,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
@@ -271,74 +271,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum/neu":
         return render_forum_new_thread(address, method, body, query, client_id)
     if path.startswith("/forum/"):
-        rest = path[len("/forum/"):]
-
-        if rest.endswith("/antwort"):
-            tid = rest[: -len("/antwort")]
-            form = forum.parse_form_body(body)
-            ok = forum.add_reply(tid, form.get("author", ""), form.get("body", ""), client_id=client_id)
-            if not ok:
-                return _page(
-                    "Rate-Limit",
-                    address,
-                    forum.render_rate_limited(),
-                )
-            return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
-
-        if rest.endswith("/delete") and method == "POST":
-            if not admin:
-                return _page(
-                    "Nicht erlaubt",
-                    address,
-                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
-                )
-            tid = rest[: -len("/delete")]
-            forum.delete_thread(tid)
-            return b"REDIRECT:/forum"
-
-        # /forum/<id>/post/<idx>/delete
-        if "/post/" in rest and rest.endswith("/delete") and method == "POST":
-            if not admin:
-                return _page(
-                    "Nicht erlaubt",
-                    address,
-                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
-                )
-            head = rest[: -len("/delete")]
-            tid, idx_str = head.split("/post/", 1)
-            try:
-                idx = int(idx_str)
-            except ValueError:
-                idx = -1
-            forum.delete_post(tid, idx)
-            return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
-
-        # /forum/<id>/post/<idx>/edit
-        if "/post/" in rest and rest.endswith("/edit"):
-            if not admin:
-                return _page(
-                    "Nicht erlaubt", address,
-                    "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
-                )
-            head = rest[: -len("/edit")]
-            tid, idx_str = head.split("/post/", 1)
-            try:
-                idx = int(idx_str)
-            except ValueError:
-                idx = -1
-            t = forum.find_thread(tid)
-            if t is None:
-                return _page("Nicht gefunden", address, forum.render_not_found())
-            if method == "POST":
-                form = forum.parse_form_body(body)
-                forum.edit_post(tid, idx, form.get("body", ""))
-                return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
-            return _page("Bearbeiten", address, forum.render_edit_form(t, idx))
-
-        t = forum.find_thread(rest)
-        if t is None:
-            return _page("Nicht gefunden", address, forum.render_not_found())
-        return _page(t["title"], address, forum.render_thread(t, admin=admin))
+        return render_forum_thread(address, path, method, body, admin, client_id)
     return _page(
         "404 Nicht gefunden",
         address,
