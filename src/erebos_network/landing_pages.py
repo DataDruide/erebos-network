@@ -17,6 +17,7 @@ from .pages_forum import (
     render_forum_logout,
     render_forum_admin_login, render_forum_admin_dashboard,
     render_forum_admin_authors, render_forum_admin_authors_delete,
+    render_forum_admin_mods, render_forum_admin_mods_set,
     render_forum_admin_reports, render_forum_admin_reports_resolve,
     render_forum_admin_modlog, render_forum_admin_bans,
     render_forum_admin_ban, render_forum_admin_bans_unban,
@@ -189,6 +190,12 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     if path == "/forum/admin/authors/delete" and method == "POST":
         return render_forum_admin_authors_delete(address, admin, body, admin_token_value)
+
+    if path == "/forum/admin/mods":
+        return render_forum_admin_mods(address, admin)
+
+    if path == "/forum/admin/mods/set" and method == "POST":
+        return render_forum_admin_mods_set(address, admin, body)
     if path == "/forum/search":
         return render_forum_search(address, query)
 

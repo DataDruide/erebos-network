@@ -1688,3 +1688,12 @@ def insert_mod_log(action: str, target: str, moderator: str = "admin") -> None:
             "VALUES (?, ?, ?, ?)",
             (action, target, moderator, _time.time()),
         )
+
+
+def get_mods() -> list:
+    """Liefert alle User mit role='mod'."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT username FROM users WHERE role = 'mod' ORDER BY username"
+    ).fetchall()
+    return [r[0] for r in rows]

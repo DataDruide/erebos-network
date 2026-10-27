@@ -1268,6 +1268,7 @@ def render_admin_authors(admin: bool = False, username: str = "") -> str:
         rows = "<li><em>Noch keine Autoren.</em></li>"
     return (
         "<h1>Autoren-Verwaltung</h1>\n"
+        '<p><a class="btn" href="/forum/admin/mods">→ Moderator-Verwaltung</a></p>\n'
         "<p>Alle Posts eines Autors thread-übergreifend löschen. "
         "Wenn der Eröffnungsbeitrag betroffen ist, wird der ganze Thread "
         "gelöscht.</p>\n"
@@ -1662,3 +1663,64 @@ def render_quote_form(thread: dict, index: int) -> str:
         f"  <p><button type=\"submit\" class=\"btn\">Antwort senden</button></p>\n"
         f"</form>\n"
     )
+
+
+def render_mods_management(admin: bool = False) -> str:
+    """Admin-UI: Mods Kategorien zuweisen."""
+    if not admin:
+        return "<h1>Nicht erlaubt</h1><p>Admin-Rechte erforderlich.</p>"
+
+    from .forum_db import get_mods, get_mod_categories
+
+    mods = get_mods()
+    cats = list_categories()
+
+    if not mods:
+        return (
+            "<h1>Moderator-Verwaltung</h1>\n"
+            "<p><em>Noch keine Moderatoren. Weise zuerst jemandem die "
+            "Rolle 'mod' zu (Autoren-Verwaltung).</em></p>\n"
+            '<a class="btn" href="/forum/admin/authors">← Autoren-Verwaltung</a>\n'
+        )
+
+    rows = ""
+    for mod in mods:
+        current = get_mod_categories(mod)
+        checkboxes = ""
+        for cat in cats:
+            checked = " checked" if cat["id"] in current else ""
+            checkboxes += (
+                '<label style="display:inline-block;margin:0.2em 0.5em;">'
+                '<input type="checkbox" name="categories" value="'
+                + _escape(cat["id"]) + '"' + checked + '> '
+                + _escape(cat["name"]) + '</label>'
+            )
+        rows += (
+            '<div style="border:1px solid #00ff88;padding:0.8em;margin:0.8em 0;'
+            'border-radius:4px;">'
+            '<p><strong>' + _escape(mod) + '</strong></p>'
+            '<form method="post" action="/forum/admin/mods/set">'
+            '<input type="hidden" name="username" value="' + _escape(mod) + '">'
+            '<p>' + checkboxes + '</p>'
+            '<p><button type="submit" class="btn">Speichern</button></p>'
+            '</form>'
+            '</div>'
+        )
+
+    return (
+        "<h1>Moderator-Verwaltung</h1>\n"
+        "<p>Weise jedem Moderator die Kategorien zu, in denen er/sie "
+        "moderieren darf.</p>\n"
+        + rows + '\n'
+        '<a class="btn" href="/forum/admin/authors">← Autoren-Verwaltung</a>\n'
+    )
+
+
+def render_mods_set(username: str, category_ids: list, admin: bool = False) -> bytes:
+    """POST /forum/admin/mods/set: Kategorien fuer einen Mod setzen."""
+    if not admin:
+        return b"REDIRECT:/forum"
+    from .forum_db import set_mod_categories
+    set_mod_categories(username, category_ids)
+    log_moderation("mod_categories", f"{username} -> {len(category_ids)} Kategorien", "admin")
+    return b"REDIRECT:/forum/admin/mods"

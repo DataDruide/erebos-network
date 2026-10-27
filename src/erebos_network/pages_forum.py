@@ -418,3 +418,26 @@ def render_forum_admin_promote(address: str, admin: bool, body: bytes,
         forum.log_moderation("promote", f"{username} zu {role}", "admin")
         return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
     return _page("Fehler", address, "<h1>User nicht gefunden</h1>")
+
+
+def render_forum_admin_mods(address: str, admin: bool) -> bytes:
+    """GET /forum/admin/mods: Moderator-Verwaltung."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    return _page(
+        "Moderator-Verwaltung", address,
+        forum.render_mods_management(admin=admin),
+    )
+
+
+def render_forum_admin_mods_set(address: str, admin: bool, body: bytes) -> bytes:
+    """POST /forum/admin/mods/set: Kategorien setzen."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    from urllib.parse import parse_qs
+    qs = parse_qs(body.decode("utf-8", "replace"))
+    username = (qs.get("username", [""])[0] or "").strip()
+    category_ids = qs.get("categories", [])
+    if not username:
+        return _page("Fehler", address, "<h1>Username fehlt</h1>")
+    return forum.render_mods_set(username, category_ids, admin=admin)
