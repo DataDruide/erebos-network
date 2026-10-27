@@ -1,6 +1,6 @@
 # Erebos Network - Roadmap
 
-Status: 27 Phasen komplett, 781 Tests
+Status: 28 Phasen komplett, 795 Tests
 
 ## Abgeschlossen
 
@@ -248,3 +248,29 @@ Status: 27 Phasen komplett, 781 Tests.
 Gesamt: 781 Tests.
 
 Status: 27 Phasen komplett, 781 Tests.
+
+---
+
+### Phase 28: Rollen + Moderator-Rechte (2026-10-27)
+- `users.role`: 'admin' / 'mod' / 'user' (Schema + Migration)
+- `get_user_role()`, `set_user_role()`, `is_moderator()`,
+  `promote_first_user_to_admin()`
+- Erster User wird automatisch Admin
+- Legende auf /forum: `[ADMIN] [MOD] [USER] [GAST]`
+- Rollen-Badge im Header
+- `/forum/admin/promote`: Rolle setzen (nur Admin)
+- Promote/Mod-Buttons in `render_admin_authors`
+- Moderator-Rechte:
+  - `admin`: alles (Löschen, Pinnen, Bannen, Promote)
+  - `mod`: Löschen, Pinnen, Sperren (keine Bans, kein Promote)
+  - `user`: Schreiben, Antworten, Melden
+- `render_thread`/`render_thread_list`/`render_categories` mit
+  `mod`-Parameter
+- Auto-Scroll: `#last-post`-Anchor + Highlight
+- `log_moderation` nutzt `insert_mod_log` (nicht `save_forum`)
+- 14 neue Tests (9 Rollen + 5 Promote)
+
+Gesamt: 795 Tests.
+
+Status: 28 Phasen komplett, 795 Tests.
+
