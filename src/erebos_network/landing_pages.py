@@ -17,6 +17,7 @@ from .pages_forum import (
     render_forum_logout,
     render_forum_admin_login, render_forum_admin_dashboard,
     render_forum_admin_authors, render_forum_admin_authors_delete,
+    render_forum_search, render_forum_my_threads, render_forum_new_thread,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
@@ -168,12 +169,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum/admin/authors/delete" and method == "POST":
         return render_forum_admin_authors_delete(address, admin, body, admin_token_value)
     if path == "/forum/search":
-        from urllib.parse import parse_qs as _pq
-        q = ""
-        if query:
-            q = (_pq(query).get("q", [""])[0] or "")
-        results = forum.search_threads(q)
-        return _page(f"Suche: {q}", address, forum.render_search_results(q, results))
+        return render_forum_search(address, query)
 
     # /forum/<category>?page=N&sort=X (aber nicht /forum/neu, /forum/search, /forum/admin*, /forum/<id>)
     if (path.startswith("/forum/")
@@ -213,9 +209,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return render_forum_logout(address, session_token)
 
     if path == "/forum/my-threads":
-        if not username:
-            return b"REDIRECT:/forum/login"
-        return _page("Meine Threads", address, forum.render_my_threads(username))
+        return render_forum_my_threads(address, username)
 
     # --- Admin: Reports + Mod-Log ---
     if path == "/forum/admin/reports":
@@ -327,32 +321,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return b"REDIRECT:/forum/" + tid.encode("utf-8")
 
     if path == "/forum/neu":
-        if method == "POST":
-            form = forum.parse_form_body(body)
-            tid = forum.create_thread(
-                form.get("title", ""),
-                form.get("author", ""),
-                form.get("body", ""),
-                client_id=client_id,
-                category_id=form.get("category_id", "allgemein"),
-            )
-            if tid:
-                return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
-            return _page(
-                "Fehler",
-                address,
-                "<p>Thread konnte nicht erstellt werden "
-                "(Titel und Beitrag erforderlich).</p>"
-                + forum.render_new_thread_form(),
-            )
-        from urllib.parse import parse_qs as _pq
-        cat_pre = "allgemein"
-        if query:
-            cat_pre = (_pq(query).get("category", ["allgemein"])[0] or "allgemein")
-        return _page(
-            "Neuer Thread", address,
-            forum.render_new_thread_form(category_id=cat_pre),
-        )
+        return render_forum_new_thread(address, method, body, query, client_id)
     if path.startswith("/forum/"):
         rest = path[len("/forum/"):]
 

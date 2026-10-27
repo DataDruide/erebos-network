@@ -155,3 +155,53 @@ def render_forum_admin_authors_delete(address: str, admin: bool,
     result = forum.delete_posts_by_author(author)
     logger.info(f"Admin: {author} -> {result}")
     return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
+
+
+def render_forum_search(address: str, query: str = "") -> bytes:
+    """GET /forum/search: Suchergebnisse."""
+    from urllib.parse import parse_qs as _pq
+    q = ""
+    if query:
+        q = (_pq(query).get("q", [""])[0] or "")
+    results = forum.search_threads(q)
+    return _page(
+        f"Suche: {q}", address,
+        forum.render_search_results(q, results),
+    )
+
+
+def render_forum_my_threads(address: str, username: str) -> bytes:
+    """GET /forum/my-threads: eigene Threads (Redirect zu /login wenn nicht eingeloggt)."""
+    if not username:
+        return b"REDIRECT:/forum/login"
+    return _page("Meine Threads", address, forum.render_my_threads(username))
+
+
+def render_forum_new_thread(address: str, method: str = "GET", body: bytes = b"",
+                            query: str = "", client_id: str = "") -> bytes:
+    """GET/POST /forum/neu: neuer Thread."""
+    if method == "POST":
+        form = forum.parse_form_body(body)
+        tid = forum.create_thread(
+            form.get("title", ""),
+            form.get("author", ""),
+            form.get("body", ""),
+            client_id=client_id,
+            category_id=form.get("category_id", "allgemein"),
+        )
+        if tid:
+            return b"REDIRECT:" + f"/forum/{tid}".encode("utf-8")
+        return _page(
+            "Fehler", address,
+            "<p>Thread konnte nicht erstellt werden "
+            "(Titel und Beitrag erforderlich).</p>"
+            + forum.render_new_thread_form(),
+        )
+    from urllib.parse import parse_qs as _pq
+    cat_pre = "allgemein"
+    if query:
+        cat_pre = (_pq(query).get("category", ["allgemein"])[0] or "allgemein")
+    return _page(
+        "Neuer Thread", address,
+        forum.render_new_thread_form(category_id=cat_pre),
+    )
