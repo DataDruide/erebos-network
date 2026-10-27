@@ -43,7 +43,6 @@ async def _cleanup_loop():
             logging.error(f"Chat-Cleanup-Fehler: {e}")
 
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Erebos Chat Hidden Service")
     parser.add_argument("--rendezvous-host", default="127.0.0.1")
