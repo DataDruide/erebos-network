@@ -1,6 +1,6 @@
 # Issue 001: Onion-Tunnel bricht mit IncompleteReadError ab
 
-**Status:** offen
+**Status:** ✅ closed (2026-10-27)
 **Erstellt:** 2026-10-27
 **Entdeckt bei:** E2E-Smoke-Test der Rotation-Reihe
 **Betrifft:** Onion-Routing (Proxy -> Intro-Point -> Hidden-Service)
@@ -62,3 +62,49 @@ Der SOCKS5-Client bekommt `HTTP 000`.
 - Unit-Tests (720 passed, 21 skipped)
 
 Bug ist orthogonal zur Mail-Dienst-Funktionalitaet.
+
+## Loesung (2026-10-27)
+
+**Root Cause:** Der Proxy-Container hatte **veraltete `erebos_keys/`**
+(vom Build vor 14 Stunden), waehrend die Peer-Container die aktuellen
+Keys hatten. Der Proxy verschluesselte den Onion-Layer mit einem
+falschen `peer2_x25519.pub`, den peer2 nicht entschluesseln konnte:
+
+    Relay: Onion-Layer oeffnen fehlgeschlagen: <leere InvalidTag-Exception>
+
+Zusaetzlich: `tests/conftest.py` hat bei **jedem pytest-Lauf** die
+X25519-Keypairs neu generiert. Das fuehrte dazu, dass Host-Keys und
+Container-Keys **nach jedem Testlauf** auseinanderliefen.
+
+**Fix (commit `3989187`):**
+
+1. **`docker-compose.yml`**: `./erebos_keys` als `:ro`-Volume in
+   peer1/peer2/peer3, proxy und hidden-service gemountet.
+   Damit sehen Host und Container **immer** dieselben Keys.
+
+2. **`tests/conftest.py`**: `generate_test_keys` ueberschreibt
+   bestehende Keys nicht mehr, sondern generiert nur, wenn sie
+   fehlen. Damit zerschiessen pytest-Laeufe den Docker-Betrieb
+   nicht mehr.
+
+3. **`scripts/smoke_rotation.sh`**: robuster E2E-Smoke-Test, der
+   den vollen Pfad (POST -> GET -> Rotation -> GET) prueft und
+   bei HTTP 000 sofort diagnostiziert.
+
+**Verifikation:**
+
+Nach dem Fix:
+- `GET /: HTTP 200` (vorher `HTTP 000`)
+- Mail senden: `HTTP 302`
+- Rotation funktioniert
+- Alte Mail: `[Signatur veraltet]` orange, entschluesselbar
+- Neue Mail: `[verifiziert]` gruen
+
+**Verwandte Commits:**
+- `3989187` Fix: erebos_keys synchron zwischen Host und Containern
+- `febc31e` Smoke-Test: scripts/smoke_rotation.sh (robust)
+
+**Nicht betroffen (waren nie betroffen):**
+- Mail-Krypto, Rotation, Persistenz, Unit-Tests.
+- Der Bug war ein **Build-/Deployment-Problem**, kein Code-Bug.
+
