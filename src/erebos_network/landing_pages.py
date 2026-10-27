@@ -11,9 +11,13 @@ from .pages_onboarding import render_welcome, render_landing, render_wiki
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
 from .pages_mail import _render_rotate_confirm, _handle_rotate_post, _render_mail
-from .pages_forum import (render_forum_index, render_forum_health,
-                        render_forum_login, render_forum_register,
-                        render_forum_logout)
+from .pages_forum import (
+    render_forum_index, render_forum_health,
+    render_forum_login, render_forum_register,
+    render_forum_logout,
+    render_forum_admin_login, render_forum_admin_dashboard,
+    render_forum_admin_authors, render_forum_admin_authors_delete,
+)
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
@@ -153,54 +157,16 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum":
         return render_forum_index(address, client_id, username, admin, identity_uuid)
     if path == "/forum/admin/login":
-        # Setzt das Admin-Cookie. Token kommt aus ?admin=<token>.
-        if not admin_token_value:
-            return _page(
-                "Nicht erlaubt", address,
-                "<h1>Nicht erlaubt</h1><p>Token fehlt.</p>",
-            )
-        if not forum.is_admin(admin_token_value):
-            return _page(
-                "Nicht erlaubt", address,
-                "<h1>Nicht erlaubt</h1><p>Token ungueltig.</p>",
-            )
-        cookie_value = forum.admin_login(admin_token_value)
-        forum._store_admin_session(cookie_value, client_id=client_id)
-        return (
-            b"REDIRECT:/forum\nSET_ADMIN:"
-            + cookie_value.encode("utf-8")
-        )
+        return render_forum_admin_login(address, admin_token_value, client_id)
 
     if path == "/forum/admin":
-        if not admin:
-            return _page(
-                "Nicht erlaubt",
-                address,
-                "<h1>Nicht erlaubt</h1>"
-                "<p>Admin-Token fehlt oder ist falsch.</p>"
-                "<a class=\"btn\" href=\"/forum\">← Zurück</a>",
-            )
-        return _page("Admin", address, forum.render_admin_status(client_id=client_id, admin_token=admin_token_value))
+        return render_forum_admin_dashboard(address, admin, admin_token_value, client_id)
 
     if path == "/forum/admin/authors":
-        if not admin:
-            return _page(
-                "Nicht erlaubt", address,
-                "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
-            )
-        return _page("Autoren", address, forum.render_admin_authors())
+        return render_forum_admin_authors(address, admin)
 
     if path == "/forum/admin/authors/delete" and method == "POST":
-        if not admin:
-            return _page(
-                "Nicht erlaubt", address,
-                "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
-            )
-        form = forum.parse_form_body(body)
-        author = form.get("author", "")
-        result = forum.delete_posts_by_author(author)
-        logger.info(f"Admin: {author} -> {result}")
-        return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
+        return render_forum_admin_authors_delete(address, admin, body, admin_token_value)
     if path == "/forum/search":
         from urllib.parse import parse_qs as _pq
         q = ""

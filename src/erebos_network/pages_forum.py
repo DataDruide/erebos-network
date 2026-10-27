@@ -89,3 +89,69 @@ def render_forum_logout(address: str, session_token: str) -> bytes:
     """GET /forum/logout: Session loeschen + Redirect."""
     forum.logout_user(session_token)
     return b"REDIRECT:/forum\nCLEAR_SESSION:1"
+
+
+def render_forum_admin_login(address: str, admin_token_value: str,
+                             client_id: str) -> bytes:
+    """GET /forum/admin/login: setzt das Admin-Cookie."""
+    if not admin_token_value:
+        return _page(
+            "Nicht erlaubt", address,
+            "<h1>Nicht erlaubt</h1><p>Token fehlt.</p>",
+        )
+    if not forum.is_admin(admin_token_value):
+        return _page(
+            "Nicht erlaubt", address,
+            "<h1>Nicht erlaubt</h1><p>Token ungueltig.</p>",
+        )
+    cookie_value = forum.admin_login(admin_token_value)
+    forum._store_admin_session(cookie_value, client_id=client_id)
+    return (
+        b"REDIRECT:/forum\nSET_ADMIN:"
+        + cookie_value.encode("utf-8")
+    )
+
+
+def render_forum_admin_dashboard(address: str, admin: bool,
+                                 admin_token_value: str,
+                                 client_id: str) -> bytes:
+    """GET /forum/admin: Admin-Status."""
+    if not admin:
+        return _page(
+            "Nicht erlaubt", address,
+            "<h1>Nicht erlaubt</h1>"
+            "<p>Admin-Token fehlt oder ist falsch.</p>"
+            "<a class=\"btn\" href=\"/forum\">\u2190 Zur\u00fcck</a>",
+        )
+    return _page(
+        "Admin", address,
+        forum.render_admin_status(
+            client_id=client_id, admin_token=admin_token_value
+        ),
+    )
+
+
+def render_forum_admin_authors(address: str, admin: bool) -> bytes:
+    """GET /forum/admin/authors: Autoren-Liste."""
+    if not admin:
+        return _page(
+            "Nicht erlaubt", address,
+            "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+        )
+    return _page("Autoren", address, forum.render_admin_authors())
+
+
+def render_forum_admin_authors_delete(address: str, admin: bool,
+                                      body: bytes,
+                                      admin_token_value: str) -> bytes:
+    """POST /forum/admin/authors/delete: Autor loeschen."""
+    if not admin:
+        return _page(
+            "Nicht erlaubt", address,
+            "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+        )
+    form = forum.parse_form_body(body)
+    author = form.get("author", "")
+    result = forum.delete_posts_by_author(author)
+    logger.info(f"Admin: {author} -> {result}")
+    return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
