@@ -1119,6 +1119,90 @@ def get_mail_keys_by_version(uuid: str, key_version: int) -> dict:
     }
 
 
+def find_expiring_keys(days_before: float = None) -> list:
+    """Findet mail_keys, die in den naechsten `days_before` Tagen ablaufen.
+
+    Returns:
+        Liste von dicts mit uuid, key_version, valid_until, days_left.
+    """
+    import time as _time
+    from .config import ROTATE_BEFORE_EXPIRY_DAYS
+
+    if days_before is None:
+        days_before = ROTATE_BEFORE_EXPIRY_DAYS
+
+    now = _time.time()
+    threshold = now + days_before * 86400
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT uuid, key_version, valid_until "
+        "FROM mail_keys "
+        "WHERE valid_until IS NOT NULL "
+        "  AND valid_until <= ? "
+        "ORDER BY valid_until ASC",
+        (threshold,),
+    ).fetchall()
+    return [
+        {
+            "uuid": r[0],
+            "key_version": r[1],
+            "valid_until": r[2],
+            "days_left": (r[2] - now) / 86400 if r[2] else None,
+        }
+        for r in rows
+    ]
+
+
+def auto_rotate_expiring_keys(days_before: float = None,
+                             dry_run: bool = False) -> dict:
+    """Rotiert alle Keys, die in den naechsten `days_before` Tagen ablaufen.
+
+    Umgeht das Rate-Limit (die Rotation ist legitim, weil der Key
+    wirklich abläuft). Loggt jede Rotation.
+
+    Args:
+        days_before: Schwellwert in Tagen (Default aus config).
+        dry_run:     Wenn True, nur auflisten, nicht rotieren.
+
+    Returns:
+        dict mit rotated (list), failed (list), skipped (list)
+    """
+    expiring = find_expiring_keys(days_before)
+    result = {"rotated": [], "failed": [], "skipped": []}
+
+    if not expiring:
+        logger.info("auto_rotate: keine ablaufenden Keys gefunden")
+        return result
+
+    logger.info(
+        f"auto_rotate: {len(expiring)} Keys laufen bald ab — starte Rotation"
+    )
+
+    for entry in expiring:
+        uuid = entry["uuid"]
+        old_version = entry["key_version"]
+        days_left = entry["days_left"]
+        if dry_run:
+            logger.info(
+                f"auto_rotate (dry-run): wuerde {uuid[:8]} v{old_version} "
+                f"rotieren (laeuft in {days_left:.1f} Tagen ab)"
+            )
+            result["skipped"].append(uuid)
+            continue
+        try:
+            new_keys = rotate_mail_keys(uuid)
+            logger.info(
+                f"auto_rotate: {uuid[:8]} v{old_version} -> "
+                f"v{new_keys['key_version']} (lief in {days_left:.1f} Tagen ab)"
+            )
+            result["rotated"].append(uuid)
+        except Exception as e:
+            logger.error(f"auto_rotate: {uuid[:8]} fehlgeschlagen: {e}")
+            result["failed"].append((uuid, str(e)))
+
+    return result
+
+
 def check_rotate_rate_limit(uuid: str) -> tuple:
     """Prueft, ob eine Rotation fuer uuid erlaubt ist.
 

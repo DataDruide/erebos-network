@@ -26,3 +26,13 @@ MAIL_KEY_VALIDITY_SECONDS = MAIL_KEY_VALIDITY_DAYS * 24 * 60 * 60
 # Wie oft eine UUID ihre Keys hoechstens rotieren darf (pro Zeitfenster).
 # Standard: 1x pro Stunde.
 ROTATE_RATE_LIMIT_SECONDS = _env_int("EREBOS_ROTATE_RATE_LIMIT_SECONDS", 3600)
+
+# Automatische Rotation
+# Wie viele Tage vor Ablauf ein Key automatisch rotiert wird.
+ROTATE_BEFORE_EXPIRY_DAYS = _env_int("EREBOS_ROTATE_BEFORE_EXPIRY_DAYS", 7)
+
+# Wie oft der Hintergrund-Job prueft (Sekunden).
+# Default: 6 Stunden.
+ROTATE_CHECK_INTERVAL_SECONDS = _env_int(
+    "EREBOS_ROTATE_CHECK_INTERVAL_SECONDS", 6 * 3600
+)

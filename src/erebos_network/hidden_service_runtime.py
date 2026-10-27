@@ -139,6 +139,7 @@ class HiddenServiceRuntime:
         # B2: Health-Monitoring + Rotation
         self._intro_failures = {}  # index -> consecutive failures
         self._monitor_task = None
+        self._auto_rotate_task = None
         self._known_peers = [
             ("peer1", "127.0.0.1:9999"),
             ("peer2", "127.0.0.1:9998"),
@@ -160,6 +161,7 @@ class HiddenServiceRuntime:
         logger.info(f"Hidden Service läuft: {self.address}")
         # B2: Health-Monitoring starten
         self._monitor_task = asyncio.create_task(self._monitor_intro_points())
+        self._auto_rotate_task = asyncio.create_task(self._auto_rotate_loop())
         try:
             await self._stop_event.wait()
         finally:
@@ -741,6 +743,47 @@ class HiddenServiceRuntime:
             except Exception as e:
                 logger.debug(f"Cover-Traffic fehlgeschlagen: {e}")
                 return
+
+    async def _auto_rotate_loop(self) -> None:
+        """Hintergrund-Job: rotiert ablaufende Mail-Keys regelmaessig.
+
+        Prueft alle ROTATE_CHECK_INTERVAL_SECONDS, ob Keys in den
+        naechsten ROTATE_BEFORE_EXPIRY_DAYS Tagen ablaufen, und
+        rotiert sie automatisch.
+
+        Laeuft bis _stop_event gesetzt ist.
+        """
+        from .config import (
+            ROTATE_CHECK_INTERVAL_SECONDS,
+            ROTATE_BEFORE_EXPIRY_DAYS,
+        )
+        from .forum_db import auto_rotate_expiring_keys
+
+        # Beim Start kurz warten, damit die DB und HTTP-Server initialisiert sind
+        await asyncio.sleep(10)
+
+        while not self._stop_event.is_set():
+            try:
+                result = auto_rotate_expiring_keys()
+                if result["rotated"] or result["failed"]:
+                    logger.info(
+                        f"Auto-Rotation: {len(result['rotated'])} rotiert, "
+                        f"{len(result['failed'])} fehlgeschlagen, "
+                        f"{len(result['skipped'])} skipped "
+                        f"(Schwelle: {ROTATE_BEFORE_EXPIRY_DAYS} Tage)"
+                    )
+            except Exception as e:
+                logger.error(f"Auto-Rotation-Job fehlgeschlagen: {type(e).__name__}: {e}")
+
+            # Warte ROTATE_CHECK_INTERVAL_SECONDS oder bis _stop_event
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=ROTATE_CHECK_INTERVAL_SECONDS,
+                )
+                return  # _stop_event gesetzt
+            except asyncio.TimeoutError:
+                continue  # normale Wartezeit abgelaufen
 
     async def _reconnect_loop(self) -> None:
         """Verbindet sich nach Abbruch neu mit dem Rendezvous-Punkt.
