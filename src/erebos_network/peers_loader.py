@@ -77,3 +77,15 @@ def load_peers(path: Optional[str] = None) -> List[PeerEntry]:
 def peers_by_role(entries: List[PeerEntry], role: str) -> List[PeerEntry]:
     """Filtert die Peer-Liste nach Rolle (entry/mix/exit)."""
     return [e for e in entries if e.role == role]
+
+
+def latency_for_peer(name: str, path: Optional[str] = None) -> float:
+    """Gibt die konfigurierte Latenz in Sekunden für einen Peer zurück.
+
+    Falls der Peer nicht in peers.json steht oder die Datei fehlt,
+    wird 0.0 zurückgegeben.
+    """
+    for entry in load_peers(path):
+        if entry.name == name:
+            return entry.latency_ms / 1000.0
+    return 0.0

@@ -246,7 +246,7 @@ class ErebosTunnelClient:
         self.writer = None
         self.cipher = None
 
-    async def connect(self, peer_name: str = None):
+    async def connect(self, peer_name: str = None, latency_s: float = 0.0):
         """Baut den Hybrid-Handshake (X25519 + ML-KEM-1024) auf.
 
         peer_name: Name der Peer-Identitaet, deren statische Keys wir kennen.
@@ -275,6 +275,13 @@ class ErebosTunnelClient:
                 f"connect(): peer_name aus Port {self.port} abgeleitet -> "
                 f"{peer_name}"
             )
+
+        if latency_s > 0:
+            logger.debug(
+                f"connect(): künstliche Latenz {latency_s*1000:.1f} ms vor "
+                f"Verbindung zu {self.host}:{self.port}"
+            )
+            await asyncio.sleep(latency_s)
 
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
 

@@ -17,6 +17,7 @@ from .cover import CoverConfig, TunnelCoverInjector
 from .onion import seal_for
 from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
 from .topology_utils import select_three_hops
+from .peers_loader import latency_for_peer
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +320,7 @@ class ErebosSocks5Server:
 
         # 1. Versuch: Rollen-basierte Auswahl aus peers.json
         try:
-            from .peers_loader import load_peers
+            from .peers_loader import load_peers, latency_for_peer
             entries = load_peers()
             if entries:
                 by_name = {e.name: e for e in entries}
@@ -582,9 +583,10 @@ class ErebosSocks5Server:
                 intro_port = int(intro_port)
 
                 from .tunnel import ErebosTunnelClient
+                _lat = latency_for_peer("peer1")  # Intro-Peer (peer1)
                 tunnel_client = ErebosTunnelClient(host=intro_host, port=intro_port)
                 try:
-                    await tunnel_client.connect()
+                    await tunnel_client.connect(latency_s=_lat)
                     logger.info(f"[{conn_id}] [1/4] Intro-Point-Tunnel ... OK ({intro_point.address})")
                     await tunnel_client.send_rendezvous_request(request.to_dict())
                     logger.info(f"[{conn_id}] [2/4] Rendezvous-Request ... OK")
@@ -613,8 +615,9 @@ class ErebosSocks5Server:
                             logger.info(f"[{conn_id}] [3/4] Onion-Build (3 Hops) ... OK ({len(onion)}B)")
 
                             from .peers_config import peer_host
+                            _lat = latency_for_peer("peer2")
                             rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)  # peer2
-                            await rendezvous_client.connect()
+                            await rendezvous_client.connect(latency_s=_lat)
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
                             logger.info(f"[{conn_id}] [3/4] Onion an peer2 gesendet ... OK")
 
@@ -670,8 +673,9 @@ class ErebosSocks5Server:
                                 logger.info(f"[{conn_id}] Fallback-Onion gebaut ({len(onion_fb)}B, 2-Hop)")
 
                                 try:
+                                    _lat = latency_for_peer("peer2")
                                     rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)
-                                    await asyncio.wait_for(rendezvous_client.connect(), timeout=5.0)
+                                    await asyncio.wait_for(rendezvous_client.connect(latency_s=_lat), timeout=5.0)
                                     await rendezvous_client.send_typed(FRAME_RELAY, onion_fb)
                                     logger.info(f"[{conn_id}] 2-Hop-Onion an peer2 gesendet (peer2 -> peer1)")
                                     # Auf 'ready' warten (kuerzerer Timeout)
@@ -904,9 +908,10 @@ class ErebosSocks5Server:
             l1_plain = hdr1 + l2
             l1 = seal_for(hop1_pub, l1_plain)
 
+            _lat = latency_for_peer(hop1)
             tunnel = ErebosTunnelClient(host=self.entry_host, port=hop1_port)
             try:
-                await asyncio.wait_for(tunnel.connect(), timeout=self.config.connect_timeout)
+                await asyncio.wait_for(tunnel.connect(latency_s=_lat), timeout=self.config.connect_timeout)
             except Exception as e:
                 logger.error(f"[{conn_id}] Tunnel-Aufbau fehlgeschlagen: {e}")
                 await self._send_reply(writer, SOCKS5_REP_HOST_UNREACHABLE)
