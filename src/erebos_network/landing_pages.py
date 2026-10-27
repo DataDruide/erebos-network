@@ -526,8 +526,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         body_html = (
             f"<h1>Mail</h1>\n"
             f"{rotated_banner}"
-            f"<p>Deine anonyme Adresse: <code>{_escape(anon_uuid)}</code> "
-            f"(Kurz-ID: <strong>#{_escape(short_id)}</strong>)</p>\n"
+            f"{_render_identity_box(anon_uuid)}"
             "<h2>Neue Mail senden</h2>\n"
             "<form method=\"post\" action=\"/mail\">\n"
             "  <p><label>An (UUID des Empfaengers):<br>"
@@ -1092,3 +1091,25 @@ def _handle_rotate_post(anon_uuid: str, address: str) -> bytes:
             "<a class=\"btn\" href=\"/mail\">← Zurück</a>",
         )
 
+
+
+def _render_identity_box(anon_uuid: str) -> str:
+    """Rendert eine Box mit UUID, @erebos-Adresse und Forum-Username."""
+    from .forum_db import get_identity
+    ident = get_identity(anon_uuid)
+    email = ident["email"] if ident else anon_uuid.replace("-", "")[:8] + "@erebos"
+    forum_username = (ident["forum_username"] if ident else None) or "(wird beim ersten Forum-Login angelegt)"
+
+    return (
+        '<div style="border:2px solid #00ff88; padding:1em; margin:1em 0; '
+        'background:#0a0a15; border-radius:4px;">'
+        '<p style="color:#00ff88; font-size:0.85em; letter-spacing:0.15em; '
+        'margin-bottom:0.8em;">DEINE IDENTITAET</p>'
+        '<p style="margin:0.4em 0;"><strong>UUID:</strong> '
+        '<code style="color:#00ff88; word-break:break-all;">' + _escape(anon_uuid) + '</code></p>'
+        '<p style="margin:0.4em 0;"><strong>E-Mail:</strong> '
+        '<code style="color:#00ff88;">' + _escape(email) + '</code></p>'
+        '<p style="margin:0.4em 0;"><strong>Forum:</strong> '
+        '<code style="color:#00ff88;">' + _escape(forum_username) + '</code></p>'
+        '</div>'
+    )
