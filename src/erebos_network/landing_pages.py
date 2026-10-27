@@ -238,7 +238,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     if path == "/welcome/ack":
         if method == "POST":
-            return b"REDIRECT:/mail"
+            # Nach dem Onboarding ins Forum (Auto-Login greift dort)
+            return b"REDIRECT:/forum"
         return b"REDIRECT:/welcome"
 
     if path == "/welcome":

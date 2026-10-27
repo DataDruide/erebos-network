@@ -61,10 +61,10 @@ def test_welcome_shows_identity(temp_db):
     assert "erebos_" in text  # Forum-Username
 
 
-def test_welcome_ack_redirects_to_mail(temp_db):
-    """POST /welcome/ack -> REDIRECT:/mail."""
+def test_welcome_ack_redirects_to_forum(temp_db):
+    """POST /welcome/ack -> REDIRECT:/forum (Auto-Login greift dort)."""
     body = _make_request("/welcome/ack", method="POST", client_id=_client_id())
-    assert body == b"REDIRECT:/mail"
+    assert body == b"REDIRECT:/forum"
 
 
 def test_root_after_onboard_shows_landing(temp_db):
@@ -98,7 +98,7 @@ def test_full_onboarding_flow(temp_db):
 
     # 4. /welcome/ack
     body = _make_request("/welcome/ack", method="POST", client_id=cid)
-    assert body == b"REDIRECT:/mail"
+    assert body == b"REDIRECT:/forum"
 
     # 5. / ist jetzt keine Redirect mehr
     body = _make_request("/", client_id=cid)
