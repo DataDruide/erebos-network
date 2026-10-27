@@ -7,7 +7,7 @@ Funktionen aus crypto/hybrid_kem.py.
 import pytest
 from erebos_network.crypto.hybrid_kem import (
     sign_mail, verify_mail, verify_mail_with_status,
-    VERIFIED, VERIFIED_OUTDATED, VERIFY_FAILED,
+    VERIFIED, VERIFIED_OUTDATED, VERIFIED_EXPIRED, VERIFY_FAILED,
 )
 
 
@@ -118,3 +118,63 @@ def test_verify_with_status_invalid_signature_fails(fresh_keys_a):
         sender_key_version=1, sender_current_version=1,
     )
     assert status == VERIFY_FAILED
+
+
+def test_verify_with_status_expired(fresh_keys_a):
+    """valid_until in der Vergangenheit -> VERIFIED_EXPIRED."""
+    import time as _time
+    sigs = sign_mail(
+        ed25519_priv=bytes.fromhex(fresh_keys_a["ed25519_priv"]),
+        mldsa_priv=bytes.fromhex(fresh_keys_a["mldsa_priv"]),
+        payload=b"payload",
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+    )
+    yesterday = _time.time() - 86400
+    status = verify_mail_with_status(
+        ed25519_pub=bytes.fromhex(fresh_keys_a["ed25519_pub"]),
+        payload=b"payload", signatures=sigs,
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+        sender_key_version=1, sender_current_version=1,
+        valid_until=yesterday,
+    )
+    assert status == VERIFIED_EXPIRED
+
+
+def test_verify_with_status_not_yet_expired(fresh_keys_a):
+    """valid_until in der Zukunft -> VERIFIED."""
+    import time as _time
+    sigs = sign_mail(
+        ed25519_priv=bytes.fromhex(fresh_keys_a["ed25519_priv"]),
+        mldsa_priv=bytes.fromhex(fresh_keys_a["mldsa_priv"]),
+        payload=b"payload",
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+    )
+    tomorrow = _time.time() + 86400
+    status = verify_mail_with_status(
+        ed25519_pub=bytes.fromhex(fresh_keys_a["ed25519_pub"]),
+        payload=b"payload", signatures=sigs,
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+        sender_key_version=1, sender_current_version=1,
+        valid_until=tomorrow,
+    )
+    assert status == VERIFIED
+
+
+def test_verify_with_status_outdated_beats_expired(fresh_keys_a):
+    """Aeltere Version + abgelaufen -> VERIFIED_OUTDATED (Version hat Vorrang)."""
+    import time as _time
+    sigs = sign_mail(
+        ed25519_priv=bytes.fromhex(fresh_keys_a["ed25519_priv"]),
+        mldsa_priv=bytes.fromhex(fresh_keys_a["mldsa_priv"]),
+        payload=b"payload",
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+    )
+    yesterday = _time.time() - 86400
+    status = verify_mail_with_status(
+        ed25519_pub=bytes.fromhex(fresh_keys_a["ed25519_pub"]),
+        payload=b"payload", signatures=sigs,
+        mldsa_pub=bytes.fromhex(fresh_keys_a["mldsa_pub"]),
+        sender_key_version=1, sender_current_version=2,
+        valid_until=yesterday,
+    )
+    assert status == VERIFIED_OUTDATED

@@ -67,3 +67,35 @@ def test_key_version_default_is_null_before_migration(tmp_path, monkeypatch):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(mail_keys)")}
     assert "key_version" in cols
     conn.close()
+
+
+def test_valid_until_column_exists(temp_db):
+    """mail_keys + mail_key_history haben valid_until."""
+    import sqlite3
+    conn = sqlite3.connect(str(temp_db))
+    mk_cols = {r[1] for r in conn.execute("PRAGMA table_info(mail_keys)")}
+    assert "valid_until" in mk_cols
+    hist_cols = {r[1] for r in conn.execute("PRAGMA table_info(mail_key_history)")}
+    assert "valid_until" in hist_cols
+    conn.close()
+
+
+def test_valid_until_populated_for_existing_keys(temp_db, uuid_a):
+    """Bestehende mail_keys-Zeile bekommt valid_until bei Migration."""
+    from erebos_network.forum_db import get_or_create_mail_keys, get_mail_keys
+    get_or_create_mail_keys(uuid_a)
+    keys = get_mail_keys(uuid_a)
+    assert keys["valid_until"] is not None
+    assert keys["valid_until"] > keys["valid_from"]
+
+
+def test_rotate_sets_new_valid_until(temp_db, uuid_a):
+    """Rotation setzt neues valid_until (> altes)."""
+    from erebos_network.forum_db import get_or_create_mail_keys, get_mail_keys, rotate_mail_keys
+    import time as _time
+    v1 = get_or_create_mail_keys(uuid_a)
+    _time.sleep(0.01)
+    rotate_mail_keys(uuid_a)
+    v2 = get_mail_keys(uuid_a)
+    assert v2["valid_until"] > v1["valid_until"]
+

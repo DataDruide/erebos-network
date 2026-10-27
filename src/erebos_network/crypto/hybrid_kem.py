@@ -440,6 +440,7 @@ def verify_mail(ed25519_pub: bytes, payload: bytes,
 
 VERIFIED = "verified"                    # Signatur gueltig, aktuelle Version
 VERIFIED_OUTDATED = "verified_outdated"  # Signatur gueltig, aeltere Version
+VERIFIED_EXPIRED = "verified_expired"    # Signatur gueltig, aber Key abgelaufen
 VERIFY_FAILED = "failed"                 # Signatur ungueltig oder Version fehlt
 
 
@@ -450,8 +451,9 @@ def verify_mail_with_status(
     mldsa_pub: bytes = None,
     sender_key_version: int = None,
     sender_current_version: int = None,
+    valid_until: float = None,
 ) -> str:
-    """Verifiziert eine Mail und liefert einen 3-Zustands-String.
+    """Verifiziert eine Mail und liefert einen 4-Zustands-String.
 
     Args:
         ed25519_pub:            32-Byte Ed25519 Public Key (der Version,
@@ -466,10 +468,17 @@ def verify_mail_with_status(
                                 (aus mail_keys.key_version).
 
     Returns:
-        VERIFIED             - Signatur gueltig + aktuelle Version
+        VERIFIED             - Signatur gueltig + aktuelle Version + nicht abgelaufen
         VERIFIED_OUTDATED    - Signatur gueltig + aeltere Version
+        VERIFIED_EXPIRED     - Signatur gueltig + Key abgelaufen (valid_until < now)
         VERIFY_FAILED        - Signatur ungueltig oder Daten fehlen
+
+    Args:
+        valid_until: Unix-Timestamp, wann der Key ablaeuft. Wenn None,
+                     wird Expiry nicht geprueft (rueckwaertskompatibel).
     """
+    import time as _time
+
     # Erst die eigentliche kryptographische Pruefung
     ok = verify_mail(
         ed25519_pub=ed25519_pub,
@@ -481,14 +490,19 @@ def verify_mail_with_status(
         return VERIFY_FAILED
 
     # Signatur ist kryptographisch gueltig.
-    # Wenn Versions-Info fehlt: als VERIFIED behandeln (rueckwaertskompatibel).
-    if sender_key_version is None or sender_current_version is None:
-        return VERIFIED
+    # Reihenfolge: erst Version, dann Expiry.
+    # (Eine aeltere Version ist "outdated" auch wenn sie noch nicht
+    #  abgelaufen ist - Rotation ist der wichtigere Zustand.)
+    if sender_key_version is not None and sender_current_version is not None:
+        if sender_key_version > sender_current_version:
+            # Mail aus der Zukunft -> unmoeglich
+            return VERIFY_FAILED
+        if sender_key_version < sender_current_version:
+            return VERIFIED_OUTDATED
+        # Version gleich: weiter mit Expiry-Check
 
-    if sender_key_version == sender_current_version:
-        return VERIFIED
-    if sender_key_version < sender_current_version:
-        return VERIFIED_OUTDATED
-    # sender_key_version > sender_current_version -> unmoeglich (Mail aus
-    # der Zukunft) -> als VERIFY_FAILED behandeln.
-    return VERIFY_FAILED
+    # Expiry-Check
+    if valid_until is not None and valid_until < _time.time():
+        return VERIFIED_EXPIRED
+
+    return VERIFIED

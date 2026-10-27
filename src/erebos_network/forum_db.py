@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS mail_keys (
     mldsa_priv TEXT,
     key_version INTEGER DEFAULT 1,
     valid_from REAL,
+    valid_until REAL,
     revoked_at REAL,
     superseded_by TEXT,
     created_at REAL NOT NULL
@@ -128,6 +129,7 @@ CREATE TABLE IF NOT EXISTS mail_key_history (
     ed25519_priv TEXT,
     mldsa_priv TEXT,
     valid_from REAL NOT NULL,
+    valid_until REAL,
     revoked_at REAL,
     superseded_by TEXT,
     UNIQUE(uuid, key_version)
@@ -247,6 +249,7 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
             ed25519_pub TEXT,
             mldsa_pub TEXT,
             valid_from REAL NOT NULL,
+            valid_until REAL,
             revoked_at REAL,
             superseded_by TEXT,
             UNIQUE(uuid, key_version)
@@ -263,6 +266,7 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
         ("mlkem_priv", "TEXT"),
         ("ed25519_priv", "TEXT"),
         ("mldsa_priv", "TEXT"),
+        ("valid_until", "REAL"),
     ]:
         if name not in hist_cols:
             try:
@@ -281,6 +285,7 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
         ("mldsa_priv", "TEXT"),
         ("key_version", "INTEGER"),
         ("valid_from", "REAL"),
+        ("valid_until", "REAL"),
         ("revoked_at", "REAL"),
         ("superseded_by", "TEXT"),
     ]:
@@ -300,13 +305,23 @@ def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
     Idempotent: mehrfacher Aufruf aendert nichts.
     Ueberspringt Zeilen ohne ed25519_pub oder mldsa_pub (unvollstaendig).
     """
-    # 1) key_version/valid_from fuer alle Zeilen setzen, wo NULL
+    # 1) key_version/valid_from/valid_until fuer alle Zeilen setzen, wo NULL
     conn.execute(
         "UPDATE mail_keys SET key_version = 1 WHERE key_version IS NULL"
     )
     conn.execute(
         "UPDATE mail_keys SET valid_from = created_at WHERE valid_from IS NULL"
     )
+    # valid_until = valid_from + MAIL_KEY_VALIDITY_SECONDS (nur wenn NULL)
+    try:
+        from .config import MAIL_KEY_VALIDITY_SECONDS
+        conn.execute(
+            "UPDATE mail_keys SET valid_until = COALESCE(valid_from, created_at) + ? "
+            "WHERE valid_until IS NULL",
+            (MAIL_KEY_VALIDITY_SECONDS,),
+        )
+    except Exception as e:
+        logger.warning(f"valid_until-Migration fehlgeschlagen: {e}")
 
     # 2) History-Eintraege fuer vollstaendige Zeilen anlegen
     rows = conn.execute(
@@ -323,9 +338,12 @@ def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "INSERT OR IGNORE INTO mail_key_history "
                 "(uuid, key_version, x25519_pub, mlkem_pub, "
-                " ed25519_pub, mldsa_pub, valid_from, revoked_at, superseded_by) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]),
+                " ed25519_pub, mldsa_pub, valid_from, valid_until, "
+                " revoked_at, superseded_by) "
+                "SELECT ?, ?, ?, ?, ?, ?, ?, valid_until, ?, ? "
+                "FROM mail_keys WHERE uuid = ? AND key_version = ?",
+                (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8],
+                 r[0], r[1]),
             )
             inserted += conn.total_changes - inserted  # grob, fuer Log
         except Exception as e:
@@ -800,7 +818,7 @@ def get_or_create_mail_keys(uuid: str) -> dict:
     row = conn.execute(
         "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
         "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv, "
-        "key_version, valid_from, revoked_at, superseded_by "
+        "key_version, valid_from, valid_until, revoked_at, superseded_by "
         "FROM mail_keys WHERE uuid = ?",
         (uuid,),
     ).fetchone()
@@ -816,8 +834,9 @@ def get_or_create_mail_keys(uuid: str) -> dict:
             "mldsa_priv": row[7],
             "key_version": row[8] or 1,
             "valid_from": row[9],
-            "revoked_at": row[10],
-            "superseded_by": row[11],
+            "valid_until": row[10],
+            "revoked_at": row[11],
+            "superseded_by": row[12],
         }
     if row:
         # Alte Zeile ohne Ed25519/mldsa -> nachgenerieren
@@ -867,8 +886,9 @@ def get_or_create_mail_keys(uuid: str) -> dict:
             "mldsa_priv": mldsa_priv_hex,
             "key_version": row[8] or 1,
             "valid_from": row[9],
-            "revoked_at": row[10],
-            "superseded_by": row[11],
+            "valid_until": row[10],
+            "revoked_at": row[11],
+            "superseded_by": row[12],
         }
 
     # Neu generieren (X25519 + ML-KEM + Ed25519 + ML-DSA)
@@ -899,7 +919,9 @@ def get_or_create_mail_keys(uuid: str) -> dict:
     mlkem_pub = mlkem.generate_keypair()
     mlkem_priv = mlkem.export_secret_key()
 
+    from .config import MAIL_KEY_VALIDITY_SECONDS
     now = time.time()
+    valid_until = now + MAIL_KEY_VALIDITY_SECONDS
     keys = {
         "x25519_pub": x_pub.hex(),
         "mlkem_pub": mlkem_pub.hex(),
@@ -911,6 +933,7 @@ def get_or_create_mail_keys(uuid: str) -> dict:
         "mldsa_priv": mldsa_priv_raw.hex(),
         "key_version": 1,
         "valid_from": now,
+        "valid_until": valid_until,
         "revoked_at": None,
         "superseded_by": None,
     }
@@ -918,13 +941,13 @@ def get_or_create_mail_keys(uuid: str) -> dict:
         conn.execute(
             "INSERT INTO mail_keys (uuid, x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
             "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv, "
-            "key_version, valid_from, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "key_version, valid_from, valid_until, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (uuid, keys["x25519_pub"], keys["mlkem_pub"],
              keys["x25519_priv"], keys["mlkem_priv"],
              keys["ed25519_pub"], keys["ed25519_priv"],
              keys["mldsa_pub"], keys["mldsa_priv"],
-             keys["key_version"], keys["valid_from"], now),
+             keys["key_version"], keys["valid_from"], keys["valid_until"], now),
         )
     logger.info(f"Mail-Schluessel generiert fuer #{uuid[:8]}")
     return keys
@@ -995,6 +1018,8 @@ def rotate_mail_keys(uuid: str) -> dict:
     mldsa_pub = mldsa.generate_keypair()
     mldsa_priv_raw = mldsa.export_secret_key()
 
+    from .config import MAIL_KEY_VALIDITY_SECONDS
+    valid_until = now + MAIL_KEY_VALIDITY_SECONDS
     keys = {
         "x25519_pub": x_pub.hex(),
         "mlkem_pub": mlkem_pub.hex(),
@@ -1006,6 +1031,7 @@ def rotate_mail_keys(uuid: str) -> dict:
         "mldsa_priv": mldsa_priv_raw.hex(),
         "key_version": new_version,
         "valid_from": now,
+        "valid_until": valid_until,
         "revoked_at": None,
         "superseded_by": None,
     }
@@ -1022,13 +1048,14 @@ def rotate_mail_keys(uuid: str) -> dict:
             "UPDATE mail_keys SET "
             "x25519_pub = ?, mlkem_pub = ?, x25519_priv = ?, mlkem_priv = ?, "
             "ed25519_pub = ?, ed25519_priv = ?, mldsa_pub = ?, mldsa_priv = ?, "
-            "key_version = ?, valid_from = ?, revoked_at = NULL, superseded_by = NULL "
+            "key_version = ?, valid_from = ?, valid_until = ?, "
+            "revoked_at = NULL, superseded_by = NULL "
             "WHERE uuid = ?",
             (keys["x25519_pub"], keys["mlkem_pub"],
              keys["x25519_priv"], keys["mlkem_priv"],
              keys["ed25519_pub"], keys["ed25519_priv"],
              keys["mldsa_pub"], keys["mldsa_priv"],
-             new_version, now, uuid),
+             new_version, now, valid_until, uuid),
         )
         # 3) Neue Version in History als aktiv eintragen
         conn.execute(
@@ -1060,7 +1087,7 @@ def get_mail_keys_by_version(uuid: str, key_version: int) -> dict:
     row = conn.execute(
         "SELECT x25519_pub, mlkem_pub, ed25519_pub, mldsa_pub, "
         "x25519_priv, mlkem_priv, ed25519_priv, mldsa_priv, "
-        "valid_from, revoked_at, superseded_by "
+        "valid_from, valid_until, revoked_at, superseded_by "
         "FROM mail_key_history WHERE uuid = ? AND key_version = ?",
         (uuid, key_version),
     ).fetchone()
@@ -1076,8 +1103,9 @@ def get_mail_keys_by_version(uuid: str, key_version: int) -> dict:
         "ed25519_priv": row[6],
         "mldsa_priv": row[7],
         "valid_from": row[8],
-        "revoked_at": row[9],
-        "superseded_by": row[10],
+        "valid_until": row[9],
+        "revoked_at": row[10],
+        "superseded_by": row[11],
         "key_version": key_version,
     }
 
@@ -1093,7 +1121,7 @@ def get_mail_keys(uuid: str) -> dict:
     row = conn.execute(
         "SELECT x25519_pub, mlkem_pub, x25519_priv, mlkem_priv, "
         "ed25519_pub, ed25519_priv, mldsa_pub, mldsa_priv, "
-        "key_version, valid_from, revoked_at, superseded_by "
+        "key_version, valid_from, valid_until, revoked_at, superseded_by "
         "FROM mail_keys WHERE uuid = ?",
         (uuid,),
     ).fetchone()
@@ -1110,6 +1138,7 @@ def get_mail_keys(uuid: str) -> dict:
         "mldsa_priv": row[7],
         "key_version": row[8] or 1,
         "valid_from": row[9],
-        "revoked_at": row[10],
-        "superseded_by": row[11],
+        "valid_until": row[10],
+        "revoked_at": row[11],
+        "superseded_by": row[12],
     }

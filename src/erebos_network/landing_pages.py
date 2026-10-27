@@ -11,7 +11,7 @@ from .forum_db import (load_mails, save_mail, mark_mail_read,
                        get_mail_keys_by_version, set_mail_verified)
 from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
                                 verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
-                                VERIFY_FAILED)
+                                VERIFIED_EXPIRED, VERIFY_FAILED)
 
 logger = logging.getLogger(__name__)
 
@@ -330,13 +330,19 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                                     mldsa_pub=mldsa_pub_bytes,
                                     sender_key_version=mail_key_version,
                                     sender_current_version=current_version,
+                                    valid_until=version_keys.get("valid_until"),
                                 )
                             except Exception as e:
                                 logger.warning(f"Signatur-Verifikation fehlgeschlagen: {e}")
                                 verified = VERIFY_FAILED
 
                         # Persistieren als Zahl
-                        status_map = {VERIFIED: 1, VERIFIED_OUTDATED: 2, VERIFY_FAILED: 3}
+                        status_map = {
+                            VERIFIED: 1,
+                            VERIFIED_OUTDATED: 2,
+                            VERIFY_FAILED: 3,
+                            VERIFIED_EXPIRED: 4,
+                        }
                         status_num = status_map.get(verified, 3)
                         try:
                             set_mail_verified(m["id"], status_num)
@@ -348,9 +354,27 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     elif verified == VERIFIED_OUTDATED or verified == 2:
                         verified_badge = (" <span style=\"color:orange\">"
                                           "[Signatur veraltet \u2014 Schluessel rotiert]</span>")
+                    elif verified == VERIFIED_EXPIRED or verified == 4:
+                        verified_badge = (" <span style=\"color:orange\">"
+                                          "[Signatur abgelaufen]</span>")
                     else:
                         verified_badge = " <span style=\"color:red\">[nicht verifiziert]</span>"
-                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>") + verified_badge
+                    # Expiry-Hinweis (nur wenn valid_until vorhanden)
+                    expiry_hint = ""
+                    try:
+                        valid_until = version_keys.get("valid_until")
+                        if valid_until:
+                            import time as _time
+                            remaining_days = int((valid_until - _time.time()) / 86400)
+                            if remaining_days < 0:
+                                expiry_hint = ""
+                            elif remaining_days == 0:
+                                expiry_hint = " <small>[Key laeuft heute ab]</small>"
+                            elif remaining_days <= 14:
+                                expiry_hint = f" <small>[Key laeuft in {remaining_days} Tagen ab]</small>"
+                    except Exception:
+                        pass
+                    body_html = _escape(plaintext.decode("utf-8", "replace")).replace("\n", "<br>") + verified_badge + expiry_hint
                 except Exception as e:
                     logger.error(f"Mail-Entschluesselung fehlgeschlagen: {e}")
                     body_html = "<em>[Entschluesselung fehlgeschlagen]</em>"
