@@ -21,6 +21,7 @@ from .pages_forum import (
     render_forum_admin_modlog, render_forum_admin_bans,
     render_forum_admin_ban, render_forum_admin_bans_unban,
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
+    render_forum_toggle_sticky, render_forum_toggle_locked,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
@@ -278,20 +279,10 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     # --- Sticky/Locked-Toggles ---
     if path.startswith("/forum/") and path.endswith("/toggle/sticky") and method == "POST":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        tid = path[len("/forum/"):-len("/toggle/sticky")]
-        forum.toggle_sticky(tid)
-        forum.log_moderation("sticky", tid, "admin")
-        return b"REDIRECT:/forum/" + tid.encode("utf-8")
+        return render_forum_toggle_sticky(address, admin, path)
 
     if path.startswith("/forum/") and path.endswith("/toggle/locked") and method == "POST":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        tid = path[len("/forum/"):-len("/toggle/locked")]
-        forum.toggle_locked(tid)
-        forum.log_moderation("locked", tid, "admin")
-        return b"REDIRECT:/forum/" + tid.encode("utf-8")
+        return render_forum_toggle_locked(address, admin, path)
 
     if path == "/forum/neu":
         return render_forum_new_thread(address, method, body, query, client_id)

@@ -269,3 +269,23 @@ def render_forum_admin_bans_unban(address: str, admin: bool, path: str,
     forum.unban_user(idx)
     forum.log_moderation("unban", f"index {idx}", "admin")
     return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+
+
+def render_forum_toggle_sticky(address: str, admin: bool, path: str) -> bytes:
+    """POST /forum/<tid>/toggle/sticky: Thread anpinnen/loesen."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    tid = path[len("/forum/"):-len("/toggle/sticky")]
+    forum.toggle_sticky(tid)
+    forum.log_moderation("sticky", tid, "admin")
+    return b"REDIRECT:/forum/" + tid.encode("utf-8")
+
+
+def render_forum_toggle_locked(address: str, admin: bool, path: str) -> bytes:
+    """POST /forum/<tid>/toggle/locked: Thread sperren/entsperren."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    tid = path[len("/forum/"):-len("/toggle/locked")]
+    forum.toggle_locked(tid)
+    forum.log_moderation("locked", tid, "admin")
+    return b"REDIRECT:/forum/" + tid.encode("utf-8")
