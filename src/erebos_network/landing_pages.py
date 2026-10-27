@@ -7,7 +7,7 @@ from typing import Optional
 
 from . import forum
 from .onboarding import render_onboard, render_welcome_onboarded
-from .forum_db import (load_mails, save_mail, mark_mail_read,
+from .forum_db import (get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
                        rotate_mail_keys,
@@ -506,6 +506,20 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return _page("Mail", address, body_html)
 
     if path == "/forum":
+        # Auto-Login nach Onboarding
+        import uuid as _uuid
+        if client_id and not username:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+            ident = get_identity(anon_uuid)
+            if ident and ident.get("onboarded_at"):
+                session = get_or_create_forum_session(anon_uuid)
+                if session:
+                    logger.info(f"Auto-Login Forum: {anon_uuid[:8]} -> {session['username']}")
+                    return (
+                        b"REDIRECT:/forum\n"
+                        + b"SET_SESSION:" + session["token"].encode() + b"\n"
+                        + b"SET_ADMIN:0"
+                    )
         return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=""))
     if path == "/forum/admin/login":
         # Setzt das Admin-Cookie. Token kommt aus ?admin=<token>.

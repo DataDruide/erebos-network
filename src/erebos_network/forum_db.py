@@ -1342,6 +1342,57 @@ def get_identity(uuid: str) -> dict:
     }
 
 
+def get_or_create_forum_session(mail_uuid: str) -> dict:
+    """Erzeugt (oder laedt) eine Forum-Session fuer die Mail-UUID.
+
+    Wird beim Auto-Login nach Onboarding genutzt.
+
+    Returns:
+        dict mit token, username, expires_at; oder None wenn keine Identity.
+    """
+    import secrets as _secrets
+    import time as _time
+
+    conn = get_db()
+    ident = conn.execute(
+        "SELECT forum_username FROM identities WHERE uuid = ?",
+        (mail_uuid,),
+    ).fetchone()
+    if ident is None or not ident[0]:
+        return None
+    username = ident[0]
+
+    # Existierende Session?
+    now = _time.time()
+    existing = conn.execute(
+        "SELECT token, expires_at FROM sessions "
+        "WHERE username = ? AND expires_at > ? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (username, now),
+    ).fetchone()
+    if existing:
+        return {
+            "token": existing[0],
+            "username": username,
+            "expires_at": existing[1],
+        }
+
+    # Neue Session erzeugen
+    token = _secrets.token_urlsafe(32)
+    expires_at = now + 7 * 86400  # 7 Tage
+    with conn:
+        conn.execute(
+            "INSERT INTO sessions (token, username, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?)",
+            (token, username, now, expires_at),
+        )
+    return {
+        "token": token,
+        "username": username,
+        "expires_at": expires_at,
+    }
+
+
 def check_rotate_rate_limit(uuid: str) -> tuple:
     """Prueft, ob eine Rotation fuer uuid erlaubt ist.
 
