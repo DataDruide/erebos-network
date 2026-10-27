@@ -134,13 +134,34 @@ def main() -> int:
     parser.add_argument("--socks-host", default="127.0.0.1")
     parser.add_argument("--socks-port", type=int, default=4448)
     parser.add_argument("--poll-interval", type=float, default=1.5)
+    parser.add_argument(
+        "--key-file",
+        default=None,
+        help="Pfad zur Session-Datei (Default: ~/.erebos/chat_e2e_keys/<room>.json)",
+    )
     args = parser.parse_args()
 
     client = Socks5HTTPClient(args.socks_host, args.socks_port)
 
-    # 1. E2E-Session erstellen
-    session = E2ESession(role=args.role)
-    print(f"[*] Rolle: {args.role}")
+    # 1. E2E-Session laden oder erstellen
+    if args.key_file:
+        key_file = Path(args.key_file)
+    else:
+        key_file = Path.home() / ".erebos" / "chat_e2e_keys" / f"{args.room}-{args.role}.json"
+
+    if key_file.exists():
+        session = E2ESession.load(str(key_file))
+        print(f"[*] Session geladen: {key_file}")
+        print(f"[*] Rolle: {session.role}")
+        if session.role != args.role:
+            print(f"[!] FEHLER: Session-Rolle ({session.role}) != --role ({args.role})")
+            print(f"[!] Loesche die Datei {key_file} oder nutze --role {session.role}")
+            return 1
+    else:
+        session = E2ESession(role=args.role)
+        session.save(str(key_file))
+        print(f"[*] Neue Session gespeichert: {key_file}")
+        print(f"[*] Rolle: {args.role}")
     print(f"[*] Raum: {args.room}")
     print(f"[*] X25519-Pub: {session.x25519_pub.hex()[:16]}...")
     print(f"[*] ML-KEM-Pub: {session.mlkem_pub.hex()[:16]}...")

@@ -190,6 +190,57 @@ class E2ESession:
         return self._shared_key is not None
 
 
+    # ------------------------------------------------------------------
+    # Persistenz (optional): Session in JSON-Datei speichern/laden
+    # ------------------------------------------------------------------
+
+    def save(self, path: str) -> None:
+        """Speichert die Session in eine JSON-Datei (chmod 600)."""
+        import json
+        import os
+        from pathlib import Path as _P
+
+        data = {
+            "version": 1,
+            "role": self.role,
+            "x25519_priv": self._x_priv.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            ).hex(),
+            "x25519_pub": self.x25519_pub.hex(),
+            "mlkem_priv": self._mlkem_priv.hex(),
+            "mlkem_pub": self.mlkem_pub.hex(),
+        }
+        p = _P(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, indent=2))
+        os.chmod(p, 0o600)
+
+    @classmethod
+    def load(cls, path: str) -> "E2ESession":
+        """Laedt eine Session aus einer JSON-Datei."""
+        import json
+        from pathlib import Path as _P
+
+        data = json.loads(_P(path).read_text())
+        if data.get("version") != 1:
+            raise ValueError(f"Unbekannte Session-Version: {data.get('version')}")
+
+        # Erzeuge Session ohne neuen Key zu generieren
+        session = cls.__new__(cls)
+        session.role = data["role"]
+        session.x25519_pub = bytes.fromhex(data["x25519_pub"])
+        x_priv_bytes = bytes.fromhex(data["x25519_priv"])
+        session._x_priv = X25519PrivateKey.from_private_bytes(x_priv_bytes)
+        session._kem = PostQuantumKEM()
+        session.mlkem_pub = bytes.fromhex(data["mlkem_pub"])
+        session._mlkem_priv = bytes.fromhex(data["mlkem_priv"])
+        session._shared_key = None
+        session._fingerprint = None
+        return session
+
+
 def _fingerprint(key: bytes) -> str:
     """SHA256(key) -> 4 Bloecke, z.B. 'a1b2-c3d4-e5f6-7890'."""
     h = hashlib.sha256(key).hexdigest()[:16]
