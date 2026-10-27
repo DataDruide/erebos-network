@@ -24,6 +24,24 @@ if _env.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 from erebos_network.hidden_service_runtime import HiddenServiceRuntime
+from erebos_network import chat as _chat
+
+
+
+async def _cleanup_loop():
+    """Ruft alle CLEANUP_INTERVAL_SEC chat.cleanup_old_rooms() auf."""
+    import asyncio
+    while True:
+        try:
+            await asyncio.sleep(_chat.CLEANUP_INTERVAL_SEC)
+            n = _chat.cleanup_old_rooms()
+            if n > 0:
+                logging.info(f"Chat-Cleanup: {n} alte Rooms geloescht")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logging.error(f"Chat-Cleanup-Fehler: {e}")
+
 
 
 def main() -> int:
@@ -72,8 +90,20 @@ def main() -> int:
         bind_port=args.bind_port,
     )
 
+    async def _run_with_cleanup():
+        import asyncio
+        cleanup_task = asyncio.create_task(_cleanup_loop())
+        try:
+            await runtime.run()
+        finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
+
     try:
-        asyncio.run(runtime.run())
+        asyncio.run(_run_with_cleanup())
     except KeyboardInterrupt:
         runtime.stop()
         return 0

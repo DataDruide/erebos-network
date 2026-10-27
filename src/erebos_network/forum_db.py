@@ -245,9 +245,9 @@ def get_db() -> sqlite3.Connection:
     _migrate_mail_keys(_conn)
     _migrate_mail_key_history(_conn)
     _migrate_incomplete_mail_keys(_conn)
+    _migrate_chat_schema(_conn)
     _backfill_key_history_privkeys(_conn)
     return _conn
-
 
 def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
     """Fuegt fehlende Spalten zur mailboxes-Tabelle hinzu (idempotent).
@@ -1725,3 +1725,49 @@ def get_mods() -> list:
         "SELECT username FROM users WHERE role = 'mod' ORDER BY username"
     ).fetchall()
     return [r[0] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Chat-Persistenz (seit v0.6.0)
+# ---------------------------------------------------------------------------
+
+def _migrate_chat_schema(conn: sqlite3.Connection) -> None:
+    """Legt die Chat-Tabellen an (idempotent, CREATE TABLE IF NOT EXISTS)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_rooms (
+            id TEXT PRIMARY KEY,
+            created_at REAL NOT NULL,
+            random INTEGER DEFAULT 0,
+            last_activity REAL NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_members (
+            room_id TEXT NOT NULL,
+            cookie TEXT NOT NULL,
+            joined_at REAL NOT NULL,
+            PRIMARY KEY (room_id, cookie),
+            FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id TEXT NOT NULL,
+            author_cookie TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_room_ts
+        ON chat_messages (room_id, created_at)
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_random_queue (
+            cookie TEXT PRIMARY KEY,
+            queued_at REAL NOT NULL
+        )
+    """)
+

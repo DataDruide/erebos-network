@@ -151,7 +151,17 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             from urllib.parse import parse_qs
             q = parse_qs(body.decode("utf-8", errors="replace"))
             msg = (q.get("message", [""])[0] or "").strip()
-            _chat.send_message(room_id, client_id, msg)
+            ok, reason = _chat.send_message(room_id, client_id, msg)
+            if not ok and reason.startswith("rate_limit:"):
+                retry = reason.split(":", 1)[1]
+                html = (
+                    "<!DOCTYPE html><html><body>"
+                    "<h1>429 - Zu viele Nachrichten</h1>"
+                    f"<p>Bitte warte {retry} Sekunden.</p>"
+                    "<p><a href=\"/chat/room/" + room_id + "\">Zurueck</a></p>"
+                    "</body></html>"
+                ).encode("utf-8")
+                return b"RATE_LIMIT:" + retry.encode() + b"\n" + html
             return f"REDIRECT:/chat/room/{room_id}".encode()
 
         return pages_chat.render_error(address, "Unbekannte Chat-Aktion.").encode("utf-8")
