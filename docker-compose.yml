@@ -68,6 +68,7 @@ services:
       - ./forum.db:/app/forum.db
     environment:
       - EREBOS_FORUM_ADMIN_TOKEN=${EREBOS_FORUM_ADMIN_TOKEN}
+      - EREBOS_DB_KEY=${EREBOS_DB_KEY:-}
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
     entrypoint: >
       python -u scripts/create_test_hidden_service.py

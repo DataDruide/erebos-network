@@ -19,7 +19,12 @@ Schema:
 
 import json
 import logging
-import sqlite3
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+    _SQLCIPHER_AVAILABLE = True
+except ImportError:
+    import sqlite3
+    _SQLCIPHER_AVAILABLE = False
 import time
 from pathlib import Path
 from typing import Optional
@@ -201,6 +206,16 @@ def get_db() -> sqlite3.Connection:
     if _conn is None:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         _conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        # SQLCipher: Key setzen (aus Env-Var)
+        if _SQLCIPHER_AVAILABLE:
+            import os as _os
+            db_key = _os.environ.get("EREBOS_DB_KEY", "")
+            if db_key:
+                _conn.execute("PRAGMA key='" + db_key + "'")
+                _conn.execute("PRAGMA cipher_compatibility = 4")
+                logger.info("SQLCipher: DB mit EREBOS_DB_KEY verschluesselt")
+            else:
+                logger.warning("SQLCipher: EREBOS_DB_KEY nicht gesetzt — DB unverschluesselt!")
         # DELETE-Modus statt WAL: WAL funktioniert nicht mit Docker-
         # Bind-Mounts (die WAL-Datei wird nicht synchronisiert).
         _conn.execute("PRAGMA journal_mode=DELETE")

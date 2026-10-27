@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libssl-dev git cmake ninja-build \
+    libsqlcipher-dev sqlcipher \
     && rm -rf /var/lib/apt/lists/*
 
 # liboqs 0.16.0 — passt zu liboqs-python 0.16.0.1
