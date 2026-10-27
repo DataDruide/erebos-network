@@ -8,7 +8,7 @@ from typing import Optional
 from . import forum
 from .onboarding import render_onboard, render_welcome_onboarded, render_recover
 from .pages_onboarding import render_welcome, render_landing, render_wiki
-from .pages_services import render_services_list, render_service_error
+from .pages_services import render_services_list, render_service_error, render_upload_form
 from . import service_manager as _services
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
@@ -61,7 +61,9 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 body: bytes = b"", query: str = "", client_id: str = "",
                 username: str = "", session_token: str = "",
                 admin_cookie: str = "", identity_uuid: str = "",
-                mod: bool = False) -> bytes:
+                mod: bool = False, headers: dict = None) -> bytes:
+    if headers is None:
+        headers = {}
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
@@ -123,10 +125,56 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return f"REDIRECT:/chat/room/{room_id}".encode()
 
     # === SERVICE-BEREICH ===
+    if path.startswith("/service/") and path.endswith("/upload"):
+        name = path[len("/service/"):-len("/upload")]
+        if method == "GET":
+            files = _services.list_files(name)
+            return render_upload_form(address, name, files)
+        # POST: multipart/form-data
+        ct = ""
+        for h in str(headers).split(";"):
+            pass
+        # Content-Type aus den Headern lesen
+        # (headers ist ein dict, das von der Runtime übergeben wird)
+        try:
+            content_type = headers.get("content-type", "") if isinstance(headers, dict) else ""
+        except Exception:
+            content_type = ""
+        # Multipart parsen
+        import re as _re
+        m = _re.search(r"boundary=([^;]+)", content_type)
+        if not m:
+            return render_service_error(address, "Ungültiger Content-Type (multipart erwartet)")
+        boundary = m.group(1).strip('"').encode()
+        parts = body.split(b"--" + boundary)
+        filename = None
+        content = b""
+        for part in parts:
+            if not part.strip() or part.strip() == b"--":
+                continue
+            if b"\r\n\r\n" not in part:
+                continue
+            part_headers, part_content = part.split(b"\r\n\r\n", 1)
+            part_content = part_content.rstrip(b"\r\n")
+            cd = _re.search(rb'name="([^"]+)"(?:; filename="([^"]+)")?', part_headers)
+            if not cd:
+                continue
+            if cd.group(2):
+                filename = cd.group(2).decode("utf-8", "replace")
+                content = part_content
+                break
+        if not filename:
+            return render_service_error(address, "Keine Datei im Upload gefunden")
+        result = _services.upload_file(name, filename, content)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
+
     if path == "/service":
         services = _services.list_services()
         return render_services_list(address, services)
 
+    # Datei-Upload
     if path == "/service/create" and method == "POST":
         from urllib.parse import parse_qs
         q = parse_qs(body.decode("utf-8", errors="replace"))

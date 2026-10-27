@@ -57,7 +57,7 @@ from .e2e import (
 logger = logging.getLogger(__name__)
 
 # Maximal erlaubte HTTP-Body-Groesse (Schutz vor Memory-DoS).
-MAX_HTTP_BODY_BYTES = 16384  # 16 KB
+MAX_HTTP_BODY_BYTES = 1024 * 1024  # 1 MB (für Uploads)
 
 # Globales HTTP-Request-Limit (Schutz vor Flooding/DoS).
 MAX_HTTP_REQUESTS_PER_WINDOW = 500
@@ -466,6 +466,7 @@ class HiddenServiceRuntime:
                 method=method, body=body, query=query, client_id=client_id,
                 username=username, session_token=session_token,
                 admin_cookie=admin_cookie, identity_uuid=identity_uuid,
+                headers=headers,
             )
 
             # 3a) Rate-Limit-Fall (HTTP 429)

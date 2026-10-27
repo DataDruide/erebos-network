@@ -150,3 +150,43 @@ def delete_service(name: str, delete_key: bool = False) -> dict:
     del registry[name]
     save_registry(registry)
     return {"ok": True, "message": f"Service '{name}' gelöscht"}
+
+def get_pages_dir(name: str):
+    """Gibt das pages/-Verzeichnis eines Services zurück (oder None)."""
+    registry = load_registry()
+    if name not in registry:
+        return None
+    return Path(registry[name]["pages"])
+
+
+def list_files(name: str) -> list[str]:
+    """Listet alle Dateien im pages/-Verzeichnis eines Services."""
+    pages_dir = get_pages_dir(name)
+    if pages_dir is None or not pages_dir.exists():
+        return []
+    return sorted([f.name for f in pages_dir.iterdir() if f.is_file()])
+
+
+def upload_file(name: str, filename: str, content: bytes) -> dict:
+    """Speichert eine Datei im pages/-Verzeichnis des Services."""
+    registry = load_registry()
+    if name not in registry:
+        return {"ok": False, "message": f"Service '{name}' nicht gefunden"}
+
+    pages_dir = Path(registry[name]["pages"])
+    pages_dir.mkdir(parents=True, exist_ok=True)
+
+    # Path-Traversal verhindern
+    safe_name = Path(filename).name
+    if not safe_name or safe_name.startswith("."):
+        return {"ok": False, "message": "Ungültiger Dateiname"}
+
+    # Endung prüfen
+    allowed = {".html", ".htm", ".css", ".js", ".json", ".svg", ".png", ".jpg", ".txt"}
+    if Path(safe_name).suffix.lower() not in allowed:
+        return {"ok": False, "message": f"Dateityp nicht erlaubt: {safe_name}"}
+
+    target = pages_dir / safe_name
+    target.write_bytes(content)
+    return {"ok": True, "message": f"Datei '{safe_name}' hochgeladen", "path": str(target)}
+

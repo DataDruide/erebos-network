@@ -94,3 +94,44 @@ def render_service_error(address: str, message: str) -> bytes:
 </div>
 """
     return _page("FEHLER", address, body, hero_image="")
+
+def render_upload_form(address: str, name: str, files: list[str]) -> bytes:
+    """HTML-Formular für Datei-Upload."""
+    file_rows = "".join(
+        f'<li><code>{_escape(f)}</code></li>' for f in files
+    ) or '<li class="dim">(keine Dateien)</li>'
+
+    body = f"""
+<div class="wrap">
+  <header class="hero">
+    <div class="brand"><span class="dot"></span> EREBOS NETWORK</div>
+    <div class="badge">UPLOAD</div>
+  </header>
+  <h1 class="title">DATEIEN HOCHLADEN</h1>
+  <p class="subtitle">Service: <strong>{_escape(name)}</strong></p>
+
+  <section class="card">
+    <div class="card-label">AKTUELLE DATEIEN</div>
+    <ul class="rights">{file_rows}</ul>
+  </section>
+
+  <section class="card">
+    <div class="card-label">NEUE DATEI HOCHLADEN</div>
+    <form method="POST" action="/service/{_escape(name)}/upload" enctype="multipart/form-data">
+      <div style="margin-bottom:1em;">
+        <label>Datei (HTML, CSS, JS, JSON, Bilder)</label><br>
+        <input type="file" name="file" accept=".html,.htm,.css,.js,.json,.svg,.png,.jpg,.txt" required>
+      </div>
+      <button type="submit" class="btn">Hochladen</button>
+    </form>
+  </section>
+
+  <footer class="foot">
+    <nav class="foot-nav">
+      <a href="/service">Zurück zu den Services</a>
+    </nav>
+  </footer>
+</div>
+"""
+    return _page("UPLOAD", address, body, hero_image="")
+
