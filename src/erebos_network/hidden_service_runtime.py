@@ -35,11 +35,8 @@ from .hidden_service import (
     IntroPoint,
     sign_descriptor,
 )
-from .landing_pages import (
-    render_page,
-    parse_http_request,
-    http_response,
-)
+from .landing_pages import render_page
+from .http_utils import http_response, parse_http_request
 from .forum import (get_or_create_client_id, get_session_user,
                    CLIENT_COOKIE, SESSION_COOKIE, ADMIN_COOKIE,
                    IDENTITY_COOKIE)
