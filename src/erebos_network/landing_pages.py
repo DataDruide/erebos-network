@@ -30,7 +30,9 @@ from .forum_db import (find_identity_by_identifier, get_or_create_forum_session,
                        get_mail_keys_by_version, set_mail_verified,
                        rotate_mail_keys,
                        check_rotate_rate_limit, record_rotate,
-                       create_identity, get_identity)
+                       create_identity, get_identity,
+    get_user_role,
+)
 from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
                                 verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
                                 VERIFIED_EXPIRED, VERIFY_FAILED)
@@ -66,6 +68,12 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         forum.is_admin_cookie(admin_cookie, client_id=client_id)
         or forum.is_admin(admin_token_value)
     )
+    # users.role: neue Admin-Rolle (wenn eingeloggt)
+    if not admin and username:
+        try:
+            admin = get_user_role(username) == "admin"
+        except Exception:
+            pass
 
     if path == "/":
         # Onboarding: wenn Client existiert, aber noch keine Identity

@@ -280,6 +280,16 @@ def _migrate_identities(conn: sqlite3.Connection) -> None:
         try:
             conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
             logger.info("users: Spalte 'role' hinzugefuegt")
+            # Ersten User zum Admin machen (Migration)
+            first = conn.execute(
+                "SELECT username FROM users ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+            if first:
+                conn.execute(
+                    "UPDATE users SET role = 'admin' WHERE username = ?",
+                    (first[0],),
+                )
+                logger.info(f"Migration: '{first[0]}' wurde zum Admin befoerdert")
         except Exception as e:
             logger.warning(f"users.role nicht hinzugefuegt: {e}")
     conn.commit()

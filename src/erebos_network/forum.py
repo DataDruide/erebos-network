@@ -1203,8 +1203,46 @@ def render_admin_authors() -> str:
     rows = ""
     for author, count in list_authors():
         a = _escape(author)
+        # Rolle des Autors
+        role = "user"
+        try:
+            role = get_user_role(author)
+        except Exception:
+            pass
+        role_badge = ""
+        promote_btn = ""
+        if role == "admin":
+            role_badge = ' <span style="color:#ffaa33;font-weight:bold">[ADMIN]</span>'
+            promote_btn = (
+                f'<form method="post" action="/forum/admin/promote" style="display:inline">'
+                f'<input type="hidden" name="username" value="{a}">'
+                f'<input type="hidden" name="role" value="user">'
+                f'<button type="submit" style="background:#666;color:#fff;border:none;'
+                f'padding:0.2em 0.5em;border-radius:3px;cursor:pointer">→ User</button>'
+                f'</form>'
+            )
+        elif role == "mod":
+            role_badge = ' <span style="color:#00ccff;font-weight:bold">[MOD]</span>'
+            promote_btn = (
+                f'<form method="post" action="/forum/admin/promote" style="display:inline">'
+                f'<input type="hidden" name="username" value="{a}">'
+                f'<input type="hidden" name="role" value="user">'
+                f'<button type="submit" style="background:#666;color:#fff;border:none;'
+                f'padding:0.2em 0.5em;border-radius:3px;cursor:pointer">→ User</button>'
+                f'</form>'
+            )
+        else:
+            promote_btn = (
+                f'<form method="post" action="/forum/admin/promote" style="display:inline">'
+                f'<input type="hidden" name="username" value="{a}">'
+                f'<input type="hidden" name="role" value="mod">'
+                f'<button type="submit" style="background:#00aa66;color:#fff;border:none;'
+                f'padding:0.2em 0.5em;border-radius:3px;cursor:pointer">→ Mod</button>'
+                f'</form>'
+            )
         rows += (
-            f"<li><strong>{a}</strong> — {count} Post(s) "
+            f"<li><strong>{a}</strong>{role_badge} — {count} Post(s) "
+            f"{promote_btn} "
             f"<form method=\"post\" action=\"/forum/admin/authors/delete\" "
             f"style=\"display:inline\">"
             f"<input type=\"hidden\" name=\"author\" value=\"{a}\">"
