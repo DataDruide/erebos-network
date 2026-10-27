@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 def render_forum_index(address: str, client_id: str, username: str,
-                       admin: bool = False, identity_uuid: str = "") -> bytes:
+                       admin: bool = False, identity_uuid: str = "",
+                       mod: bool = False) -> bytes:
     """GET /forum: Auto-Login nach Onboarding + Kategorien-Liste.
 
     Returns:
@@ -42,7 +43,7 @@ def render_forum_index(address: str, client_id: str, username: str,
         "EREBOS COMMUNITY", address,
         forum.render_categories(
             client_id=client_id, username=username,
-            admin=admin, admin_token="",
+            admin=admin, admin_token="", mod=mod,
         ),
         hero_image="community-bg.jpeg",
     )
@@ -293,7 +294,7 @@ def render_forum_toggle_locked(address: str, admin: bool, path: str) -> bytes:
 
 
 def render_forum_category(address: str, path: str, query: str,
-                          admin: bool, client_id: str):
+                          admin: bool, client_id: str, mod: bool = False):
     """GET /forum/<category>: Kategorie-Liste.
 
     Returns:
@@ -318,14 +319,14 @@ def render_forum_category(address: str, path: str, query: str,
         address,
         forum.render_thread_list(
             cat_slug, page=page_n, sort=sort,
-            admin=admin, client_id=client_id,
+            admin=admin, client_id=client_id, mod=mod,
         ),
     )
 
 
 def render_forum_thread(address: str, path: str, method: str = "GET",
                         body: bytes = b"", admin: bool = False,
-                        client_id: str = "") -> bytes:
+                        client_id: str = "", mod: bool = False) -> bytes:
     """GET/POST /forum/<id> mit Unterrouten (antwort, delete, edit, post/*)."""
     rest = path[len("/forum/"):]
 
@@ -395,7 +396,7 @@ def render_forum_thread(address: str, path: str, method: str = "GET",
     t = forum.find_thread(rest)
     if t is None:
         return _page("Nicht gefunden", address, forum.render_not_found())
-    return _page(t["title"], address, forum.render_thread(t, admin=admin))
+    return _page(t["title"], address, forum.render_thread(t, admin=admin, mod=mod))
 
 
 def render_forum_admin_promote(address: str, admin: bool, body: bytes,

@@ -57,7 +57,8 @@ def parse_request_path(request: bytes) -> str:
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 body: bytes = b"", query: str = "", client_id: str = "",
                 username: str = "", session_token: str = "",
-                admin_cookie: str = "", identity_uuid: str = "") -> bytes:
+                admin_cookie: str = "", identity_uuid: str = "",
+                mod: bool = False) -> bytes:
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
@@ -69,9 +70,15 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         or forum.is_admin(admin_token_value)
     )
     # users.role: neue Admin-Rolle (wenn eingeloggt)
-    if not admin and username:
+    mod = admin  # mod ist mindestens admin
+    if username:
         try:
-            admin = get_user_role(username) == "admin"
+            role = get_user_role(username)
+            if role == "admin":
+                admin = True
+                mod = True
+            elif role == "mod":
+                mod = True
         except Exception:
             pass
 
@@ -170,7 +177,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             anon_uuid = str(_uuid.uuid4())
         return _render_mail(anon_uuid, address, query=query, method=method, body=body)
     if path == "/forum":
-        return render_forum_index(address, client_id, username, admin, identity_uuid)
+        return render_forum_index(address, client_id, username, admin, identity_uuid, mod=mod)
     if path == "/forum/admin/login":
         return render_forum_admin_login(address, admin_token_value, client_id)
 
@@ -191,7 +198,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             and not path.startswith("/forum/search")
             and not path.startswith("/forum/admin")
             and "/" not in path[len("/forum/"):]):
-        result = render_forum_category(address, path, query, admin, client_id)
+        result = render_forum_category(address, path, query, admin, client_id, mod=mod)
         if result is not None:
             return result
 
@@ -283,7 +290,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum/neu":
         return render_forum_new_thread(address, method, body, query, client_id)
     if path.startswith("/forum/"):
-        return render_forum_thread(address, path, method, body, admin, client_id)
+        return render_forum_thread(address, path, method, body, admin, client_id, mod=mod)
     return _page(
         "404 Nicht gefunden",
         address,

@@ -1011,7 +1011,7 @@ def render_forum_list(admin: bool = False, client_id: str = "") -> str:
             replies = max(0, len(t.get("posts", [])) - 1)
             created = _fmt_time(t.get("created_at", 0))
             admin_btn = ""
-            if admin:
+            if mod:
                 admin_btn = (
                     f" <form method=\"post\" action=\"/forum/{tid}/delete\" "
                     f"style=\"display:inline\"><button type=\"submit\" "
@@ -1043,7 +1043,7 @@ def render_forum_list(admin: bool = False, client_id: str = "") -> str:
 
 
 
-def render_thread(thread: dict, admin: bool = False) -> str:
+def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
     tid = _escape(thread["id"])
     title = _escape(thread["title"])
     posts_html = ""
@@ -1060,7 +1060,7 @@ def render_thread(thread: dict, admin: bool = False) -> str:
         if edited:
             edited_marker = f" <small><em>(bearbeitet {_fmt_time(edited)})</em></small>"
         admin_btn = ""
-        if admin:
+        if mod:
             label = "Thread löschen" if idx == 0 else "Post löschen"
             admin_btn = (
                 f" <form method=\"post\" action=\"/forum/{tid}/post/{idx}/delete\" "
@@ -1108,7 +1108,7 @@ def render_thread(thread: dict, admin: bool = False) -> str:
         sticky_locked += " <small>[sticky]</small>"
     if thread.get("locked"):
         sticky_locked += " <small>[gesperrt]</small>"
-    if admin:
+    if mod:
         tid_esc = _escape(thread["id"])
         sticky_locked += (
             f" <form method=\"post\" action=\"/forum/{tid_esc}/toggle/sticky\" "
@@ -1281,7 +1281,7 @@ def _pagination_html(page: int, pages: int, base_url: str, sort: str) -> str:
     return "<p>" + " · ".join(parts) + "</p>\n"
 
 
-def render_categories(client_id: str = "", username: str = "", admin: bool = False,
+def render_categories(client_id: str = "", username: str = "", admin: bool = False, mod: bool = False,
                       admin_token: str = "") -> str:
     cats = list_categories()
     status = rate_limit_status(client_id)
@@ -1388,7 +1388,7 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
 
 
 def render_thread_list(category_id: str, page: int = 1,
-                       sort: str = "active", admin: bool = False,
+                       sort: str = "active", admin: bool = False, mod: bool = False,
                        client_id: str = "") -> str:
     cat = get_category(category_id)
     if cat is None:
