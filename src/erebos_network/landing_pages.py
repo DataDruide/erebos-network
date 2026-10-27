@@ -83,6 +83,79 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         except Exception:
             pass
 
+    # -----------------------------------------------------------------
+    # Chat-Routen (eigener Hidden Service, Port 8081)
+    # -----------------------------------------------------------------
+    if path in ("/chat", "/chat/"):
+        from . import pages_chat
+        return pages_chat.render_start(address).encode("utf-8")
+
+    if path == "/chat/random" and method == "GET":
+        from . import chat as _chat, pages_chat
+        result = _chat.random_match(client_id)
+        if "matched" in result:
+            return f"REDIRECT:/chat/room/{result['matched']}".encode()
+        return pages_chat.render_random_waiting(address).encode("utf-8")
+
+    if path == "/chat/random/status" and method == "GET":
+        from . import chat as _chat
+        import json as _json
+        return b"JSON:" + _json.dumps(_chat.random_status(client_id)).encode()
+
+    if path == "/chat/create" and method == "POST":
+        from . import chat as _chat
+        room_id = _chat.create_room()
+        _chat.join_room(room_id, client_id)
+        return f"REDIRECT:/chat/room/{room_id}".encode()
+
+    if path == "/chat/join" and method == "POST":
+        from . import chat as _chat, pages_chat
+        from urllib.parse import parse_qs
+        q = parse_qs(body.decode("utf-8", errors="replace"))
+        room_id = (q.get("room_id", [""])[0] or "").strip()
+        if not _chat.room_exists(room_id):
+            return pages_chat.render_error(
+                address, f"Raum {room_id or '(leer)'} existiert nicht."
+            ).encode("utf-8")
+        _chat.join_room(room_id, client_id)
+        return f"REDIRECT:/chat/room/{room_id}".encode()
+
+    if path.startswith("/chat/room/"):
+        from . import chat as _chat, pages_chat
+        parts = path.split("/")
+        # ['', 'chat', 'room', '<id>', ...]
+        if len(parts) < 4:
+            return pages_chat.render_error(address, "Ungueltige Raum-URL.").encode("utf-8")
+        room_id = parts[3]
+        if not _chat.room_exists(room_id):
+            return pages_chat.render_error(
+                address, f"Raum {room_id} existiert nicht."
+            ).encode("utf-8")
+
+        if len(parts) == 4 and method == "GET":
+            _chat.join_room(room_id, client_id)
+            return pages_chat.render_room(room_id, address, client_id).encode("utf-8")
+
+        if len(parts) == 5 and parts[4] == "messages" and method == "GET":
+            from urllib.parse import parse_qs
+            q = parse_qs(query)
+            try:
+                since = float((q.get("since", ["0"])[0] or "0"))
+            except ValueError:
+                since = 0.0
+            msgs = _chat.get_messages(room_id, since)
+            import json as _json
+            return b"JSON:" + _json.dumps(msgs).encode()
+
+        if len(parts) == 5 and parts[4] == "send" and method == "POST":
+            from urllib.parse import parse_qs
+            q = parse_qs(body.decode("utf-8", errors="replace"))
+            msg = (q.get("message", [""])[0] or "").strip()
+            _chat.send_message(room_id, client_id, msg)
+            return f"REDIRECT:/chat/room/{room_id}".encode()
+
+        return pages_chat.render_error(address, "Unbekannte Chat-Aktion.").encode("utf-8")
+
     if path == "/":
         # Onboarding: wenn Client existiert, aber noch keine Identity
         # -> automatisch zu /onboard

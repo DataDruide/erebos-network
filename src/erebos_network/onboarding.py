@@ -145,7 +145,7 @@ ONBOARD_HTML = """<!DOCTYPE html>
   </ul>
   <div class="progress-bar"><div class="progress-fill"></div></div>
   <p class="status-text"></p>
-  <p class="footer">icxyvzvtc5wcdhzagv5hpxtfgmxqkgyhx5rqy47vrpignubveb4q.erebos</p>
+  <p class="footer">{address}</p>
 </div>
 </body>
 </html>
@@ -159,7 +159,8 @@ def render_onboard(anon_uuid, address, _page, _escape):
         create_identity(anon_uuid)
     except Exception as e:
         logger.error(f"create_identity fehlgeschlagen: {e}")
-    return ONBOARD_HTML.encode("utf-8")
+    html = ONBOARD_HTML.replace("{address}", _escape(address))
+    return html.encode("utf-8")
 
 
 def render_welcome_onboarded(anon_uuid, address, _page, _escape):

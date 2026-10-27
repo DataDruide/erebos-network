@@ -84,6 +84,24 @@ nohup .venv/bin/python -u scripts/create_test_hidden_service.py > /tmp/hidden_se
 sleep 5
 
 echo ""
+echo "=== 6b. Chat-Hidden-Service starten ==="
+nohup .venv/bin/python -u scripts/create_chat_hidden_service.py > /tmp/chat_service.log 2>&1 &
+sleep 5
+
+echo ""
+echo "=== 6c. Validierung: Laeuft der Chat-Service (Port 8081)? ==="
+if lsof -nP -iTCP:8081 | grep LISTEN > /dev/null; then
+    PID=$(lsof -nP -iTCP:8081 | grep LISTEN | awk '{print $2}' | head -1)
+    echo "OK: Chat-Port 8081 laeuft (PID $PID)"
+    CHAT_ADDR=$(grep "Hidden Service läuft:" /tmp/chat_service.log | awk '{print $NF}' | tail -1)
+    if [ -n "$CHAT_ADDR" ]; then
+        echo "OK: Chat-Adresse: $CHAT_ADDR"
+    fi
+else
+    echo "WARNUNG: Chat-Port 8081 laeuft NICHT (Chat-Service uebersprungen)"
+fi
+
+echo ""
 echo "=== 7. Validierung: Laeuft der Hidden-Service? ==="
 if ps aux | grep "create_test_hidden_service" | grep -v grep > /dev/null; then
     echo "✅ Hidden-Service laeuft"

@@ -541,6 +541,18 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
+            # 3a2) JSON-Fall (z.B. Chat-Polling)
+            # Format: JSON:<json-bytes>
+            if body_out.startswith(b"JSON:"):
+                payload = body_out[len("JSON:"):]
+                resp = http_response(
+                    200, "application/json; charset=utf-8", payload,
+                    set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
             # 3b) Normale Seite
             resp = http_response(
                 200, "text/html; charset=utf-8", body_out,
