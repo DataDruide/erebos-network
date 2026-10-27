@@ -1205,9 +1205,16 @@ def render_edit_form(thread: dict, index: int) -> str:
     )
 
 
-def render_admin_authors() -> str:
+def render_admin_authors(admin: bool = False, username: str = "") -> str:
     rows = ""
-    for author, count in list_authors():
+    # Mods sehen nur Autoren aus ihren Kategorien
+    if not admin and username:
+        from .forum_db import get_mod_categories, get_authors_in_categories
+        mod_cats = get_mod_categories(username)
+        authors = get_authors_in_categories(mod_cats)
+    else:
+        authors = list_authors()
+    for author, count in authors:
         a = _escape(author)
         # Rolle des Autors
         role = "user"

@@ -185,7 +185,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return render_forum_admin_dashboard(address, admin, admin_token_value, client_id)
 
     if path == "/forum/admin/authors":
-        return render_forum_admin_authors(address, admin)
+        return render_forum_admin_authors(address, admin, mod=mod, username=username)
 
     if path == "/forum/admin/authors/delete" and method == "POST":
         return render_forum_admin_authors_delete(address, admin, body, admin_token_value)

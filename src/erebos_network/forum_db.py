@@ -81,6 +81,12 @@ CREATE TABLE IF NOT EXISTS bans (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS mod_categories (
+    username TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    PRIMARY KEY (username, category_id)
+);
+
 CREATE TABLE IF NOT EXISTS mod_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
@@ -276,6 +282,14 @@ def _migrate_identities(conn: sqlite3.Connection) -> None:
             logger.info("users: Spalte 'mail_uuid' hinzugefuegt")
         except Exception as e:
             logger.warning(f"users.mail_uuid nicht hinzugefuegt: {e}")
+    # mod_categories-Tabelle (idempotent)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mod_categories (
+            username TEXT NOT NULL,
+            category_id TEXT NOT NULL,
+            PRIMARY KEY (username, category_id)
+        )
+    """)
     if existing_users and "role" not in existing_users:
         try:
             conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
@@ -1616,6 +1630,52 @@ def get_mail_keys(uuid: str) -> dict:
         "revoked_at": row[11],
         "superseded_by": row[12],
     }
+
+
+def get_mod_categories(username: str) -> list:
+    """Liefert die Kategorien, fuer die ein Mod zustaendig ist."""
+    if not username:
+        return []
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT category_id FROM mod_categories WHERE username = ?",
+        (username,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def set_mod_categories(username: str, category_ids: list) -> bool:
+    """Setzt die Kategorien fuer einen Mod (ersetzt bestehende)."""
+    if not username:
+        return False
+    conn = get_db()
+    with conn:
+        conn.execute("DELETE FROM mod_categories WHERE username = ?", (username,))
+        for cat in category_ids:
+            conn.execute(
+                "INSERT INTO mod_categories (username, category_id) VALUES (?, ?)",
+                (username, cat),
+            )
+    return True
+
+
+def get_authors_in_categories(category_ids: list) -> list:
+    """Liefert Autoren, die in den angegebenen Kategorien gepostet haben.
+
+    Returns:
+        Liste von (author, count)-Tupeln.
+    """
+    if not category_ids:
+        return []
+    conn = get_db()
+    placeholders = ",".join("?" * len(category_ids))
+    rows = conn.execute(
+        f"SELECT author, COUNT(*) FROM threads "
+        f"WHERE category_id IN ({placeholders}) "
+        f"GROUP BY author ORDER BY author",
+        category_ids,
+    ).fetchall()
+    return [(r[0], r[1]) for r in rows]
 
 
 def insert_mod_log(action: str, target: str, moderator: str = "admin") -> None:

@@ -133,14 +133,18 @@ def render_forum_admin_dashboard(address: str, admin: bool,
     )
 
 
-def render_forum_admin_authors(address: str, admin: bool) -> bytes:
-    """GET /forum/admin/authors: Autoren-Liste."""
-    if not admin:
+def render_forum_admin_authors(address: str, admin: bool,
+                                mod: bool = False, username: str = "") -> bytes:
+    """GET /forum/admin/authors: Autoren-Liste (Admin: alle, Mod: nur eigene Kategorien)."""
+    if not admin and not mod:
         return _page(
             "Nicht erlaubt", address,
-            "<h1>Nicht erlaubt</h1><p>Admin-Token fehlt.</p>",
+            "<h1>Nicht erlaubt</h1><p>Admin- oder Mod-Rechte erforderlich.</p>",
         )
-    return _page("Autoren", address, forum.render_admin_authors())
+    return _page(
+        "Autoren", address,
+        forum.render_admin_authors(admin=admin, username=username),
+    )
 
 
 def render_forum_admin_authors_delete(address: str, admin: bool,
