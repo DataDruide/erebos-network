@@ -289,3 +289,34 @@ def render_forum_toggle_locked(address: str, admin: bool, path: str) -> bytes:
     forum.toggle_locked(tid)
     forum.log_moderation("locked", tid, "admin")
     return b"REDIRECT:/forum/" + tid.encode("utf-8")
+
+
+def render_forum_category(address: str, path: str, query: str,
+                          admin: bool, client_id: str):
+    """GET /forum/<category>: Kategorie-Liste.
+
+    Returns:
+        bytes, wenn die Kategorie existiert.
+        None, wenn die Kategorie nicht existiert (-> naechster Block).
+    """
+    cat_slug = path[len("/forum/"):]
+    cat = forum.get_category(cat_slug)
+    if cat is None:
+        return None
+    from urllib.parse import parse_qs as _pq
+    params = _pq(query) if query else {}
+    page_n = 1
+    sort = "active"
+    try:
+        page_n = int(params.get("page", ["1"])[0])
+    except (ValueError, TypeError):
+        page_n = 1
+    sort = params.get("sort", ["active"])[0] or "active"
+    return _page(
+        cat["name"],
+        address,
+        forum.render_thread_list(
+            cat_slug, page=page_n, sort=sort,
+            admin=admin, client_id=client_id,
+        ),
+    )

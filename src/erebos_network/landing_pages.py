@@ -22,6 +22,7 @@ from .pages_forum import (
     render_forum_admin_ban, render_forum_admin_bans_unban,
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
     render_forum_toggle_sticky, render_forum_toggle_locked,
+    render_forum_category,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
@@ -175,32 +176,15 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/forum/search":
         return render_forum_search(address, query)
 
-    # /forum/<category>?page=N&sort=X (aber nicht /forum/neu, /forum/search, /forum/admin*, /forum/<id>)
+    # /forum/<category> (nur wenn Kategorie existiert)
     if (path.startswith("/forum/")
             and not path.startswith("/forum/neu")
             and not path.startswith("/forum/search")
             and not path.startswith("/forum/admin")
             and "/" not in path[len("/forum/"):]):
-        cat_slug = path[len("/forum/"):]
-        # Nur als Kategorie behandeln, wenn sie existiert
-        if forum.get_category(cat_slug) is not None:
-            from urllib.parse import parse_qs as _pq
-            params = _pq(query) if query else {}
-            page_n = 1
-            sort = "active"
-            try:
-                page_n = int(params.get("page", ["1"])[0])
-            except (ValueError, TypeError):
-                page_n = 1
-            sort = params.get("sort", ["active"])[0] or "active"
-            return _page(
-                forum.get_category(cat_slug)["name"],
-                address,
-                forum.render_thread_list(
-                    cat_slug, page=page_n, sort=sort,
-                    admin=admin, client_id=client_id,
-                ),
-            )
+        result = render_forum_category(address, path, query, admin, client_id)
+        if result is not None:
+            return result
 
     # --- Auth-Routen ---
     if path == "/forum/login":
