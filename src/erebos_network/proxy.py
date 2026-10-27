@@ -454,18 +454,27 @@ class ErebosSocks5Server:
                 if dht is None:
                     own_id = "00" * 32
                     dht = DistributedDescriptorStore(own_id)
-                    # Peers aus der Config eintragen
-                    from .peers_config import peer_host
-                    for i, (peer_name, peer_pub) in enumerate(self.peer_pubs.items()):
-                        # Peer-ID aus dem Namen ableiten (vereinfacht)
-                        peer_id = f"{i:02x}" * 32
-                        # Adresse aus dem Peer-Namen ableiten (Port-Mapping)
-                        port = 9997 + i  # peer1 -> 9997, peer2 -> 9998, ...
-                        peer_info = PeerInfo(
-                            peer_id=peer_id,
-                            address=f"{peer_host(peer_name)}:{port}",
-                        )
-                        dht.add_peer(peer_info)
+                    # Peers aus konfigurierbarer Liste laden (Fallback: Auto-Erkennung)
+                    from .peers_loader import load_peers
+                    configured = load_peers()
+                    if configured:
+                        for entry in configured:
+                            dht.add_peer(entry.to_peer_info())
+                            logger.info(
+                                "Peer aus peers.json: %s (%s, role=%s)",
+                                entry.name, entry.address, entry.role,
+                            )
+                    else:
+                        # Fallback: bisherige Ableitung aus peer_pubs
+                        from .peers_config import peer_host
+                        for i, (peer_name, peer_pub) in enumerate(self.peer_pubs.items()):
+                            peer_id = f"{i:02x}" * 32
+                            port = 9997 + i
+                            peer_info = PeerInfo(
+                                peer_id=peer_id,
+                                address=f"{peer_host(peer_name)}:{port}",
+                            )
+                            dht.add_peer(peer_info)
                     self._descriptor_store = dht
                 
                 # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
