@@ -1393,6 +1393,52 @@ def get_or_create_forum_session(mail_uuid: str) -> dict:
     }
 
 
+def find_identity_by_identifier(identifier: str) -> dict:
+    """Sucht eine Identitaet anhand UUID oder E-Mail.
+
+    Args:
+        identifier: UUID (mit oder ohne Bindestriche) ODER E-Mail (<kurzform>@erebos).
+
+    Returns:
+        dict mit uuid, email, forum_username, onboarded_at; oder None.
+    """
+    if not identifier:
+        return None
+    ident = identifier.strip()
+
+    conn = get_db()
+
+    # Erst UUID (mit Bindestrichen)
+    row = conn.execute(
+        "SELECT uuid, email, forum_username, onboarded_at FROM identities WHERE uuid = ?",
+        (ident,),
+    ).fetchone()
+
+    # Dann E-Mail
+    if row is None:
+        row = conn.execute(
+            "SELECT uuid, email, forum_username, onboarded_at FROM identities WHERE email = ?",
+            (ident,),
+        ).fetchone()
+
+    # Dann UUID ohne Bindestriche (Kurzform)
+    if row is None and len(ident) == 8:
+        row = conn.execute(
+            "SELECT uuid, email, forum_username, onboarded_at FROM identities "
+            "WHERE uuid LIKE ?",
+            (ident + "%",),
+        ).fetchone()
+
+    if row is None:
+        return None
+    return {
+        "uuid": row[0],
+        "email": row[1],
+        "forum_username": row[2],
+        "onboarded_at": row[3],
+    }
+
+
 def check_rotate_rate_limit(uuid: str) -> tuple:
     """Prueft, ob eine Rotation fuer uuid erlaubt ist.
 

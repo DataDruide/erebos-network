@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 from . import forum
-from .onboarding import render_onboard, render_welcome_onboarded
-from .forum_db import (get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
+from .onboarding import render_onboard, render_welcome_onboarded, render_recover
+from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
                        rotate_mail_keys,
@@ -187,7 +187,7 @@ def render_wiki(address: str) -> bytes:
 def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 body: bytes = b"", query: str = "", client_id: str = "",
                 username: str = "", session_token: str = "",
-                admin_cookie: str = "") -> bytes:
+                admin_cookie: str = "", identity_uuid: str = "") -> bytes:
     admin_token_value = ""
     if query:
         from urllib.parse import parse_qs
@@ -214,26 +214,55 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
     if path == "/wiki":
         return render_wiki(address)
     if path == "/mail/rotate":
-        # Anonyme UUID aus client_id ableiten
+        # UUID: identity_uuid bevorzugt, sonst aus client_id ableiten
         import uuid as _uuid
-        if not client_id:
+        if identity_uuid:
+            anon_uuid = identity_uuid
+        elif client_id:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        else:
             return _page(
                 "Rotation", address,
                 "<h1>Fehler</h1><p>Keine Session. Bitte besuche zuerst <a href=\"/mail\">/mail</a>.</p>",
             )
-        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
         if method == "POST":
             return _handle_rotate_post(anon_uuid, address)
         return _render_rotate_confirm(anon_uuid, address)
 
+    if path == "/recover":
+        if method == "POST":
+            form = forum.parse_form_body(body)
+            identifier = (form.get("identifier", "") or "").strip()
+            if not identifier:
+                return render_recover(
+                    address, _page, _escape,
+                    error="Bitte UUID oder E-Mail eingeben.",
+                )
+            ident = find_identity_by_identifier(identifier)
+            if ident is None:
+                return render_recover(
+                    address, _page, _escape,
+                    error="Keine Identitaet mit dieser UUID/E-Mail gefunden.",
+                )
+            logger.info(f"Recovery: Identitaet {ident['uuid'][:8]} wiederhergestellt")
+            return (
+                b"REDIRECT:/mail\n"
+                + b"SET_IDENTITY:" + ident["uuid"].encode() + b"\n"
+                + b"CLEAR_SESSION:1"
+            )
+        return render_recover(address, _page, _escape)
+
     if path == "/onboard":
         import uuid as _uuid
-        if not client_id:
+        if identity_uuid:
+            anon_uuid = identity_uuid
+        elif client_id:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        else:
             return _page(
                 "Onboarding", address,
                 "<h1>Onboarding</h1><p>Keine Session. Bitte lade die Seite neu.</p>",
             )
-        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
         return render_onboard(anon_uuid, address, _page, _escape)
 
     if path == "/welcome/ack":
@@ -244,18 +273,23 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     if path == "/welcome":
         import uuid as _uuid
-        if not client_id:
+        if identity_uuid:
+            anon_uuid = identity_uuid
+        elif client_id:
+            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        else:
             return _page(
                 "Willkommen", address,
                 "<h1>Willkommen</h1><p>Keine Session. Bitte lade die Seite neu.</p>",
             )
-        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
         return render_welcome_onboarded(anon_uuid, address, _page, _escape)
 
     if path == "/mail":
-        # Anonyme UUID aus client_id ableiten (wie auf der Startseite)
+        # UUID: identity_uuid bevorzugt, sonst aus client_id ableiten
         import uuid as _uuid
-        if client_id:
+        if identity_uuid:
+            anon_uuid = identity_uuid
+        elif client_id:
             anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
         else:
             anon_uuid = str(_uuid.uuid4())
@@ -507,20 +541,26 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return _page("Mail", address, body_html)
 
     if path == "/forum":
-        # Auto-Login nach Onboarding
+        # Auto-Login nach Onboarding (identity_uuid bevorzugt)
         import uuid as _uuid
-        if client_id and not username:
-            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
-            ident = get_identity(anon_uuid)
-            if ident and ident.get("onboarded_at"):
-                session = get_or_create_forum_session(anon_uuid)
-                if session:
-                    logger.info(f"Auto-Login Forum: {anon_uuid[:8]} -> {session['username']}")
-                    return (
-                        b"REDIRECT:/forum\n"
-                        + b"SET_SESSION:" + session["token"].encode() + b"\n"
-                        + b"SET_ADMIN:0"
-                    )
+        if not username:
+            if identity_uuid:
+                anon_uuid = identity_uuid
+            elif client_id:
+                anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+            else:
+                anon_uuid = ""
+            if anon_uuid:
+                ident = get_identity(anon_uuid)
+                if ident and ident.get("onboarded_at"):
+                    session = get_or_create_forum_session(anon_uuid)
+                    if session:
+                        logger.info(f"Auto-Login Forum: {anon_uuid[:8]} -> {session['username']}")
+                        return (
+                            b"REDIRECT:/forum\n"
+                            + b"SET_SESSION:" + session["token"].encode() + b"\n"
+                            + b"SET_ADMIN:0"
+                        )
         return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=""))
     if path == "/forum/admin/login":
         # Setzt das Admin-Cookie. Token kommt aus ?admin=<token>.

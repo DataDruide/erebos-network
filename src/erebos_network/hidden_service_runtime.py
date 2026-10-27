@@ -41,7 +41,8 @@ from .landing_pages import (
     http_response,
 )
 from .forum import (get_or_create_client_id, get_session_user,
-                   CLIENT_COOKIE, SESSION_COOKIE, ADMIN_COOKIE)
+                   CLIENT_COOKIE, SESSION_COOKIE, ADMIN_COOKIE,
+                   IDENTITY_COOKIE)
 from .tunnel import (
     ErebosTunnelClient,
     FRAME_DATA,
@@ -448,15 +449,18 @@ class HiddenServiceRuntime:
             if is_new_client:
                 logger.info(f"HTTP: neuer Client (cookie gesetzt: {client_id[:8]}...)")
 
-            # 4b) Session- und Admin-Cookie lesen (optional)
+            # 4b) Session-, Admin- und Identity-Cookie lesen (optional)
             session_token = ""
             admin_cookie = ""
+            identity_uuid = ""
             for part in cookie_header.split(";"):
                 part = part.strip()
                 if part.startswith(SESSION_COOKIE + "="):
                     session_token = part[len(SESSION_COOKIE) + 1:].strip()
                 elif part.startswith(ADMIN_COOKIE + "="):
                     admin_cookie = part[len(ADMIN_COOKIE) + 1:].strip()
+                elif part.startswith(IDENTITY_COOKIE + "="):
+                    identity_uuid = part[len(IDENTITY_COOKIE) + 1:].strip()
             username = get_session_user(session_token) or ""
 
             # 5) Response erzeugen
@@ -464,7 +468,7 @@ class HiddenServiceRuntime:
                 path, self.address, f"{method} {path}",
                 method=method, body=body, query=query, client_id=client_id,
                 username=username, session_token=session_token,
-                admin_cookie=admin_cookie,
+                admin_cookie=admin_cookie, identity_uuid=identity_uuid,
             )
 
             # 3a) Rate-Limit-Fall (HTTP 429)
@@ -526,6 +530,11 @@ class HiddenServiceRuntime:
                         admin_val = part[len("SET_ADMIN:"):].decode("utf-8", "replace")
                         extra_cookies.append(
                             ADMIN_COOKIE + "=" + admin_val + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600"
+                        )
+                    elif part.startswith(b"SET_IDENTITY:"):
+                        ident_val = part[len("SET_IDENTITY:"):].decode("utf-8", "replace")
+                        extra_cookies.append(
+                            IDENTITY_COOKIE + "=" + ident_val + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
                         )
                 resp = http_response(
                     302, "text/plain; charset=utf-8", b"Redirecting...", location=target,

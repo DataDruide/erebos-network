@@ -35,6 +35,7 @@ GLOBAL_MAX_REPLIES = 150        # Sicherheitsnetz global
 CLIENT_COOKIE = "forum_client_id"
 SESSION_COOKIE = "forum_session"
 ADMIN_COOKIE = "forum_admin"
+IDENTITY_COOKIE = "forum_identity"
 ADMIN_COOKIE_TTL_SECONDS = 3600  # 1 Stunde
 PBKDF2_ITERATIONS = 200_000
 MIN_PASSWORD_LEN = 8

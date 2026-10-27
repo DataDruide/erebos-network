@@ -208,3 +208,39 @@ def render_welcome_onboarded(anon_uuid, address, _page, _escape):
         '</p>'
     )
     return _page("Willkommen", address, body)
+
+
+def render_recover(address, _page, _escape, error=""):
+    """Recovery-Seite: Formular fuer UUID/E-Mail-Eingabe.
+
+    Args:
+        error: Wenn gesetzt, wird eine Fehlermeldung angezeigt.
+    """
+    error_html = ""
+    if error:
+        error_html = (
+            '<div style="border:2px solid #ff3333; padding:1em; '
+            'margin:1em 0; background:#1a0505;">'
+            '<p style="color:#ff6666;">' + _escape(error) + '</p>'
+            '</div>'
+        )
+
+    body = (
+        '<h1>IDENTITAET WIEDERHERSTELLEN</h1>'
+        '<p>Gib deine UUID oder E-Mail-Adresse ein, um deine Identitaet '
+        'zurueckzuholen.</p>'
+        + error_html +
+        '<form method="POST" action="/recover">'
+        '<p><label>UUID oder E-Mail:<br>'
+        '<input name="identifier" required '
+        'style="width:100%; padding:0.8em; background:#0a0a15; '
+        'color:#00ff88; border:2px solid #00ff88; font-family:monospace;" '
+        'placeholder="z.B. a1b2c3d4-e5f6-... oder a1b2c3d4@erebos"></label></p>'
+        '<p><button type="submit" class="btn" '
+        'style="background:#00ff88; color:#000; font-weight:bold; '
+        'padding:1em 2em; cursor:pointer; border:none;">'
+        'Wiederherstellen</button></p>'
+        '</form>'
+        '<p style="margin-top:2em;"><a href="/">← Zurueck zur Startseite</a></p>'
+    )
+    return _page("Identitaet wiederherstellen", address, body)
