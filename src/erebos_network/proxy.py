@@ -303,21 +303,52 @@ class ErebosSocks5Server:
         self.entry_host = cfg.entry_host
 
     def _select_three_hops(self) -> list[str]:
-        """Wählt 3 Peers aus dem Pool (delegiert an freie Funktion).
+        """Wählt 3 Peers aus dem Pool – bevorzugt nach Rollen aus peers.json.
+
+        Rollen-Logik: erster Hop = entry, letzter Hop = exit,
+        mittlerer Hop = mix. Falls keine Rollen definiert sind oder
+        zu wenige Peers einer Rolle existieren, greift die bisherige
+        Auswahl (random/round_robin/first).
 
         Peer-Diversität (opt-in via EREBOS_STRICT_DIVERSITY=1):
-        Die drei Hops müssen unterschiedliche IPs haben. In Docker
-        ist das immer der Fall (172.20.0.10/11/12). In echten
-        Netzwerken verhindert es, dass ein Angreifer alle Hops
-        aus einem Subnetz kontrolliert.
+        Die drei Hops müssen unterschiedliche IPs haben.
         """
         import os as _os
         pool = self.config.peer_pool
         strict = _os.environ.get("EREBOS_STRICT_DIVERSITY") == "1"
 
+        # 1. Versuch: Rollen-basierte Auswahl aus peers.json
+        try:
+            from .peers_loader import load_peers
+            entries = load_peers()
+            if entries:
+                by_name = {e.name: e for e in entries}
+                entries_pool = [p for p in pool if p in by_name]
+                entry_peers = [p for p in entries_pool if by_name[p].role == "entry"]
+                mix_peers = [p for p in entries_pool if by_name[p].role == "mix"]
+                exit_peers = [p for p in entries_pool if by_name[p].role == "exit"]
+                if entry_peers and exit_peers and len(mix_peers) >= 1:
+                    import random as _random
+                    hops = [
+                        _random.choice(entry_peers),
+                        _random.choice(mix_peers),
+                        _random.choice(exit_peers),
+                    ]
+                    logger.info(
+                        "Hop-Auswahl nach Rollen: %s (entry=%s, mix=%s, exit=%s)",
+                        " -> ".join(hops), entry_peers, mix_peers, exit_peers,
+                    )
+                    return hops
+                else:
+                    logger.info(
+                        "Rollen unvollständig (entry=%d, mix=%d, exit=%d) – Fallback",
+                        len(entry_peers), len(mix_peers), len(exit_peers),
+                    )
+        except Exception as e:
+            logger.warning("Rollen-basierte Hop-Auswahl fehlgeschlagen: %s", e)
+
+        # 2. Bisherige Logik (Fallback)
         if strict:
-            # Alle Kombinationen durchprobieren, erste mit
-            # unterschiedlichen IPs nehmen.
             from itertools import combinations
             from .peers_config import peer_host
             for combo in combinations(pool, 3):
@@ -326,7 +357,6 @@ class ErebosSocks5Server:
                     hops = list(combo)
                     break
             else:
-                # Keine Kombination mit 3 unterschiedlichen IPs
                 hops = select_three_hops(
                     pool, self.config.entry_strategy, self._rr_offset
                 )
@@ -477,8 +507,36 @@ class ErebosSocks5Server:
                             dht.add_peer(peer_info)
                     self._descriptor_store = dht
                 
-                # Rendezvous-Punkt wählen (vereinfacht: erster Peer)
-                rendezvous_peer = list(self.peer_pubs.keys())[0] if self.peer_pubs else None
+                # Rendezvous-Punkt wählen – bevorzugt Entry-Rolle aus peers.json
+                rendezvous_peer = None
+                try:
+                    from .peers_loader import load_peers
+                    entries = load_peers()
+                    entry_peers = [
+                        e.name for e in entries
+                        if e.role == "entry" and e.name in self.peer_pubs
+                    ]
+                    if entry_peers:
+                        rendezvous_peer = entry_peers[0]
+                        logger.info(
+                            f"[{conn_id}] Rendezvous-Peer nach Rolle (entry): "
+                            f"{rendezvous_peer}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[{conn_id}] Rollen-basierte Rendezvous-Auswahl "
+                        f"fehlgeschlagen: {e}"
+                    )
+                if rendezvous_peer is None:
+                    # Fallback: erster Peer (bisheriges Verhalten)
+                    rendezvous_peer = (
+                        list(self.peer_pubs.keys())[0] if self.peer_pubs else None
+                    )
+                    if rendezvous_peer:
+                        logger.info(
+                            f"[{conn_id}] Rendezvous-Peer (Fallback, erster Peer): "
+                            f"{rendezvous_peer}"
+                        )
                 if rendezvous_peer is None:
                     logger.error(f"[{conn_id}] Kein Rendezvous-Peer verfügbar")
                     await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)

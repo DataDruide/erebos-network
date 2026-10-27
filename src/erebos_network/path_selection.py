@@ -25,6 +25,7 @@ class MixNode:
     total_packets: int = 0
     last_seen: float = field(default_factory=time.time)
     is_adversary: bool = False  # nur fuer Simulation
+    role: str = "mix"  # entry | mix | exit (aus peers.json)
 
     @property
     def is_trusted(self) -> bool:
@@ -79,6 +80,17 @@ class PathSelector:
         if len(candidates) < self.config.num_hops:
             candidates = nodes
 
+        # Rollen-basierte Auswahl, falls Rollen definiert sind
+        path = self._select_by_roles(candidates)
+        if path is not None:
+            self._recent_paths.append([n.node_id for n in path])
+            if len(self._recent_paths) > 100:
+                self._recent_paths.pop(0)
+            self.stats["paths_selected"] += 1
+            self.stats["total_hops"] += len(path)
+            self.stats["adversary_hops"] += sum(1 for n in path if n.is_adversary)
+            return path
+
         if self.config.strategy == "random":
             path = self._select_random(candidates)
         elif self.config.strategy == "k_hf":
@@ -101,6 +113,37 @@ class PathSelector:
         )
 
         return path
+
+    def _select_by_roles(self, nodes: list[MixNode]):
+        """Wählt Pfad nach Rollen: entry -> mix... -> exit.
+
+        Gibt None zurück, wenn keine Rollen definiert sind oder zu wenige
+        Knoten einer Rolle existieren (dann greift die bisherige Strategie).
+        """
+        entries = [n for n in nodes if n.role == "entry"]
+        mixes = [n for n in nodes if n.role == "mix"]
+        exits = [n for n in nodes if n.role == "exit"]
+
+        # Keine Rollen definiert -> Fallback auf bisherige Strategie
+        if not entries and not exits:
+            return None
+
+        needed = self.config.num_hops
+        # Für einen 3-Hop-Pfad: 1 entry + (needed-2) mix + 1 exit
+        if needed < 2:
+            return None
+        if not entries or not exits:
+            return None
+        if len(mixes) < (needed - 2):
+            return None
+
+        try:
+            path = [random.choice(entries)]
+            path.extend(random.sample(mixes, needed - 2))
+            path.append(random.choice(exits))
+            return path
+        except ValueError:
+            return None
 
     def _select_random(self, nodes: list[MixNode]) -> list[MixNode]:
         """Zufaellige Auswahl."""
