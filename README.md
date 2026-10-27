@@ -15,6 +15,20 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)]()
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)]()
 
+## Screenshots
+
+### Mail-Postfach
+![Mail-Postfach](docs/screenshots/mail.jpeg)
+
+### Erebos Community (Forum)
+![Community](docs/screenshots/community.jpeg)
+
+### Onboarding — Deine Identitaet
+![Onboarding](docs/screenshots/onboarding.jpeg)
+
+---
+
+
 Erebos Network ist ein Forschungsprototyp fuer ein anonymes Netzwerk,
 das Tor und I2P als Grundlage nutzt und um sieben neuartige Komponenten
 erweitert - darunter Post-Quanten-Kryptographie (NIST Level 5).
