@@ -806,7 +806,8 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
 
 def http_response(status: int, content_type: str, body: bytes,
-                  location: str = "", set_cookie: str = "") -> bytes:
+                  location: str = "", set_cookie: str = "",
+                  extra_headers: str = "") -> bytes:
     reason = {200: "OK", 302: "Found", 403: "Forbidden", 404: "Not Found",
               413: "Payload Too Large", 429: "Too Many Requests",
               500: "Internal Server Error"}.get(status, "OK")
@@ -819,6 +820,9 @@ def http_response(status: int, content_type: str, body: bytes,
         headers += f"Location: {location}\r\n"
     if set_cookie:
         headers += f"Set-Cookie: {set_cookie}\r\n"
+    if extra_headers:
+        # Rohe Header, bereits mit \r\n terminiert
+        headers += extra_headers
     # Security Headers (OWASP A05:2025 Security Misconfiguration)
     headers += (
         "X-Content-Type-Options: nosniff\r\n"
@@ -952,18 +956,21 @@ def _handle_rotate_post(anon_uuid: str, address: str) -> bytes:
     # Rate-Limit pruefen
     allowed, retry_after = check_rotate_rate_limit(anon_uuid)
     if not allowed:
+        retry_sec = int(retry_after) + 1
         retry_min = int(retry_after / 60) + 1
         logger.warning(
             f"Rotation rate-limited: {anon_uuid[:8]} (retry in {retry_min} min)"
         )
-        return _page(
+        page = _page(
             "Rotation", address,
             f"<h1>Zu viele Rotationen</h1>"
             f"<p>Du hast deine Schluessel zu oft rotiert. "
-            f"Bitte warte noch <strong>{retry_min} Minuten</strong>, "
-            f"bevor du erneut rotierst.</p>"
+            f"Bitte warte noch <strong>{retry_min} Minuten</strong> "
+            f"({retry_sec} Sekunden), bevor du erneut rotierst.</p>"
             "<a class=\"btn\" href=\"/mail\">← Zurueck</a>",
         )
+        # RATE_LIMIT:<retry_after_sec>\n<html>
+        return b"RATE_LIMIT:" + str(retry_sec).encode() + b"\n" + page
 
     try:
         get_or_create_mail_keys(anon_uuid)

@@ -468,16 +468,35 @@ class HiddenServiceRuntime:
             )
 
             # 3a) Rate-Limit-Fall (HTTP 429)
+            # Format: RATE_LIMIT:<retry_after_sec>\n<html>...
+            # Wenn <retry_after_sec> leer/0: kein Retry-After-Header
             if body_out.startswith(b"RATE_LIMIT:"):
-                body_429 = (
-                    "<!DOCTYPE html><html><head><title>429</title></head>"
-                    "<body><h1>Zu viele Login-Versuche</h1>"
-                    "<p>Bitte warte 5 Minuten und versuche es erneut.</p>"
-                    "<a href=\"/forum/login\">← Zurück zum Login</a></body></html>"
-                ).encode("utf-8")
+                rest = body_out[len("RATE_LIMIT:"):]
+                if b"\n" in rest:
+                    retry_part, html_body = rest.split(b"\n", 1)
+                    try:
+                        retry_sec = int(retry_part.strip() or b"0")
+                    except ValueError:
+                        retry_sec = 0
+                else:
+                    retry_sec = 0
+                    html_body = rest
+
+                if not html_body:
+                    html_body = (
+                        "<!DOCTYPE html><html><head><title>429</title></head>"
+                        "<body><h1>Zu viele Anfragen</h1>"
+                        "<p>Bitte warte und versuche es erneut.</p></body></html>"
+                    ).encode("utf-8")
+
+                extra_headers = ""
+                if retry_sec > 0:
+                    extra_headers = f"Retry-After: {retry_sec}\r\n"
+
                 resp = http_response(
-                    429, "text/html; charset=utf-8", body_429,
+                    429, "text/html; charset=utf-8", html_body,
                     set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
+                    extra_headers=extra_headers,
                 )
                 writer.write(resp)
                 await writer.drain()
