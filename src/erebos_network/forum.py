@@ -17,6 +17,7 @@ from .forum_db import (
     migrate_from_json as _migrate_from_json,
     get_user_email,
     get_user_role,
+    insert_mod_log,
 )
 from urllib.parse import parse_qs
 
@@ -955,16 +956,21 @@ def toggle_locked(thread_id: str) -> bool:
 
 
 def log_moderation(action: str, target: str, moderator: str = "admin") -> None:
-    data = _ensure_accounts(load_forum())
-    if "mod_log" not in data:
-        data["mod_log"] = []
-    data["mod_log"].append({
-        "action": action,
-        "target": target,
-        "moderator": moderator,
-        "created_at": time.time(),
-    })
-    save_forum(data)
+    """Fuegt einen Eintrag in mod_log ein (ohne save_forum)."""
+    try:
+        insert_mod_log(action, target, moderator)
+    except Exception:
+        # Fallback: altes Verhalten (save_forum)
+        data = _ensure_accounts(load_forum())
+        if "mod_log" not in data:
+            data["mod_log"] = []
+        data["mod_log"].append({
+            "action": action,
+            "target": target,
+            "moderator": moderator,
+            "created_at": time.time(),
+        })
+        save_forum(data)
 
 
 def list_mod_log(limit: int = 100) -> list:

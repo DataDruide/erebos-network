@@ -1616,3 +1616,15 @@ def get_mail_keys(uuid: str) -> dict:
         "revoked_at": row[11],
         "superseded_by": row[12],
     }
+
+
+def insert_mod_log(action: str, target: str, moderator: str = "admin") -> None:
+    """Fuegt einen einzelnen Eintrag in mod_log ein (ohne save_forum)."""
+    import time as _time
+    conn = get_db()
+    with conn:
+        conn.execute(
+            "INSERT INTO mod_log (action, target, moderator, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (action, target, moderator, _time.time()),
+        )
