@@ -1,6 +1,6 @@
 # Erebos Network - Roadmap
 
-Status: 28 Phasen komplett, 795 Tests
+Status: 29 Phasen komplett, 798 Tests
 
 ## Abgeschlossen
 
@@ -273,4 +273,28 @@ Status: 27 Phasen komplett, 781 Tests.
 Gesamt: 795 Tests.
 
 Status: 28 Phasen komplett, 795 Tests.
+
+---
+
+### Phase 29: SQLCipher + Property-based Tests (2026-10-27)
+- **liboqs-python-Update**: `>=0.16.0.1` (behebt Shell-Injection in 0.12.0)
+- **SQLCipher**: DB at-rest verschluesselt (AES-256)
+  - `libsqlcipher-dev` + `sqlcipher` im Dockerfile
+  - `sqlcipher3` Python-Bindung
+  - `PRAGMA key` in `get_db()` (aus `EREBOS_DB_KEY` Env-Var)
+  - Fallback auf `sqlite3`, falls `sqlcipher3` nicht verfuegbar
+- **Migration**: `scripts/migrate_to_sqlcipher.py`
+  - `ATTACH` + `sqlcipher_export`
+  - Erkennt bereits verschluesselte DBs
+- **Backup/Restore**: `scripts/backup.sh` + `restore.sh` mit
+  `sqlcipher_export` (statt `sqlite3 .backup`)
+- **Property-based Tests** (`hypothesis`):
+  - Onion-Layer-Unabhaengigkeit (Relay-Header)
+  - Relay-Header-Roundtrip
+  - 3-Hop > 2-Hop
+- 3 neue Property-Tests
+
+Gesamt: 798 Tests.
+
+Status: 29 Phasen komplett, 798 Tests.
 

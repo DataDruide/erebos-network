@@ -197,3 +197,64 @@ Ein Backup, das nie getestet wurde, ist kein Backup. Mindestens
     curl --socks5-hostname localhost:4448 http://<hs>.erebos/
 
 Wenn der Health-Check gruen ist, ist das Backup vertrauenswuerdig.
+
+## SQLCipher (verschluesselte DB)
+
+Seit Phase 29 ist die `forum.db` **mit SQLCipher (AES-256) verschluesselt**.
+Der Master-Key liegt in der **`.env`-Datei** (`EREBOS_DB_KEY`) — **nicht**
+im Docker-Volume, **nicht** im Git-Repo.
+
+### Was sich aendert
+
+- **`sqlite3 .backup` funktioniert NICHT mehr** (DB ist verschluesselt)
+- **`VACUUM INTO` funktioniert NICHT** (erhaelt die Verschluesselung nicht)
+- **Backups muessen via `sqlcipher_export` erstellt werden**
+
+Das `scripts/backup.sh` ist bereits angepasst:
+
+    ./scripts/backup.sh
+    # [1/3] forum.db (SQLCipher-Export)  -> sqlcipher_export
+    # [2/3] hs-keys (named volume)
+    # [3/3] wiki.json
+
+### Backup manuell erstellen
+
+    docker-compose exec -T hidden-service python3 -c "
+    import os
+    from sqlcipher3 import dbapi2 as sqlcipher
+    key = os.environ.get('EREBOS_DB_KEY', '')
+    conn = sqlcipher.connect('/app/forum.db')
+    conn.execute(f\"PRAGMA key='{key}'\")
+    conn.execute('PRAGMA cipher_compatibility = 4')
+    conn.execute(f\"ATTACH DATABASE '/tmp/forum.db.backup' AS backup KEY '{key}'\")
+    conn.execute('PRAGMA backup.cipher_compatibility = 4')
+    conn.execute(\"SELECT sqlcipher_export('backup')\")
+    conn.execute('DETACH DATABASE backup')
+    conn.close()
+    "
+    docker-compose cp hidden-service:/tmp/forum.db.backup ./forum.db.backup
+
+**Das Backup ist ebenfalls SQLCipher-verschluesselt** (mit demselben Key).
+
+### Restore
+
+    ./scripts/restore.sh backups/erebos-YYYYMMDD-HHMMSS/
+
+Das Backup ist bereits SQLCipher-verschluesselt — es wird **1:1** als
+`forum.db` zurueckkopiert.
+
+### Schluessel verloren?
+
+**Ohne `EREBOS_DB_KEY` ist die DB unlesbar.** Es gibt **keinen Recovery-Weg**
+(ausser dem Backup, das mit demselben Key verschluesselt ist).
+
+**Wichtig:** `EREBOS_DB_KEY` **muss** im Passwort-Manager gesichert werden —
+zusammen mit dem Backup, aber **getrennt** davon.
+
+### Migration von unverschluesselter DB
+
+    docker-compose exec -T hidden-service python3 scripts/migrate_to_sqlcipher.py
+
+Das Script erkennt, ob die DB schon verschluesselt ist, und macht nichts,
+wenn sie es ist.
+
