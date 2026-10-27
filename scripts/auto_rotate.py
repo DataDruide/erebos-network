@@ -9,7 +9,7 @@ Aufruf:
 import argparse
 import sys
 
-sys.path.insert(0, "/app/src")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
 
 from erebos_network.forum_db import auto_rotate_expiring_keys
 

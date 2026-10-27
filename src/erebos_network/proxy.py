@@ -21,6 +21,28 @@ from .topology_utils import select_three_hops
 logger = logging.getLogger(__name__)
 
 
+def _log_rendezvous_banner(conn_id: int, target: str, onion_len: int,
+                           hops: str = "peer2 -> peer3 -> peer1") -> None:
+    """Mehrzeiliges Rendezvous-Banner als ein Log-Event.
+
+    Bewusst INFO (nicht DEBUG): Der Verbindungsaufbau ist ein
+    Erfolgs-Ereignis und soll auch ohne -v sichtbar sein.
+    """
+    bar = "=" * 53
+    onion_field = f"{onion_len} B, 3 Layer"
+    logger.info(
+        "\n"
+        f"+{bar}+\n"
+        "|  OK  RENDEZVOUS HERGESTELLT                       |\n"
+        f"+{bar}+\n"
+        f"|  Ziel:     {target:<38}|\n"
+        f"|  Hops:     {hops:<38}|\n"
+        f"|  Onion:    {onion_field:<38}|\n"
+        f"|  conn_id:  #{conn_id:<37}|\n"
+        f"+{bar}+"
+    )
+
+
 def _peer_name_to_port(peer_name: str) -> int:
     """Leitet den Port aus dem Peer-Namen ab (z. B. peer1 -> 9999)."""
     mapping = {"peer1": 9999, "peer2": 9998, "peer3": 9997}
@@ -496,9 +518,9 @@ class ErebosSocks5Server:
                 tunnel_client = ErebosTunnelClient(host=intro_host, port=intro_port)
                 try:
                     await tunnel_client.connect()
-                    logger.info(f"[{conn_id}] Tunnel zum Intro-Point {intro_point.address} aufgebaut")
+                    logger.info(f"[{conn_id}] [1/4] Intro-Point-Tunnel ... OK ({intro_point.address})")
                     await tunnel_client.send_rendezvous_request(request.to_dict())
-                    logger.info(f"[{conn_id}] Rendezvous-Request an Intro-Point gesendet")
+                    logger.info(f"[{conn_id}] [2/4] Rendezvous-Request ... OK")
                     # Warte auf Antwort
                     raw = await asyncio.wait_for(tunnel_client.receive(), timeout=10.0)
                     if raw:
@@ -521,13 +543,13 @@ class ErebosSocks5Server:
                             reg_key = host[:32]
                             reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
                             onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, reg_payload)
-                            logger.info(f"[{conn_id}] Onion gebaut ({len(onion)}B)")
+                            logger.info(f"[{conn_id}] [3/4] Onion-Build (3 Hops) ... OK ({len(onion)}B)")
 
                             from .peers_config import peer_host
                             rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)  # peer2
                             await rendezvous_client.connect()
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
-                            logger.info(f"[{conn_id}] 3-Hop-Onion an peer2 gesendet (peer2 -> peer3 -> peer1)")
+                            logger.info(f"[{conn_id}] [3/4] Onion an peer2 gesendet ... OK")
 
                             # Warte auf 'ready' vom Rendezvous-Punkt
                             # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
@@ -541,7 +563,12 @@ class ErebosSocks5Server:
                                         ready_data = json.loads(ready_raw.decode("utf-8"))
                                         logger.info(f"[{conn_id}] Rendezvous-Nachricht: {ready_data}")
                                         if ready_data.get("status") == "ready":
-                                            logger.info(f"[{conn_id}] Rendezvous-Paar vollständig!")
+                                            logger.info(f"[{conn_id}] [4/4] Rendezvous-Paar vollständig!")
+                                            _log_rendezvous_banner(
+                                                conn_id=conn_id,
+                                                target=host,
+                                                onion_len=len(onion),
+                                            )
                                             ready_received = True
                                             break
                                         # Ignoriere 'ok'-Bestätigungen, warte auf 'ready'

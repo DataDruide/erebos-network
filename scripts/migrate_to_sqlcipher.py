@@ -15,9 +15,10 @@ import sqlite3
 from pathlib import Path
 
 # Pfade
-DB_PATH = Path("/app/forum.db")
-BACKUP_PATH = Path("/app/forum.db.unencrypted.bak")
-TEMP_PATH = Path("/app/forum.db.encrypted")
+from erebos_network.paths import app_file
+DB_PATH = app_file("forum.db")
+BACKUP_PATH = app_file("forum.db.unencrypted.bak")
+TEMP_PATH = app_file("forum.db.encrypted")
 
 
 def main() -> int:

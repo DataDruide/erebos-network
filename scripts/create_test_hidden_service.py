@@ -7,6 +7,17 @@ HTTP-Backend auf 8080).
 Für den produktiven Einsatz: siehe erebos_network.hidden_service_runtime.
 """
 
+# .env laden, bevor erebos_network importiert wird
+from pathlib import Path as _Path
+_env = _Path(__file__).resolve().parent.parent / '.env'
+if _env.exists():
+    import os as _os
+    for _line in _env.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith('#') and '=' in _line:
+            _k, _, _v = _line.partition('=')
+            _os.environ.setdefault(_k.strip(), _v.strip())
+
 import argparse
 import asyncio
 import logging

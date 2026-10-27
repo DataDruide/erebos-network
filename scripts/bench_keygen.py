@@ -7,7 +7,7 @@ import statistics
 import sys
 import time
 
-sys.path.insert(0, "/app/src")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
 
 import oqs
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey

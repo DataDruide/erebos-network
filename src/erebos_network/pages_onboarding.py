@@ -14,7 +14,8 @@ from pathlib import Path
 from .renderers import _page, _escape, _render_identity_box
 
 
-WIKI_PATH = Path("/app/wiki.json")
+from .paths import app_file
+WIKI_PATH = app_file("wiki.json")
 
 
 def _load_wiki_entries() -> list:

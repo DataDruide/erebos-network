@@ -31,7 +31,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("/app/forum.db")
+from .paths import app_file
+DB_PATH = app_file("forum.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS threads (

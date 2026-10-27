@@ -23,7 +23,8 @@ from urllib.parse import parse_qs
 
 logger = logging.getLogger(__name__)
 
-FORUM_JSON_PATH = Path("/app/forum.json")  # nur fuer Migration
+from .paths import app_file
+FORUM_JSON_PATH = app_file("forum.json")  # nur fuer Migration
 FORUM_PATH = FORUM_JSON_PATH  # Backward-Compat
 MAX_TITLE = 200
 MAX_AUTHOR = 60
