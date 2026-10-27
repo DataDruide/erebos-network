@@ -59,7 +59,13 @@ def generate_test_keys():
 # ============================================================
 
 @pytest.fixture
-def temp_db(tmp_path, monkeypatch):
+def no_db_key(monkeypatch):
+    """Entfernt EREBOS_DB_KEY (nur fuer Tests, die rohes sqlite3 nutzen)."""
+    monkeypatch.delenv("EREBOS_DB_KEY", raising=False)
+
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch, no_db_key):
     """Frische sqlite-DB pro Test, gepatched in forum_db.
 
     Setzt forum_db.DB_PATH auf eine temporaere Datei und resettet

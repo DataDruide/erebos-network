@@ -44,7 +44,7 @@ def test_mail_key_history_created_by_migration(temp_db):
     conn.close()
 
 
-def test_key_version_default_is_null_before_migration(tmp_path, monkeypatch):
+def test_key_version_default_is_null_before_migration(tmp_path, monkeypatch, no_db_key):
     from erebos_network import forum_db
     test_db = tmp_path / "old.db"
     monkeypatch.setattr(forum_db, "DB_PATH", test_db)
