@@ -60,6 +60,13 @@ async def _static_handler(reader, writer, pages_dir: Path):
                     "address": "",
                     "client_id": "",
                     "path": path,
+                    # Demo-Listen (können später durch echte Daten ersetzt werden)
+                    "items": [
+                        {"title": "Erster Eintrag", "body": "Hallo Welt"},
+                        {"title": "Zweiter Eintrag", "body": "Noch ein Eintrag"},
+                    ],
+                    "admin": False,
+                    "logged_in": False,
                 }
                 text = render_template(text, context)
                 content = text.encode("utf-8")
