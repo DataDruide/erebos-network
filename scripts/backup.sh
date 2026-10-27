@@ -10,7 +10,8 @@ if ! flock -n 200; then
     echo "FEHLER: Ein Backup laeuft bereits (Lock: $LOCK_FILE)"
     exit 1
 fi
-trap 'rm -f "$LOCK_FILE"' EXIT
+# Lock-File bleibt liegen: flock wird beim Prozessende automatisch
+# freigegeben. Ein rm im Trap waere race-y bei parallelen Laeufen.
 
 TS=$(date +%Y%m%d-%H%M%S)
 BK="backups/erebos-$TS"
