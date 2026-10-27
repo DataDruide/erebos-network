@@ -15,6 +15,7 @@ from .forum_db import (
     load_forum_from_db as _load_from_db,
     save_forum_to_db as _save_to_db,
     migrate_from_json as _migrate_from_json,
+    get_user_email,
 )
 from urllib.parse import parse_qs
 
@@ -1245,8 +1246,17 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
 
     # User-Navigation
     if username:
+        # E-Mail-Adresse aus der verknuepften Identitaet
+        user_email = ""
+        try:
+            user_email = get_user_email(username)
+        except Exception:
+            pass
+        email_part = (
+            f" (<code>{_escape(user_email)}</code>)" if user_email else ""
+        )
         user_nav = (
-            f"<p>Eingeloggt als <strong>{_escape(username)}</strong> · "
+            f"<p>Eingeloggt als <strong>{_escape(username)}</strong>{email_part} · "
             f"<a href=\"/forum/my-threads\">Meine Threads</a> · "
             f"<a href=\"/forum/logout\">Logout</a></p>\n"
         )

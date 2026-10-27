@@ -1393,6 +1393,23 @@ def get_or_create_forum_session(mail_uuid: str) -> dict:
     }
 
 
+def get_user_email(username: str) -> str:
+    """Liefert die @erebos-Adresse fuer einen Forum-Username (oder "").
+
+    Verknuepfung: users.mail_uuid -> identities.email
+    """
+    if not username:
+        return ""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT i.email FROM users u "
+        "JOIN identities i ON i.uuid = u.mail_uuid "
+        "WHERE u.username = ?",
+        (username,),
+    ).fetchone()
+    return row[0] if row else ""
+
+
 def find_identity_by_identifier(identifier: str) -> dict:
     """Sucht eine Identitaet anhand UUID oder E-Mail.
 
