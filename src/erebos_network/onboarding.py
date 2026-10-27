@@ -10,6 +10,7 @@ ONBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <title>EREBOS - Verbinde</title>
+  <meta http-equiv="refresh" content="3;url=/welcome">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -37,7 +38,6 @@ ONBOARD_HTML = """<!DOCTYPE html>
     .container {
       max-width: 640px;
       padding: 3em 2em;
-      text-align: left;
       position: relative;
       z-index: 5;
     }
@@ -55,22 +55,36 @@ ONBOARD_HTML = """<!DOCTYPE html>
       color: #004433;
       font-size: 0.95em;
       opacity: 0.4;
-      transition: all 0.4s ease;
+      position: relative;
+      animation: activate 2.5s ease forwards;
     }
     .step::before {
       content: "[ ]";
       margin-right: 1em;
       color: #004433;
       font-weight: bold;
+      animation: check 2.5s ease forwards;
     }
-    .step.active {
-      opacity: 1;
-      color: #00ff88;
-      text-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+    .step:nth-child(1) { animation-delay: 0.0s; }
+    .step:nth-child(2) { animation-delay: 0.5s; }
+    .step:nth-child(3) { animation-delay: 1.0s; }
+    .step:nth-child(4) { animation-delay: 1.5s; }
+    .step:nth-child(5) { animation-delay: 2.0s; }
+    .step:nth-child(1)::before { animation-delay: 0.0s; }
+    .step:nth-child(2)::before { animation-delay: 0.5s; }
+    .step:nth-child(3)::before { animation-delay: 1.0s; }
+    .step:nth-child(4)::before { animation-delay: 1.5s; }
+    .step:nth-child(5)::before { animation-delay: 2.0s; }
+    @keyframes activate {
+      0% { opacity: 0.4; color: #004433; }
+      15% { opacity: 1; color: #00ff88; text-shadow: 0 0 8px rgba(0,255,136,0.5); }
+      100% { opacity: 1; color: #008855; }
     }
-    .step.active::before { content: "[>]"; color: #00ff88; }
-    .step.done { opacity: 1; color: #008855; }
-    .step.done::before { content: "[*]"; color: #00ff88; }
+    @keyframes check {
+      0% { content: "[ ]"; color: #004433; }
+      15% { content: "[>]"; color: #00ff88; }
+      100% { content: "[*]"; color: #00ff88; }
+    }
     .progress-bar {
       height: 4px;
       background: #0a0a15;
@@ -82,7 +96,11 @@ ONBOARD_HTML = """<!DOCTYPE html>
       width: 0;
       background: #00ff88;
       box-shadow: 0 0 12px #00ff88, 0 0 24px rgba(0, 255, 136, 0.5);
-      transition: width 0.4s ease;
+      animation: fill 2.5s ease forwards;
+    }
+    @keyframes fill {
+      0% { width: 0; }
+      100% { width: 100%; }
     }
     .status-text {
       text-align: center;
@@ -90,8 +108,19 @@ ONBOARD_HTML = """<!DOCTYPE html>
       font-size: 0.85em;
       letter-spacing: 0.2em;
       margin-top: 1em;
-      text-shadow: 0 0 6px rgba(0, 255, 136, 0.4);
       min-height: 1.2em;
+      animation: status 2.5s ease forwards;
+    }
+    .status-text::after {
+      content: "INITIALISIERE...";
+    }
+    @keyframes status {
+      0% { content: "INITIALISIERE..."; }
+      20% { content: "TUNNEL ZUM RENDEZVOUS..."; }
+      40% { content: "IDENTITAET ERZEUGEN..."; }
+      60% { content: "SCHLUESSEL GENERIEREN..."; }
+      80% { content: "POSTFACH EINRICHTEN..."; }
+      100% { content: "BEREIT."; }
     }
     .footer {
       margin-top: 4em;
@@ -114,37 +143,13 @@ ONBOARD_HTML = """<!DOCTYPE html>
     <li class="step" data-step="4">Postfach einrichten</li>
     <li class="step" data-step="5">Bereit</li>
   </ul>
-  <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
-  <p class="status-text" id="status">Initialisiere...</p>
+  <div class="progress-bar"><div class="progress-fill"></div></div>
+  <p class="status-text"></p>
   <p class="footer">icxyvzvtc5wcdhzagv5hpxtfgmxqkgyhx5rqy47vrpignubveb4q.erebos</p>
 </div>
-<script>
-(function() {
-  var steps = document.querySelectorAll('.step');
-  var fill = document.getElementById('fill');
-  var status = document.getElementById('status');
-  var i = 0;
-  function advance() {
-    if (i > 0) {
-      steps[i-1].classList.remove('active');
-      steps[i-1].classList.add('done');
-    }
-    if (i < steps.length) {
-      steps[i].classList.add('active');
-      fill.style.width = ((i+1) / steps.length * 100) + '%';
-      status.textContent = steps[i].textContent.toUpperCase() + '...';
-      i++;
-      setTimeout(advance, 400);
-    } else {
-      status.textContent = 'BEREIT.';
-      setTimeout(function() { window.location.href = '/welcome'; }, 500);
-    }
-  }
-  setTimeout(advance, 300);
-})();
-</script>
 </body>
-</html>"""
+</html>
+"""
 
 
 def render_onboard(anon_uuid, address, _page, _escape):
