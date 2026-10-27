@@ -17,6 +17,9 @@ from .pages_forum import (
     render_forum_logout,
     render_forum_admin_login, render_forum_admin_dashboard,
     render_forum_admin_authors, render_forum_admin_authors_delete,
+    render_forum_admin_reports, render_forum_admin_reports_resolve,
+    render_forum_admin_modlog, render_forum_admin_bans,
+    render_forum_admin_ban, render_forum_admin_bans_unban,
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
@@ -213,25 +216,13 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     # --- Admin: Reports + Mod-Log ---
     if path == "/forum/admin/reports":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        return _page("Meldungen", address, forum.render_reports())
+        return render_forum_admin_reports(address, admin)
 
     if path.startswith("/forum/admin/reports/") and path.endswith("/resolve") and method == "POST":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        idx_str = path[len("/forum/admin/reports/"):-len("/resolve")]
-        try:
-            idx = int(idx_str)
-        except ValueError:
-            idx = -1
-        forum.resolve_report(idx)
-        return b"REDIRECT:/forum/admin/reports?admin=" + admin_token_value.encode("utf-8")
+        return render_forum_admin_reports_resolve(address, admin, path, method, admin_token_value)
 
     if path == "/forum/admin/modlog":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        return _page("Mod-Log", address, forum.render_mod_log())
+        return render_forum_admin_modlog(address, admin)
 
     if path == "/forum/health":
         return render_forum_health(address)
@@ -277,31 +268,13 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     # --- Admin: Bans ---
     if path == "/forum/admin/bans":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        return _page("Ban-Liste", address, forum.render_bans())
+        return render_forum_admin_bans(address, admin)
 
     if path == "/forum/admin/ban" and method == "POST":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        form = forum.parse_form_body(body)
-        username = form.get("username", "")
-        reason = form.get("reason", "")
-        forum.ban_user(username, reason)
-        forum.log_moderation("ban", username, "admin")
-        return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+        return render_forum_admin_ban(address, admin, body, admin_token_value)
 
     if path.startswith("/forum/admin/bans/") and path.endswith("/unban") and method == "POST":
-        if not admin:
-            return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
-        idx_str = path[len("/forum/admin/bans/"):-len("/unban")]
-        try:
-            idx = int(idx_str)
-        except ValueError:
-            idx = -1
-        forum.unban_user(idx)
-        forum.log_moderation("unban", f"index {idx}", "admin")
-        return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+        return render_forum_admin_bans_unban(address, admin, path, admin_token_value)
 
     # --- Sticky/Locked-Toggles ---
     if path.startswith("/forum/") and path.endswith("/toggle/sticky") and method == "POST":

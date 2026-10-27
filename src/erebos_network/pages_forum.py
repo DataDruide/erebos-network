@@ -205,3 +205,67 @@ def render_forum_new_thread(address: str, method: str = "GET", body: bytes = b""
         "Neuer Thread", address,
         forum.render_new_thread_form(category_id=cat_pre),
     )
+
+
+def render_forum_admin_reports(address: str, admin: bool) -> bytes:
+    """GET /forum/admin/reports: Meldungen-Liste."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    return _page("Meldungen", address, forum.render_reports())
+
+
+def render_forum_admin_reports_resolve(address: str, admin: bool,
+                                       path: str, method: str,
+                                       admin_token_value: str) -> bytes:
+    """POST /forum/admin/reports/<idx>/resolve."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    idx_str = path[len("/forum/admin/reports/"):-len("/resolve")]
+    try:
+        idx = int(idx_str)
+    except ValueError:
+        idx = -1
+    forum.resolve_report(idx)
+    return b"REDIRECT:/forum/admin/reports?admin=" + admin_token_value.encode("utf-8")
+
+
+def render_forum_admin_modlog(address: str, admin: bool) -> bytes:
+    """GET /forum/admin/modlog: Moderations-Log."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    return _page("Mod-Log", address, forum.render_mod_log())
+
+
+def render_forum_admin_bans(address: str, admin: bool) -> bytes:
+    """GET /forum/admin/bans: Ban-Liste."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    return _page("Ban-Liste", address, forum.render_bans())
+
+
+def render_forum_admin_ban(address: str, admin: bool, body: bytes,
+                           admin_token_value: str) -> bytes:
+    """POST /forum/admin/ban: Nutzer bannen."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    form = forum.parse_form_body(body)
+    username = form.get("username", "")
+    reason = form.get("reason", "")
+    forum.ban_user(username, reason)
+    forum.log_moderation("ban", username, "admin")
+    return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
+
+
+def render_forum_admin_bans_unban(address: str, admin: bool, path: str,
+                                  admin_token_value: str) -> bytes:
+    """POST /forum/admin/bans/<idx>/unban: Ban aufheben."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    idx_str = path[len("/forum/admin/bans/"):-len("/unban")]
+    try:
+        idx = int(idx_str)
+    except ValueError:
+        idx = -1
+    forum.unban_user(idx)
+    forum.log_moderation("unban", f"index {idx}", "admin")
+    return b"REDIRECT:/forum/admin/bans?admin=" + admin_token_value.encode("utf-8")
