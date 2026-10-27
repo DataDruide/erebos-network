@@ -388,12 +388,11 @@ def sign_mail(ed25519_priv: bytes, mldsa_priv: bytes, payload: bytes,
 
 def verify_mail(ed25519_pub: bytes, payload: bytes,
                 signatures: dict, mldsa_pub: bytes = None) -> bool:
-    """Verifiziert eine Mail (Ed25519 + ML-DSA-65).
+    """Verifiziert eine Mail (Ed25519 + ML-DSA-65), TIMING-SICHER.
 
-    API-Bestaetigung (liboqs-python 0.16.0):
-        - verify(msg, sig, pub) ist die einzige Variante.
-        - verify(msg, sig) ohne pub -> TypeError.
-        - mldsa_pub muss bytes (1952 B) sein, keine Hex-String.
+    Beide Signaturen werden IMMER geprueft, auch wenn die erste
+    fehlschlaegt. Das verhindert Timing-Angriffe, die unterscheiden
+    koennten, welche Signatur ungueltig war.
 
     Args:
         ed25519_pub: 32-Byte Ed25519 Public Key.
@@ -405,34 +404,28 @@ def verify_mail(ed25519_pub: bytes, payload: bytes,
     Returns:
         True, wenn BEIDE Signaturen gueltig sind.
     """
-    import oqs
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-    # Ed25519
-    try:
-        ed_pub = Ed25519PublicKey.from_public_bytes(ed25519_pub)
-        ed_pub.verify(bytes.fromhex(signatures["ed25519"]), payload)
-    except Exception:
-        return False
-
-    # ML-DSA-65: pub als bytes aufloesen
-    try:
-        if mldsa_pub is None:
-            pub_hex = signatures.get("mldsa_pub", "")
-            if not pub_hex:
-                return False
-            mldsa_pub = bytes.fromhex(pub_hex)
-        elif isinstance(mldsa_pub, str):
+    # ML-DSA-Pubkey aufloesen (fuer den Fall, dass er im signatures-dict steckt)
+    if mldsa_pub is None:
+        pub_hex = signatures.get("mldsa_pub", "")
+        if pub_hex:
+            try:
+                mldsa_pub = bytes.fromhex(pub_hex)
+            except (ValueError, TypeError):
+                mldsa_pub = None
+    elif isinstance(mldsa_pub, str):
+        try:
             mldsa_pub = bytes.fromhex(mldsa_pub)
-        mldsa = oqs.Signature("ML-DSA-65")
-        # verify(msg, sig, pub) -- 3 Argumente, bestaetigt durch API-Test
-        ok = mldsa.verify(payload, bytes.fromhex(signatures["mldsa"]), mldsa_pub)
-        if not ok:
-            return False
-    except Exception:
-        return False
+        except (ValueError, TypeError):
+            mldsa_pub = None
 
-    return True
+    # WICHTIG: beide Verifikationen IMMER ausfuehren (kein Short-Circuit)
+    ed_ok = _safe_ed25519_verify(
+        ed25519_pub, signatures.get("ed25519", ""), payload
+    )
+    pq_ok = _safe_mldsa_verify(
+        mldsa_pub, signatures.get("mldsa", ""), payload
+    )
+    return ed_ok and pq_ok
 
 # ============================================================
 # 3-Zustands-Verifikation (Rotation-aware)
@@ -506,3 +499,39 @@ def verify_mail_with_status(
         return VERIFIED_EXPIRED
 
     return VERIFIED
+
+
+# ============================================================
+# Timing-sichere Verifikation
+# ============================================================
+
+def _safe_ed25519_verify(ed25519_pub: bytes, sig_hex: str, payload: bytes) -> bool:
+    """Verifiziert Ed25519-Signatur, ohne Exception nach aussen.
+
+    Timing-Hinweis: Der Aufruf von verify() dauert unabhaengig vom
+    Ergebnis etwa gleich lang (Ed25519 ist inherently constant-time
+    in der OpenSSL-Implementierung).
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        ed_pub = Ed25519PublicKey.from_public_bytes(ed25519_pub)
+        ed_pub.verify(bytes.fromhex(sig_hex), payload)
+        return True
+    except Exception:
+        return False
+
+
+def _safe_mldsa_verify(mldsa_pub: bytes, sig_hex: str, payload: bytes) -> bool:
+    """Verifiziert ML-DSA-65-Signatur, ohne Exception nach aussen.
+
+    liboqs.verify() ist in der Regel constant-time (C-Backend).
+    """
+    import oqs
+    if mldsa_pub is None:
+        return False
+    try:
+        verifier = oqs.Signature("ML-DSA-65")
+        return verifier.verify(payload, bytes.fromhex(sig_hex), mldsa_pub)
+    except Exception:
+        return False
+
