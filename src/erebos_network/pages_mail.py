@@ -387,4 +387,4 @@ def _render_mail(anon_uuid: str, address: str, query: str = "",
         f"{key_info}"
         "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
     )
-    return _page("Mail", address, body_html)
+    return _page("MAIL", address, body_html, hero_image="mail-bg.jpeg")

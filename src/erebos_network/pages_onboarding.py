@@ -80,7 +80,7 @@ def render_welcome(address: str, client_id: str, request_line: str) -> bytes:
         "<a class=\"btn\" href=\"/forum\">Zum Forum &rarr;</a>\n"
         "<a class=\"btn\" href=\"/regeln\">Zu den Regeln &rarr;</a>\n"
     )
-    return _page("Willkommen bei Erebos", address, body)
+    return _page("WILLKOMMEN", address, body, hero_image="client-bg.jpeg")
 
 
 def render_landing(address: str, request_line: str) -> bytes:
@@ -98,7 +98,7 @@ def render_landing(address: str, request_line: str) -> bytes:
         f"<p><em>Deine Anfrage:</em> <code>{_escape(request_line)}</code></p>\n"
         "<a class=\"btn\" href=\"/wiki\">Zur Hidden Wiki \u2192</a>\n"
     )
-    return _page("Willkommen bei Erebos", address, body)
+    return _page("WILLKOMMEN", address, body, hero_image="client-bg.jpeg")
 
 
 def render_wiki(address: str) -> bytes:
