@@ -8,6 +8,8 @@ from typing import Optional
 from . import forum
 from .onboarding import render_onboard, render_welcome_onboarded, render_recover
 from .pages_onboarding import render_welcome, render_landing, render_wiki
+from .pages_services import render_services_list, render_service_error
+from . import service_manager as _services
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
 from .pages_mail import _render_rotate_confirm, _handle_rotate_post, _render_mail
@@ -119,6 +121,44 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             ).encode("utf-8")
         _chat.join_room(room_id, client_id)
         return f"REDIRECT:/chat/room/{room_id}".encode()
+
+    # === SERVICE-BEREICH ===
+    if path == "/service":
+        services = _services.list_services()
+        return render_services_list(address, services)
+
+    if path == "/service/create" and method == "POST":
+        from urllib.parse import parse_qs
+        q = parse_qs(body.decode("utf-8", errors="replace"))
+        name = (q.get("name", [""])[0] or "").strip()
+        port_str = (q.get("port", ["0"])[0] or "0").strip()
+        pages = (q.get("pages", [""])[0] or "").strip()
+        try:
+            port = int(port_str)
+        except ValueError:
+            return render_service_error(address, "Ungültiger Port")
+        if not name or not pages:
+            return render_service_error(address, "Name und Verzeichnis erforderlich")
+        if not (8083 <= port <= 8099):
+            return render_service_error(address, "Port muss zwischen 8083 und 8099 liegen")
+        result = _services.create_service(name, port, pages)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
+
+    if path.startswith("/service/") and path.endswith("/stop") and method == "POST":
+        name = path[len("/service/"):-len("/stop")]
+        result = _services.stop_service(name)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
+
+    if path.startswith("/service/") and path.endswith("/delete") and method == "POST":
+        name = path[len("/service/"):-len("/delete")]
+        result = _services.delete_service(name, delete_key=True)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
 
     if path.startswith("/chat/room/") and "/e2e/" in path:
         from . import chat_e2e as _e2e

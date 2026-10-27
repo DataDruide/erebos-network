@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generischer Hidden-Service-Starter für Erebos."""
+"""Generischer Hidden-Service-Starter für Erebos.
+
+Rendert statische HTML-Dateien aus einem Verzeichnis.
+Nutzt http_request_handler (nicht render_page-Monkeypatch).
+"""
 import argparse
 import asyncio
 import logging
@@ -7,6 +11,45 @@ import sys
 from pathlib import Path
 
 from erebos_network.hidden_service_runtime import HiddenServiceRuntime
+from erebos_network.http_utils import parse_http_request, http_response
+
+
+async def _static_handler(reader, writer, pages_dir: Path):
+    """Liest HTTP-Request, rendert statische Datei aus pages_dir."""
+    try:
+        raw = await asyncio.wait_for(reader.read(65536), timeout=5.0)
+        if not raw:
+            return
+        method, path, headers, body = parse_http_request(raw)
+
+        rel = path.lstrip("/") or "index.html"
+        if rel.endswith("/"):
+            rel += "index.html"
+        file_path = pages_dir / rel
+        if not file_path.exists() or not file_path.is_file():
+            file_path = pages_dir / "index.html"
+        if not file_path.exists():
+            resp = http_response(404, "text/plain", b"404 Not Found")
+            writer.write(resp)
+            await writer.drain()
+            return
+
+        content = file_path.read_bytes()
+        ctype = "text/html; charset=utf-8"
+        if file_path.suffix == ".css":
+            ctype = "text/css"
+        elif file_path.suffix == ".js":
+            ctype = "application/javascript"
+        elif file_path.suffix == ".json":
+            ctype = "application/json"
+
+        resp = http_response(200, ctype, content)
+        writer.write(resp)
+        await writer.drain()
+    except Exception as e:
+        logging.error(f"Static-Handler-Fehler: {e}")
+    finally:
+        writer.close()
 
 
 def main() -> int:
@@ -32,32 +75,14 @@ def main() -> int:
     key_file = Path(args.key_file)
     key_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def render_static(path, address, request_line, method="GET", **kwargs):
-        rel = path.lstrip("/") or "index.html"
-        if rel.endswith("/"):
-            rel += "index.html"
-        file_path = pages_dir / rel
-        if not file_path.exists() or not file_path.is_file():
-            file_path = pages_dir / "index.html"
-        if not file_path.exists():
-            return b"404 Not Found"
-        content = file_path.read_bytes()
-        ctype = "text/html; charset=utf-8"
-        if file_path.suffix == ".css":
-            ctype = "text/css"
-        elif file_path.suffix == ".js":
-            ctype = "application/javascript"
-        elif file_path.suffix == ".json":
-            ctype = "application/json"
-        return b"CONTENT_TYPE:" + ctype.encode() + b"\n" + content
-
-    import erebos_network.landing_pages as lp
-    lp.render_page = render_static
-
     intro_points = []
     for item in args.intro_points.split(","):
         peer_id, addr = item.split(":", 1)
         intro_points.append((peer_id, addr))
+
+    # Wrapper: _static_handler braucht pages_dir
+    async def handler(reader, writer):
+        await _static_handler(reader, writer, pages_dir)
 
     runtime = HiddenServiceRuntime(
         rendezvous_host=args.rendezvous_host,
@@ -69,6 +94,7 @@ def main() -> int:
         ttl_seconds=3600,
         bind_host=args.bind_host,
         bind_port=args.port,
+        http_request_handler=handler,
     )
 
     try:
