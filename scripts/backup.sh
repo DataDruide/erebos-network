@@ -3,6 +3,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Lock: verhindert parallele Backups (Disk-DoS-Schutz)
+LOCK_FILE=".backup.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "FEHLER: Ein Backup laeuft bereits (Lock: $LOCK_FILE)"
+    exit 1
+fi
+trap 'rm -f "$LOCK_FILE"' EXIT
+
 TS=$(date +%Y%m%d-%H%M%S)
 BK="backups/erebos-$TS"
 mkdir -p "$BK"

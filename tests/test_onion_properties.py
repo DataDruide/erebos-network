@@ -6,7 +6,7 @@ Prueft Invarianten, die fuer JEDE Onion-Kombination gelten muessen:
 - Kein Peer kann mehr als eine Schicht entschluesseln
 """
 import pytest
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, strategies as st, settings, assume
 
 from erebos_network.onion import (
     pack_onion_3hop,
@@ -114,3 +114,38 @@ def test_onion_size_grows_with_layers(
     onion_3 = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, payload)
 
     assert len(onion_3) > len(onion_2)
+
+
+@given(
+    peer2_priv=x25519_keys,
+    peer3_priv=x25519_keys,
+    peer1_priv=x25519_keys,
+    payload=messages,
+)
+@settings(max_examples=30, deadline=None)
+def test_peer2_cannot_decrypt_next_layer(
+    peer2_priv, peer3_priv, peer1_priv, payload
+):
+    """Property: Peer2 kann die naechste Layer NICHT entschluesseln.
+
+    Das ist die Kern-Anonymitaetsgarantie: Ein Relay sieht nur seine
+    eigene Schicht + die (verschluesselte) naechste Layer. Es kann
+    nicht weiter entschluesseln.
+    """
+    assume(len({peer2_priv, peer3_priv, peer1_priv}) == 3)
+
+    peer2_pub = _derive_pub(peer2_priv)
+    peer3_pub = _derive_pub(peer3_priv)
+    peer1_pub = _derive_pub(peer1_priv)
+
+    onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, payload)
+
+    layer2 = open_layer(peer2_priv, onion)
+    assert layer2 is not None
+    assert len(layer2) >= 3
+
+    next_layer = layer2[3:]
+
+    with pytest.raises(Exception):
+        open_layer(peer2_priv, next_layer)
+

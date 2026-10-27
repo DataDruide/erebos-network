@@ -287,3 +287,67 @@ schnell wie der lokale Betrieb (840 ms). Der Container-Overhead
 (Bridge-Netzwerk, zusätzliche Hops) fällt gegenüber der Krypto-Arbeit
 (Hybrid-Handshake, Onion-Layer, Rendezvous) nicht ins Gewicht.
 
+## ML-KEM-1024 vs ML-KEM-768
+
+Erebos Network nutzt **ML-KEM-1024** (NIST Level 5) fuer die
+Mail-Verschluesselung. Das ist die **hoechste** NIST-Sicherheitsstufe,
+aber auch die **teuerste**:
+
+| Variante | NIST Level | Pubkey | Ciphertext | Shared Secret |
+|----------|-----------|--------|------------|---------------|
+| ML-KEM-512 | 1 | 800 B | 768 B | 32 B |
+| ML-KEM-768 | 3 | 1.184 B | 1.088 B | 32 B |
+| **ML-KEM-1024** | **5** | **1.568 B** | **1.568 B** | **32 B** |
+
+**Level 5** ist fuer Daten gedacht, die **Jahrzehnte** geheim bleiben
+muessen. **Level 3** ist fuer die meisten Anwendungen **ausreichend**.
+
+**Warum Level 5?**
+- Forschungsprototyp — maximale Sicherheit
+- Kein Performance-Engpass bei Mail (Keygen: ~0.15 ms)
+
+**Was Level 5 kostet:**
+- ~30% groessere Pubkeys/Ciphertexts
+- ~38-42% hoehere Bandbreite vs. ML-KEM-768
+
+**Empfehlung fuer Produktion:**
+- **Mail:** ML-KEM-768 (Level 3) ist ausreichend
+- **Langzeit-Geheimnisse:** ML-KEM-1024 (Level 5)
+
+**Aenderung:** `src/erebos_network/forum_db.py`, `hybrid_kem.py` —
+`oqs.KeyEncapsulation("ML-KEM-1024")` -> `"ML-KEM-768"`.
+
+---
+
+## SQLCipher: KDF-Parameter
+
+SQLCipher v4 nutzt standardmaessig **PBKDF2-HMAC-SHA-512 mit 256.000
+Iterationen** zur Schluesselableitung. Erebos Network setzt
+`EREBOS_DB_KEY` als **rohen 32-Byte-Hex-Key** (256 Bit Entropie) —
+die KDF ist dann **nicht** sicherheitsrelevant, weil der Key bereits
+maximale Entropie hat.
+
+**Wichtig:** `EREBOS_DB_KEY` **muss** 64 Hex-Zeichen sein. Ein
+schwaches Passwort wuerde die KDF nicht retten.
+
+**Validierung:** `get_db()` prueft Laenge + Hex-Format.
+
+## Onion-Anonymitaet: Voraussetzung paarweise verschiedener Hop-Keys
+
+Die Anonymitaetsgarantie („Peer2 kann die naechste Layer nicht
+entschluesseln") gilt nur, wenn die drei Hop-Pubkeys paarweise
+verschieden sind. Bei einem degenerierten Onion mit identischen
+Keys (z.B. `pack_onion_3hop(pub, pub, pub, ...)`) ist die
+Entschluesselung der Mitte-Schicht durch Peer2 **korrekt** — weil
+Peer2 dann zufaellig der Empfaenger dieser Schicht ist.
+
+In der Praxis ist das irrelevant (X25519-Kollisionen ~2^-128),
+aber Property-Tests muessen diesen Fall explizit ausschliessen.
+`tests/test_onion_properties.py::test_peer2_cannot_decrypt_next_layer`
+nutzt `hypothesis.assume(len({k1,k2,k3}) == 3)`.
+
+**Hinweis:** `open_layer` verwendet ChaCha20-Poly1305, d.h. bei
+falschem Key / manipuliertem Ciphertext wird `InvalidTag` geworfen
+(kein stiller Muell-Return). Das ist korrekt und wurde durch den
+Property-Test bestaetigt.
+

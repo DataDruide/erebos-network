@@ -211,6 +211,18 @@ def get_db() -> sqlite3.Connection:
             import os as _os
             db_key = _os.environ.get("EREBOS_DB_KEY", "")
             if db_key:
+                # SQLCipher: Key muss 64 Hex-Zeichen (32 Bytes) sein
+                if len(db_key) != 64:
+                    raise ValueError(
+                        "EREBOS_DB_KEY muss 64 Hex-Zeichen (32 Bytes) sein, "
+                        f"ist aber {len(db_key)} Zeichen"
+                    )
+                try:
+                    bytes.fromhex(db_key)
+                except ValueError:
+                    raise ValueError(
+                        "EREBOS_DB_KEY enthaelt ungueltige Hex-Zeichen"
+                    )
                 _conn.execute("PRAGMA key='" + db_key + "'")
                 _conn.execute("PRAGMA cipher_compatibility = 4")
                 logger.info("SQLCipher: DB mit EREBOS_DB_KEY verschluesselt")
