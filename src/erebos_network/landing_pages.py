@@ -8,7 +8,9 @@ from typing import Optional
 from . import forum
 from .forum_db import (load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
-                       get_mail_keys_by_version, set_mail_verified)
+                       get_mail_keys_by_version, set_mail_verified,
+                       rotate_mail_keys,
+                       check_rotate_rate_limit, record_rotate)
 from .crypto.hybrid_kem import (encrypt_mail, decrypt_mail, sign_mail, verify_mail,
                                 verify_mail_with_status, VERIFIED, VERIFIED_OUTDATED,
                                 VERIFIED_EXPIRED, VERIFY_FAILED)
@@ -201,6 +203,19 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return render_landing(address, request_line)
     if path == "/wiki":
         return render_wiki(address)
+    if path == "/mail/rotate":
+        # Anonyme UUID aus client_id ableiten
+        import uuid as _uuid
+        if not client_id:
+            return _page(
+                "Rotation", address,
+                "<h1>Fehler</h1><p>Keine Session. Bitte besuche zuerst <a href=\"/mail\">/mail</a>.</p>",
+            )
+        anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+        if method == "POST":
+            return _handle_rotate_post(anon_uuid, address)
+        return _render_rotate_confirm(anon_uuid, address)
+
     if path == "/mail":
         # Anonyme UUID aus client_id ableiten (wie auf der Startseite)
         import uuid as _uuid
@@ -256,8 +271,10 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
         # GET: Mails anzeigen + Formular
         mails = load_mails(anon_uuid)
-        # Eigene Schluessel laden (fuer Entschluesselung)
-        my_keys = get_mail_keys(anon_uuid)
+        # Eigene Schluessel laden oder generieren (fuer Entschluesselung
+        # und Key-Info-Box). get_or_create ist idempotent und stellt
+        # sicher, dass die UUID in mail_keys existiert.
+        my_keys = get_or_create_mail_keys(anon_uuid)
         rows = ""
         for m in mails:
             unread = " <strong>[neu]</strong>" if not m["read"] else ""
@@ -389,8 +406,50 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         if not rows:
             rows = "<li><em>Keine Mails.</em></li>"
 
+        # Erfolgs-Banner bei ?rotated=1
+        rotated_banner = ""
+        if "rotated=1" in query:
+            rotated_banner = (
+                "<div style=\"background:#e0ffe0;border:1px solid #00aa00;"
+                "padding:10px;margin:10px 0;border-radius:4px;\">"
+                "<strong>✅ Schlüssel erfolgreich rotiert.</strong> "
+                "Alte Mails werden jetzt als <em>[Signatur veraltet]</em> markiert."
+                "</div>"
+            )
+
+        # Key-Info-Box mit Rotate-Button
+        key_info = ""
+        if my_keys:
+            import time as _time
+            import datetime as _dt
+            version = my_keys.get("key_version") or 1
+            valid_until = my_keys.get("valid_until")
+            days_left = None
+            until_str = "(unbekannt)"
+            if valid_until:
+                days_left = int((valid_until - _time.time()) / 86400)
+                until_str = _dt.datetime.fromtimestamp(valid_until).strftime("%Y-%m-%d")
+            warning = ""
+            if days_left is not None and days_left < 14:
+                if days_left < 0:
+                    warning = " <span style=\"color:#cc0000;\"><strong>⚠ Schlüssel abgelaufen</strong></span>"
+                else:
+                    warning = f" <span style=\"color:#cc8800;\"><strong>⚠ Läuft in {days_left} Tagen ab</strong></span>"
+            key_info = (
+                "<hr style=\"margin:20px 0;\">"
+                "<div style=\"background:#f0f0f0;padding:10px;border-radius:4px;\">"
+                "<strong>Schlüssel-Verwaltung</strong><br>"
+                f"Aktuelle Version: <strong>v{version}</strong> "
+                f"(gültig bis {until_str}){warning}<br>"
+                "<form method=\"GET\" action=\"/mail/rotate\" style=\"margin-top:10px;\">"
+                "<button type=\"submit\" class=\"btn\">Schlüssel rotieren</button>"
+                "</form>"
+                "</div>"
+            )
+
         body_html = (
             f"<h1>Mail</h1>\n"
+            f"{rotated_banner}"
             f"<p>Deine anonyme Adresse: <code>{_escape(anon_uuid)}</code> "
             f"(Kurz-ID: <strong>#{_escape(short_id)}</strong>)</p>\n"
             "<h2>Neue Mail senden</h2>\n"
@@ -406,6 +465,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             "</form>\n"
             "<h2>Deine Mails</h2>\n"
             f"<ul>\n{rows}\n</ul>\n"
+            f"{key_info}"
             "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
         )
         return _page("Mail", address, body_html)
@@ -806,3 +866,126 @@ def parse_http_request(data: bytes) -> tuple:
                 "utf-8", "replace"
             ).strip()
     return (method, path, headers, body)
+
+
+# ============================================================
+# Key-Rotation: Bestaetigungsseite + POST-Handler
+# ============================================================
+
+def _render_rotate_confirm(anon_uuid: str, address: str) -> bytes:
+    """Bestaetigungsseite fuer Key-Rotation.
+
+    Zeigt: aktuelle Version, Ablaufdatum, Warnung wenn <14 Tage,
+    Button 'Ja, jetzt rotieren' (POST /mail/rotate), Link 'Abbrechen' (GET /mail).
+    """
+    import time as _time
+    import datetime as _dt
+
+    # get_or_create: falls die UUID noch keine Keys hat (erster Besuch),
+    # werden sie jetzt generiert. Sonst koennte der Nutzer nicht rotieren.
+    keys = get_or_create_mail_keys(anon_uuid)
+    if not keys:
+        return _page(
+            "Rotation", address,
+            "<h1>Fehler</h1><p>Mail-Keys konnten nicht geladen werden.</p>"
+            "<a class=\"btn\" href=\"/mail\">← Zurück</a>",
+        )
+
+    version = keys.get("key_version") or 1
+    valid_until = keys.get("valid_until")
+    days_left = None
+    until_str = "(unbekannt)"
+    if valid_until:
+        seconds_left = valid_until - _time.time()
+        days_left = int(seconds_left / 86400)
+        until_str = _dt.datetime.fromtimestamp(valid_until).strftime("%Y-%m-%d %H:%M")
+
+    # Warnung bei <14 Tagen
+    warning = ""
+    if days_left is not None and days_left < 14:
+        if days_left < 0:
+            warning = (
+                "<div style=\"background:#ffe0e0;border:1px solid #cc0000;"
+                "padding:10px;margin:10px 0;\">"
+                "<strong>⚠ Der aktuelle Schlüssel ist abgelaufen.</strong> "
+                "Neue Mails werden als [Signatur abgelaufen] markiert.</div>"
+            )
+        else:
+            warning = (
+                "<div style=\"background:#fff4e0;border:1px solid #cc8800;"
+                "padding:10px;margin:10px 0;\">"
+                f"<strong>⚠ Der aktuelle Schlüssel läuft in {days_left} Tagen ab.</strong></div>"
+            )
+
+    html = (
+        "<h1>Schlüssel rotieren</h1>"
+        "<div style=\"border:1px solid #ccc;padding:15px;margin:10px 0;background:#f9f9f9;\">"
+        f"<p><strong>Aktuelle Version:</strong> v{version}</p>"
+        f"<p><strong>Gültig bis:</strong> {until_str}</p>"
+        f"{warning}"
+        "</div>"
+        "<div style=\"background:#fff8e0;border:1px solid #cc8800;padding:15px;margin:20px 0;\">"
+        "<strong>Was passiert bei der Rotation?</strong>"
+        "<ul>"
+        "<li>Ein neuer Schlüssel-Satz (v{new}) wird generiert.</li>"
+        "<li>Der alte Schlüssel-Satz (v{old}) wird in der History als 'revoked' markiert.</li>"
+        "<li>Alle zukünftigen Mails werden mit dem neuen Schlüssel signiert.</li>"
+        "<li>Bereits gesendete Mails bleiben lesbar, werden aber als "
+        "<strong>[Signatur veraltet]</strong> markiert.</li>"
+        "<li>Diese Aktion kann <strong>nicht rückgängig</strong> gemacht werden.</li>"
+        "</ul>"
+        "</div>"
+        "<form method=\"POST\" action=\"/mail/rotate\" style=\"margin:20px 0;\">"
+        "<button type=\"submit\" style=\"padding:10px 20px;font-size:16px;"
+        "background:#cc3333;color:white;border:none;border-radius:4px;cursor:pointer;\">"
+        "Ja, jetzt rotieren"
+        "</button>"
+        "</form>"
+        "<a class=\"btn\" href=\"/mail\">← Abbrechen</a>"
+    ).replace("{new}", str(version + 1)).replace("{old}", str(version))
+
+    return _page("Schlüssel rotieren", address, html)
+
+
+def _handle_rotate_post(anon_uuid: str, address: str) -> bytes:
+    """Fuehrt die Rotation aus. Bei Erfolg: Redirect zu /mail?rotated=1."""
+    # Rate-Limit pruefen
+    allowed, retry_after = check_rotate_rate_limit(anon_uuid)
+    if not allowed:
+        retry_min = int(retry_after / 60) + 1
+        logger.warning(
+            f"Rotation rate-limited: {anon_uuid[:8]} (retry in {retry_min} min)"
+        )
+        return _page(
+            "Rotation", address,
+            f"<h1>Zu viele Rotationen</h1>"
+            f"<p>Du hast deine Schluessel zu oft rotiert. "
+            f"Bitte warte noch <strong>{retry_min} Minuten</strong>, "
+            f"bevor du erneut rotierst.</p>"
+            "<a class=\"btn\" href=\"/mail\">← Zurueck</a>",
+        )
+
+    try:
+        get_or_create_mail_keys(anon_uuid)
+        new_keys = rotate_mail_keys(anon_uuid)
+        record_rotate(anon_uuid)
+        logger.info(
+            f"Rotation erfolgreich: {anon_uuid[:8]} -> v{new_keys['key_version']}"
+        )
+        return b"REDIRECT:/mail?rotated=1"
+    except ValueError as e:
+        logger.warning(f"Rotation fehlgeschlagen: {e}")
+        return _page(
+            "Rotation", address,
+            f"<h1>Rotation nicht möglich</h1><p>{e}</p>"
+            "<a class=\"btn\" href=\"/mail\">← Zurück</a>",
+        )
+    except Exception as e:
+        logger.error(f"Rotation unerwartet fehlgeschlagen: {e}")
+        return _page(
+            "Rotation", address,
+            "<h1>Rotation fehlgeschlagen</h1>"
+            "<p>Ein unerwarteter Fehler ist aufgetreten.</p>"
+            "<a class=\"btn\" href=\"/mail\">← Zurück</a>",
+        )
+

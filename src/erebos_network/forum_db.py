@@ -137,6 +137,11 @@ CREATE TABLE IF NOT EXISTS mail_key_history (
 
 CREATE INDEX IF NOT EXISTS idx_keyhist_uuid ON mail_key_history(uuid, key_version);
 
+CREATE TABLE IF NOT EXISTS rotate_rate_limit (
+    uuid TEXT PRIMARY KEY,
+    last_rotate REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS mailboxes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_uuid TEXT NOT NULL,
@@ -257,6 +262,10 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_keyhist_uuid "
                  "ON mail_key_history(uuid, key_version)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS rotate_rate_limit ("
+        "uuid TEXT PRIMARY KEY, last_rotate REAL NOT NULL)"
+    )
     # Privkey-Spalten nachziehen (Ansatz B)
     hist_cols = {
         row[1] for row in conn.execute("PRAGMA table_info(mail_key_history)")
@@ -1108,6 +1117,48 @@ def get_mail_keys_by_version(uuid: str, key_version: int) -> dict:
         "superseded_by": row[11],
         "key_version": key_version,
     }
+
+
+def check_rotate_rate_limit(uuid: str) -> tuple:
+    """Prueft, ob eine Rotation fuer uuid erlaubt ist.
+
+    Returns:
+        (allowed: bool, retry_after: float)
+    """
+    from .config import ROTATE_RATE_LIMIT_SECONDS
+    import time as _time
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT last_rotate FROM rotate_rate_limit WHERE uuid = ?",
+        (uuid,),
+    ).fetchone()
+    if row is None:
+        return (True, 0.0)
+    elapsed = _time.time() - row[0]
+    if elapsed >= ROTATE_RATE_LIMIT_SECONDS:
+        return (True, 0.0)
+    return (False, ROTATE_RATE_LIMIT_SECONDS - elapsed)
+
+
+def record_rotate(uuid: str) -> None:
+    """Traegt den aktuellen Zeitpunkt als letzte Rotation ein.
+
+    Loescht ausserdem alte Eintraege (>24 h), um die Tabelle klein zu halten.
+    """
+    import time as _time
+    conn = get_db()
+    now = _time.time()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO rotate_rate_limit (uuid, last_rotate) "
+            "VALUES (?, ?)",
+            (uuid, now),
+        )
+        conn.execute(
+            "DELETE FROM rotate_rate_limit WHERE last_rotate < ?",
+            (now - 86400,),
+        )
 
 
 def get_mail_keys(uuid: str) -> dict:
