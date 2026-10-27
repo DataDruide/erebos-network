@@ -7,6 +7,7 @@ Enthaelt:
 
 import logging
 
+from . import forum
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .forum_db import (
     load_mails, save_mail, mark_mail_read,
