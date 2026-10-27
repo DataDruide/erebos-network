@@ -30,60 +30,94 @@ def _load_wiki_entries() -> list:
 
 
 def render_welcome(address: str, client_id: str, request_line: str) -> bytes:
-    """Anonyme Begruessungsseite: UUID, Dienste, Status auf einen Blick."""
-    # Anonyme UUID aus client_id ableiten (deterministisch, nicht rueckfuehrbar)
+    """Anonyme Begruessungsseite: duester, modern, dynamisch."""
+    import uuid as _uuid
+    import html as _html
+
     if client_id:
         anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
     else:
         anon_uuid = str(_uuid.uuid4())
 
     short_id = anon_uuid[:8]
+    e = lambda s: _html.escape(str(s), quote=True)
 
-    body = (
-        "<h1>Willkommen im Erebos-Netzwerk</h1>\n"
-        "<p>Du bist anonym verbunden. Diese Seite zeigt dir alles auf einen Blick.</p>\n"
-        "<h2>Deine anonyme Kennung</h2>\n"
-        f"<p><code>{_escape(anon_uuid)}</code></p>\n"
-        f"<p><small>Kurz-ID: <strong>#{_escape(short_id)}</strong> · "
-        "Diese Kennung ist nur fuer diese Verbindung gueltig und nicht "
-        "rueckfuehrbar auf deine IP oder Person.</small></p>\n"
-        "<h2>Verbindung</h2>\n"
-        "<ul>\n"
-        "  <li><strong>Status:</strong> Verbunden ueber Erebos-Netzwerk</li>\n"
-        "  <li><strong>Verschluesselung:</strong> Ende-zu-Ende (X25519 + ML-KEM-1024 + ChaCha20-Poly1305)</li>\n"
-        "  <li><strong>Routing:</strong> 3-Hop-Onion (Proxy &rarr; peer2 &rarr; peer3 &rarr; peer1 &rarr; Hidden Service)</li>\n"
-        "  <li><strong>Deine IP:</strong> fuer den Hidden Service nicht sichtbar</li>\n"
-        "</ul>\n"
-        "<h2>Verfuegbare Dienste</h2>\n"
-        "<ul>\n"
-        "  <li><a href=\"/mail\"><strong>Mail</strong></a> — anonyme Nachrichten (UUID-basiert)</li>\n"
-        "  <li><a href=\"/wiki\"><strong>Hidden Wiki</strong></a> — Verzeichnis der Dienste</li>\n"
-        "  <li><a href=\"/forum\"><strong>Erebos Community</strong></a> — Forum mit Threads und Antworten</li>\n"
-        "  <li><a href=\"/regeln\"><strong>Regeln</strong></a> — was hier erlaubt ist und was nicht</li>\n"
-        "  <li><a href=\"/forum/health\"><strong>Health</strong></a> — Status des Dienstes</li>\n"
-        "</ul>\n"
-        "<p style=\"margin-top:1.5em; padding:1em; background:#f9f9f9; "
-        "border-left:4px solid #00aa00;\">\n"
-        "  <strong>Schon eine Identitaet?</strong>\n"
-        "  <a href=\"/recover\">Identitaet wiederherstellen</a>\n"
-        "  (UUID oder E-Mail eingeben)\n"
-        "</p>\n"
-        "<h2>Deine Rechte</h2>\n"
-        "<ul>\n"
-        "  <li>Kein Login, kein Passwort, keine E-Mail-Adresse noetig.</li>\n"
-        "  <li>Keine personenbezogenen Daten werden gespeichert.</li>\n"
-        "  <li>Deine IP ist fuer den Hidden Service nicht sichtbar.</li>\n"
-        "  <li>Der Inhalt deiner Anfragen ist Ende-zu-Ende verschluesselt.</li>\n"
-        "</ul>\n"
-        f"<p><em>Deine Anfrage:</em> <code>{_escape(request_line)}</code></p>\n"
-        f"<p><small>Hidden-Service-Adresse: <code>{_escape(address)}</code></small></p>\n"
-        "<a class=\"btn\" href=\"/wiki\">Zur Hidden Wiki &rarr;</a>\n"
-        "<a class=\"btn\" href=\"/forum\">Zum Forum &rarr;</a>\n"
-        "<a class=\"btn\" href=\"/regeln\">Zu den Regeln &rarr;</a>\n"
-    )
-    return _page("WILLKOMMEN", address, body, hero_image="client-bg.jpeg")
+    body = f"""
+<div class="wrap">
+  <header class="hero">
+    <div class="brand"><span class="dot"></span> EREBOS NETWORK</div>
+    <div class="badge">● VERBUNDEN</div>
+  </header>
+  <h1 class="title">DU BIST VERBUNDEN</h1>
+  <p class="subtitle">Diese Seite zeigt dir alles auf einen Blick. Kein Login. Kein Passwort. Keine Spur.</p>
 
+  <section class="card">
+    <div class="card-label">DEINE ANONYME KENNUNG</div>
+    <input class="uuid" readonly value="{e(anon_uuid)}" onclick="this.select()">
+    <div class="uuid-meta">Kurz-ID: <strong>#{e(short_id)}</strong> · gültig nur für diese Verbindung · nicht rückführbar auf IP oder Person</div>
+  </section>
 
+  <section class="grid">
+    <a class="tile" href="/mail">
+      <div class="tile-title">MAIL</div>
+      <div class="tile-sub">anonym, UUID-basiert</div>
+    </a>
+    <a class="tile" href="/wiki">
+      <div class="tile-title">HIDDEN WIKI</div>
+      <div class="tile-sub">Verzeichnis der Dienste</div>
+    </a>
+    <a class="tile" href="/forum">
+      <div class="tile-title">FORUM</div>
+      <div class="tile-sub">Threads und Antworten</div>
+    </a>
+    <a class="tile" href="/regeln">
+      <div class="tile-title">REGELN</div>
+      <div class="tile-sub">was hier gilt</div>
+    </a>
+  </section>
+
+  <section class="card">
+    <div class="card-label">VERBINDUNG</div>
+    <table class="kv">
+      <tr><td>Status</td><td><span class="ok">● Verbunden</span></td></tr>
+      <tr><td>Verschlüsselung</td><td>X25519 + ML-KEM-1024 + ChaCha20-Poly1305</td></tr>
+      <tr><td>Routing</td><td>3-Hop-Onion (Proxy → peer2 → peer3 → peer1)</td></tr>
+      <tr><td>Deine IP</td><td>für den Hidden Service <strong>unsichtbar</strong></td></tr>
+      <tr><td>Anfrage</td><td><code>{e(request_line)}</code></td></tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="card-label">DEINE RECHTE</div>
+    <ul class="rights">
+      <li>Kein Login, kein Passwort, keine E-Mail-Adresse nötig.</li>
+      <li>Keine personenbezogenen Daten werden gespeichert.</li>
+      <li>Deine IP ist für den Hidden Service nicht sichtbar.</li>
+      <li>Der Inhalt deiner Anfragen ist Ende-zu-Ende verschlüsselt.</li>
+    </ul>
+  </section>
+
+  <details class="card">
+    <summary><span class="card-label">SCHON EINE IDENTITÄT?</span> <span class="recover-hint">Identität wiederherstellen</span></summary>
+    <p class="dim">Gib deine UUID oder E-Mail ein, um deine Identität wiederherzustellen. Dies ist keine Anmeldung — nur ein Wiederfinden deiner anonymen Kennung.</p>
+    <a class="btn" href="/recover">Identität wiederherstellen →</a>
+  </details>
+
+  <footer class="foot">
+    <div class="addr">
+      <span class="dim">DIESE INSTANZ</span><br>
+      <code>{e(address)}</code>
+    </div>
+    <nav class="foot-nav">
+      <a href="/wiki">Hidden Wiki</a>
+      <a href="/forum">Forum</a>
+      <a href="/regeln">Regeln</a>
+      <a href="/forum/health">Health</a>
+    </nav>
+  </footer>
+</div>
+"""
+    return _page("WILLKOMMEN", address, body, hero_image="")
 def render_landing(address: str, request_line: str) -> bytes:
     body = (
         "<h1>Willkommen im Erebos-Netzwerk</h1>\n"

@@ -331,14 +331,14 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         import uuid as _uuid
         if identity_uuid:
             anon_uuid = identity_uuid
+            return render_welcome_onboarded(anon_uuid, address, _page, _escape)
         elif client_id:
-            anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
+            return render_welcome(address, client_id, request_line)
         else:
             return _page(
                 "Willkommen", address,
                 "<h1>Willkommen</h1><p>Keine Session. Bitte lade die Seite neu.</p>",
             )
-        return render_welcome_onboarded(anon_uuid, address, _page, _escape)
 
     if path == "/mail":
         import uuid as _uuid
