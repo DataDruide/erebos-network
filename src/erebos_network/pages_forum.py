@@ -39,11 +39,12 @@ def render_forum_index(address: str, client_id: str, username: str,
                         + b"SET_ADMIN:0"
                     )
     return _page(
-        "Erebos Community", address,
+        "EREBOS COMMUNITY", address,
         forum.render_categories(
             client_id=client_id, username=username,
             admin=admin, admin_token="",
         ),
+        hero_image="community-bg.jpeg",
     )
 
 
@@ -395,3 +396,20 @@ def render_forum_thread(address: str, path: str, method: str = "GET",
     if t is None:
         return _page("Nicht gefunden", address, forum.render_not_found())
     return _page(t["title"], address, forum.render_thread(t, admin=admin))
+
+
+def render_forum_admin_promote(address: str, admin: bool, body: bytes,
+                               admin_token_value: str) -> bytes:
+    """POST /forum/admin/promote: Rolle eines Users setzen."""
+    if not admin:
+        return _page("Nicht erlaubt", address, "<h1>Nicht erlaubt</h1>")
+    form = forum.parse_form_body(body)
+    username = form.get("username", "")
+    role = form.get("role", "user")
+    if role not in ("admin", "mod", "user"):
+        return _page("Fehler", address, "<h1>Ungueltige Rolle</h1>")
+    from .forum_db import set_user_role
+    if set_user_role(username, role):
+        forum.log_moderation("promote", f"{username} zu {role}", "admin")
+        return b"REDIRECT:/forum/admin/authors?admin=" + admin_token_value.encode("utf-8")
+    return _page("Fehler", address, "<h1>User nicht gefunden</h1>")

@@ -16,6 +16,7 @@ from .forum_db import (
     save_forum_to_db as _save_to_db,
     migrate_from_json as _migrate_from_json,
     get_user_email,
+    get_user_role,
 )
 from urllib.parse import parse_qs
 
@@ -1040,7 +1041,11 @@ def render_thread(thread: dict, admin: bool = False) -> str:
     tid = _escape(thread["id"])
     title = _escape(thread["title"])
     posts_html = ""
-    for idx, p in enumerate(thread.get("posts", [])):
+    posts_list = thread.get("posts", [])
+    last_idx = len(posts_list) - 1
+    for idx, p in enumerate(posts_list):
+        is_last = (idx == last_idx)
+        last_anchor = ' id="last-post"' if is_last else ''
         author = _escape(p.get("author", "?"))
         body = render_markdown(p.get("body", ""))
         created = _fmt_time(p.get("created_at", 0))
@@ -1086,7 +1091,7 @@ def render_thread(thread: dict, admin: bool = False) -> str:
                 f"User bannen</button></form>"
             )
         posts_html += (
-            f"<div style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
+            f"<div{last_anchor} style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
             f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
             f"{quote_btn}{report_btn}{ban_btn}{admin_btn}</p>\n"
             f"  <p>{body}</p>\n"
@@ -1121,9 +1126,19 @@ def render_thread(thread: dict, admin: bool = False) -> str:
             "  <p><button type=\"submit\" class=\"btn\">Antwort senden</button></p>\n"
             "</form>\n"
         )
+    # "Zum letzten Beitrag"-Anchor (nur wenn mehr als 1 Post)
+    last_post_link = ""
+    if len(posts_list) > 1:
+        last_post_link = (
+            '<p style="text-align:right; margin:0.5em 0;">'
+            '<a href="#last-post" class="btn" style="font-size:0.85em;">'
+            '↓ Zum letzten Beitrag</a></p>'
+        )
+
     return (
         f"<h1>{title}{sticky_locked}</h1>\n"
         f"<p><a href=\"/forum\">← Zurück zum Forum</a></p>\n"
+        f"{last_post_link}"
         f"{posts_html}\n"
         f"{reply_block}"
     )
@@ -1244,6 +1259,19 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
     if not rows:
         rows = "<li><em>Noch keine Kategorien.</em></li>"
 
+    # Legende
+    legend = (
+        '<div class="legend" style="margin:1em 0; padding:0.8em; '
+        'background:rgba(0,255,136,0.03); border-left:3px solid #00ff88; '
+        'font-size:0.85em;">'
+        '<strong>Legende:</strong> '
+        '<span style="color:#ffaa33; font-weight:bold;">[ADMIN]</span> volle Rechte · '
+        '<span style="color:#00ccff; font-weight:bold;">[MOD]</span> moderiert · '
+        '<span style="color:#00ff88;">[USER]</span> schreibt · '
+        '<span style="color:#888;">[GAST]</span> liest nur'
+        '</div>'
+    )
+
     # User-Navigation
     if username:
         # E-Mail-Adresse aus der verknuepften Identitaet
@@ -1255,8 +1283,19 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         email_part = (
             f" (<code>{_escape(user_email)}</code>)" if user_email else ""
         )
+        # Rolle anzeigen
+        role = "user"
+        try:
+            role = get_user_role(username)
+        except Exception:
+            pass
+        role_badge = ""
+        if role == "admin":
+            role_badge = ' <span style="color:#ffaa33; font-weight:bold;">[ADMIN]</span>'
+        elif role == "mod":
+            role_badge = ' <span style="color:#00ccff; font-weight:bold;">[MOD]</span>'
         user_nav = (
-            f"<p>Eingeloggt als <strong>{_escape(username)}</strong>{email_part} · "
+            f"<p>Eingeloggt als <strong>{_escape(username)}</strong>{role_badge}{email_part} · "
             f"<a href=\"/forum/my-threads\">Meine Threads</a> · "
             f"<a href=\"/forum/logout\">Logout</a></p>\n"
         )
@@ -1289,6 +1328,7 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
     return (
         "<h1>Erebos Community</h1>\n"
         "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
+        f"{legend}"
         f"{user_nav}"
         f"{client_status}"
         "<form method=\"get\" action=\"/forum/search\" style=\"margin:1em 0\">\n"

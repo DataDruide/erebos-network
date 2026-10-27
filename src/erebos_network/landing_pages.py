@@ -20,6 +20,7 @@ from .pages_forum import (
     render_forum_admin_reports, render_forum_admin_reports_resolve,
     render_forum_admin_modlog, render_forum_admin_bans,
     render_forum_admin_ban, render_forum_admin_bans_unban,
+    render_forum_admin_promote,
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
     render_forum_toggle_sticky, render_forum_toggle_locked,
     render_forum_category, render_forum_thread,
@@ -257,6 +258,9 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     if path == "/forum/admin/ban" and method == "POST":
         return render_forum_admin_ban(address, admin, body, admin_token_value)
+
+    if path == "/forum/admin/promote" and method == "POST":
+        return render_forum_admin_promote(address, admin, body, admin_token_value)
 
     if path.startswith("/forum/admin/bans/") and path.endswith("/unban") and method == "POST":
         return render_forum_admin_bans_unban(address, admin, path, admin_token_value)

@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     salt TEXT NOT NULL,
     created_at REAL NOT NULL,
-    mail_uuid TEXT
+    mail_uuid TEXT,
+    role TEXT DEFAULT 'user'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -275,6 +276,12 @@ def _migrate_identities(conn: sqlite3.Connection) -> None:
             logger.info("users: Spalte 'mail_uuid' hinzugefuegt")
         except Exception as e:
             logger.warning(f"users.mail_uuid nicht hinzugefuegt: {e}")
+    if existing_users and "role" not in existing_users:
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+            logger.info("users: Spalte 'role' hinzugefuegt")
+        except Exception as e:
+            logger.warning(f"users.role nicht hinzugefuegt: {e}")
     conn.commit()
 
 
@@ -1304,6 +1311,16 @@ def create_identity(uuid: str) -> dict:
             "password": pw,  # einmalig zurueckgeben
         }
         logger.info(f"Identity: Forum-User '{forum_username}' fuer {uuid[:8]}")
+        # Erster User wird automatisch Admin
+        try:
+            promoted = promote_first_user_to_admin()
+            if promoted:
+                forum_user["role"] = "admin"
+            else:
+                forum_user["role"] = "user"
+        except Exception as e:
+            logger.warning(f"promote_first_user_to_admin fehlgeschlagen: {e}")
+            forum_user["role"] = "user"
     else:
         forum_user = {"username": forum_username, "password": None}
 
@@ -1391,6 +1408,65 @@ def get_or_create_forum_session(mail_uuid: str) -> dict:
         "username": username,
         "expires_at": expires_at,
     }
+
+
+def get_user_role(username: str) -> str:
+    """Liefert die Rolle eines Users: 'admin', 'mod' oder 'user'."""
+    if not username:
+        return "user"
+    conn = get_db()
+    row = conn.execute(
+        "SELECT role FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    if row is None or not row[0]:
+        return "user"
+    return row[0]
+
+
+def set_user_role(username: str, role: str) -> bool:
+    """Setzt die Rolle eines Users. Role muss 'admin', 'mod' oder 'user' sein."""
+    if role not in ("admin", "mod", "user"):
+        return False
+    conn = get_db()
+    with conn:
+        cur = conn.execute(
+            "UPDATE users SET role = ? WHERE username = ?",
+            (role, username),
+        )
+    return cur.rowcount > 0
+
+
+def is_moderator(username: str) -> bool:
+    """True, wenn der User Moderator oder Admin ist."""
+    return get_user_role(username) in ("admin", "mod")
+
+
+def promote_first_user_to_admin() -> str:
+    """Wenn noch kein Admin existiert: ersten User zum Admin machen.
+
+    Returns:
+        Username des neuen Admins (oder "" wenn schon einer existiert).
+    """
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT username FROM users WHERE role = 'admin' LIMIT 1"
+    ).fetchone()
+    if existing:
+        return ""
+    first = conn.execute(
+        "SELECT username FROM users ORDER BY created_at ASC LIMIT 1"
+    ).fetchone()
+    if first is None:
+        return ""
+    username = first[0]
+    with conn:
+        conn.execute(
+            "UPDATE users SET role = 'admin' WHERE username = ?",
+            (username,),
+        )
+    logger.info(f"Erster User '{username}' wurde zum Admin befoerdert")
+    return username
 
 
 def get_user_email(username: str) -> str:
