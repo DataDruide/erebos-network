@@ -193,3 +193,32 @@ Gesamt: 489 Tests.
 ### Mobile Apps
 - [ ] Android
 - [ ] iOS
+
+---
+
+### Phase 26: Mail-Rotation + Onboarding (2026-10-27)
+- mail_keys: X25519, ML-KEM-1024, Ed25519, ML-DSA-65 (alle vier persistent)
+- mailboxes: hybrid PQ-verschluesselt (X25519 + ML-KEM) + signiert
+  (Ed25519 + ML-DSA)
+- Signaturen: Ed25519 + ML-DSA-65, Verifikation mit 4 Zustaenden:
+  - VERIFIED (gruen) — Signatur gueltig, aktuelle Version
+  - VERIFIED_OUTDATED (orange) — Signatur gueltig, aeltere Version
+  - VERIFIED_EXPIRED (orange) — Signatur gueltig, Key abgelaufen
+  - VERIFY_FAILED (rot) — Signatur ungueltig
+- Key-Rotation (Ansatz B): volle Rotation aller vier Keys,
+  alte Privkeys in mail_key_history (alte Mails bleiben lesbar)
+- Auto-Rotation: 7 Tage vor Ablauf, alle 6h geprueft (asyncio-Task)
+- Rate-Limiting: 1x Rotation pro Stunde pro UUID + Retry-After-Header
+- Key-Expiry: valid_until, Default 90 Tage (konfigurierbar)
+- Onboarding-Flow: duestere Progressbar (5 Schritte), Welcome-Seite
+  mit UUID + @erebos-Adresse + Forum-Username
+- Identitaeten: UUID <-> E-Mail <-> Forum <-> Mail (eine Identitaet
+  fuer alles)
+- Forum-Auto-Login nach Onboarding
+- Identitaets-Recovery: UUID/E-Mail eingeben -> Session reaktivieren
+- Backup/Restore: docs + Skripte + Cron + systemd-Timer
+- 25 neue Tests (Identity, Onboarding, Auto-Login, Recovery)
+
+Gesamt: 767 Tests.
+
+Status: 26 Phasen komplett, 767 Tests.
