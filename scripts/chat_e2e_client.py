@@ -249,6 +249,7 @@ def main() -> int:
     since = 0.0
     last_poll = 0.0
     own_ids = set()
+    old_keys = {}  # epoch -> key
 
     try:
         while True:
@@ -266,9 +267,19 @@ def main() -> int:
                             since = max(since, m["ts"])
                             continue
                         try:
-                            plaintext = session.decrypt(
+                            # Epoche des Absenders?
+                            msg_epoch = m.get("key_epoch", 0)
+                            if msg_epoch == session.epoch:
+                                key = session._shared_key
+                            elif msg_epoch in old_keys:
+                                key = old_keys[msg_epoch]
+                            else:
+                                raise RuntimeError(f"Kein Key fuer Epoche {msg_epoch}")
+                            from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+                            plaintext = ChaCha20Poly1305(key).decrypt(
                                 bytes.fromhex(m["nonce"]),
                                 bytes.fromhex(m["ciphertext"]),
+                                None,
                             )
                             print(f"\n[Partner] {plaintext.decode('utf-8', 'replace')}")
                         except Exception as e:
@@ -289,11 +300,16 @@ def main() -> int:
                 if not line:
                     continue
                 # Verschluesseln + senden
+                # Epoche vor dem Verschlüsseln merken
+                epoch_before = session.epoch
                 nonce, ct = session.encrypt(line.encode("utf-8"))
+                # Wenn Ratchet stattgefunden hat: alten Key speichern
+                if session.epoch != epoch_before:
+                    old_keys[epoch_before] = session._shared_key  # alt
                 resp = _json_post(
                     client, args.addr,
                     f"/chat/room/{args.room}/e2e/send",
-                    {"nonce": nonce.hex(), "ciphertext": ct.hex()},
+                    {"nonce": nonce.hex(), "ciphertext": ct.hex(), "key_epoch": epoch_before},
                 )
                 if resp.get("ok"):
                     print(f"[Du] {line}")

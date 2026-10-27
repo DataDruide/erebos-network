@@ -25,18 +25,21 @@ import hashlib
 import os
 from dataclasses import dataclass
 
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
     X25519PublicKey,
 )
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .crypto.pq_kem import PostQuantumKEM
 from .crypto.hybrid_kem import derive_hybrid_key
 
 
 E2E_CHAT_INFO = b"erebos-chat-e2e-v1"
+RATCHET_INFO = b"erebos-chat-ratchet-v1"
+RATCHET_INTERVAL = 50  # Nachrichten pro Epoche
 NONCE_LEN = 12
 X25519_PUB_LEN = 32
 MLKEM_PUB_LEN = 1568
@@ -82,6 +85,9 @@ class E2ESession:
         # Shared Secret (nach Key-Exchange gesetzt)
         self._shared_key: bytes | None = None
         self._fingerprint: str | None = None
+        # Forward Secrecy: Epoche + Nachrichten-Zaehler
+        self._epoch: int = 0
+        self._msg_count: int = 0
 
     # ------------------------------------------------------------------
     # Key-Exchange: Initiator -> Server -> Responder -> Server -> Initiator
@@ -163,11 +169,36 @@ class E2ESession:
             )
         return self._shared_key
 
+    def ratchet(self) -> None:
+        """Leitet einen neuen Schluessel ab (Forward Secrecy).
+
+        Wird alle RATCHET_INTERVAL Nachrichten aufgerufen. Alte
+        Nachrichten bleiben mit dem alten Key lesbar (der Client
+        muss die alten Keys speichern).
+        """
+        key = self._require_key()
+        new_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=RATCHET_INFO,
+        ).derive(key)
+        self._shared_key = new_key
+        self._epoch += 1
+        self._msg_count = 0
+
+    @property
+    def epoch(self) -> int:
+        return self._epoch
+
     def encrypt(self, plaintext: bytes) -> tuple[bytes, bytes]:
         """Gibt (nonce, ciphertext) zurueck."""
         key = self._require_key()
         nonce = os.urandom(NONCE_LEN)
         ct = ChaCha20Poly1305(key).encrypt(nonce, plaintext, None)
+        self._msg_count += 1
+        if self._msg_count >= RATCHET_INTERVAL:
+            self.ratchet()
         return nonce, ct
 
     def decrypt(self, nonce: bytes, ciphertext: bytes) -> bytes:
@@ -324,6 +355,7 @@ def store_encrypted_message(
     cookie: str,
     nonce: bytes,
     ciphertext: bytes,
+    key_epoch: int = 0,
 ) -> int:
     """Speichert Ciphertext in chat_e2e_messages. Gibt message-id zurueck."""
     from .forum_db import get_db
@@ -333,9 +365,9 @@ def store_encrypted_message(
     with conn:
         cur = conn.execute(
             "INSERT INTO chat_e2e_messages "
-            "(room_id, author_cookie, nonce, ciphertext, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (room_id, cookie, nonce, ciphertext, time.time()),
+            "(room_id, author_cookie, nonce, ciphertext, key_epoch, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (room_id, cookie, nonce, ciphertext, key_epoch, time.time()),
         )
         return cur.lastrowid
 
@@ -345,7 +377,7 @@ def get_encrypted_messages(room_id: str, since: float = 0.0) -> list[dict]:
     from .forum_db import get_db
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, author_cookie, nonce, ciphertext, created_at "
+        "SELECT id, author_cookie, nonce, ciphertext, key_epoch, created_at "
         "FROM chat_e2e_messages WHERE room_id = ? AND created_at > ? "
         "ORDER BY created_at ASC",
         (room_id, since),
@@ -356,7 +388,8 @@ def get_encrypted_messages(room_id: str, since: float = 0.0) -> list[dict]:
             "from": r[1],
             "nonce": bytes(r[2]),
             "ciphertext": bytes(r[3]),
-            "ts": r[4],
+            "key_epoch": r[4],
+            "ts": r[5],
         }
         for r in rows
     ]

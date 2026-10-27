@@ -127,7 +127,7 @@ def test_store_and_get_key(fresh_e2e):
     assert ka["mlkem_pub"] == payload_a.mlkem_pub
 
     # get_partner_key
-    partner_for_a = get_partner_key("room1", "cookie-A")
+    partner_for_a = get_partner_key("room1", "cookie-A", "initiator")
     assert partner_for_a["cookie"] == "cookie-B"
     assert partner_for_a["role"] == "responder"
     assert partner_for_a["mlkem_ct"] == payload_b.mlkem_ct

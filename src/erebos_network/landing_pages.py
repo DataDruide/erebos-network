@@ -176,6 +176,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             body_json = _json.loads(body.decode("utf-8") or "{}")
             nonce_hex = body_json.get("nonce", "")
             ct_hex = body_json.get("ciphertext", "")
+            key_epoch = body_json.get("key_epoch", 0)
             if not nonce_hex or not ct_hex:
                 return b"JSON:" + _json.dumps({"error": "missing_fields"}).encode()
             try:
@@ -183,7 +184,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                 ct = bytes.fromhex(ct_hex)
             except ValueError:
                 return b"JSON:" + _json.dumps({"error": "invalid_hex"}).encode()
-            msg_id = _e2e.store_encrypted_message(room_id, client_id, nonce, ct)
+            msg_id = _e2e.store_encrypted_message(room_id, client_id, nonce, ct, key_epoch)
             return b"JSON:" + _json.dumps({"ok": True, "id": msg_id}).encode()
 
         if action == "messages" and method == "GET":
@@ -200,6 +201,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
                     "from": m["from"],
                     "nonce": m["nonce"].hex(),
                     "ciphertext": m["ciphertext"].hex(),
+                    "key_epoch": m.get("key_epoch", 0),
                     "ts": m["ts"],
                 }
                 for m in msgs

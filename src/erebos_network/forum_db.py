@@ -1790,6 +1790,7 @@ def _migrate_chat_schema(conn: sqlite3.Connection) -> None:
             author_cookie TEXT NOT NULL,
             nonce BLOB NOT NULL,
             ciphertext BLOB NOT NULL,
+            key_epoch INTEGER DEFAULT 0,
             created_at REAL NOT NULL
         )
     """)
