@@ -12,6 +12,7 @@ from pathlib import Path
 
 from erebos_network.hidden_service_runtime import HiddenServiceRuntime
 from erebos_network.http_utils import parse_http_request, http_response
+from erebos_network.template_engine import render_template, is_template
 
 
 async def _static_handler(reader, writer, pages_dir: Path):
@@ -42,6 +43,26 @@ async def _static_handler(reader, writer, pages_dir: Path):
             ctype = "application/javascript"
         elif file_path.suffix == ".json":
             ctype = "application/json"
+
+        # Template-Erkennung: Wenn .html und {{ ... }} drin → rendern
+        if file_path.suffix == ".html":
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                text = None
+            if text is not None and is_template(text):
+                import time as _time
+                context = {
+                    "name": pages_dir.name,
+                    "service_name": pages_dir.name,
+                    "time": _time.strftime("%H:%M:%S"),
+                    "date": _time.strftime("%Y-%m-%d"),
+                    "address": "",
+                    "client_id": "",
+                    "path": path,
+                }
+                text = render_template(text, context)
+                content = text.encode("utf-8")
 
         resp = http_response(200, ctype, content)
         writer.write(resp)
