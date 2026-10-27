@@ -11,6 +11,7 @@ from .pages_onboarding import render_welcome, render_landing, render_wiki
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
 from .pages_mail import _render_rotate_confirm, _handle_rotate_post, _render_mail
+from .pages_forum import render_forum_index, render_forum_health
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
@@ -148,27 +149,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             anon_uuid = str(_uuid.uuid4())
         return _render_mail(anon_uuid, address, query=query, method=method, body=body)
     if path == "/forum":
-        # Auto-Login nach Onboarding (identity_uuid bevorzugt)
-        import uuid as _uuid
-        if not username:
-            if identity_uuid:
-                anon_uuid = identity_uuid
-            elif client_id:
-                anon_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "erebos-" + client_id))
-            else:
-                anon_uuid = ""
-            if anon_uuid:
-                ident = get_identity(anon_uuid)
-                if ident and ident.get("onboarded_at"):
-                    session = get_or_create_forum_session(anon_uuid)
-                    if session:
-                        logger.info(f"Auto-Login Forum: {anon_uuid[:8]} -> {session['username']}")
-                        return (
-                            b"REDIRECT:/forum\n"
-                            + b"SET_SESSION:" + session["token"].encode() + b"\n"
-                            + b"SET_ADMIN:0"
-                        )
-        return _page("Erebos Community", address, forum.render_categories(client_id=client_id, username=username, admin=admin, admin_token=""))
+        return render_forum_index(address, client_id, username, admin, identity_uuid)
     if path == "/forum/admin/login":
         # Setzt das Admin-Cookie. Token kommt aus ?admin=<token>.
         if not admin_token_value:
@@ -312,7 +293,7 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return _page("Mod-Log", address, forum.render_mod_log())
 
     if path == "/forum/health":
-        return _page("Health", address, forum.render_health())
+        return render_forum_health(address)
 
     # --- Report posten ---
     if "/post/" in path and path.endswith("/quote"):
