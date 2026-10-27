@@ -351,3 +351,23 @@ falschem Key / manipuliertem Ciphertext wird `InvalidTag` geworfen
 (kein stiller Muell-Return). Das ist korrekt und wurde durch den
 Property-Test bestaetigt.
 
+## Onion-Krypto: Design-Entscheidungen (Review-Ergebnis)
+
+**HKDF-Domain-Separation:** `_derive_layer_key` nutzt
+`HKDF(SHA256, length=32, salt=None, info=HKDF_INFO)` mit
+`HKDF_INFO = b"erebos-onion-v1"`. Das `info`-Feld ist gesetzt
+(Domain-Separation gegen Cross-Protocol-Key-Reuse) und versioniert
+(spaetere Protokoll-Upgrades koennen `-v2` etc. nutzen).
+`salt=None` ist bei X25519 + HKDF akzeptabel, weil das Shared Secret
+volle Entropie hat.
+
+**AAD-Binding:** Der Relay-Header (Frame-Typ, Port) ist Teil des
+gepadeten Plaintexts, der an `ChaCha20Poly1305.encrypt` geht — er ist
+damit **innerhalb** der AEAD-Authentifizierung. `open_layer` liest
+nichts aus dem Klartext vor dem Decrypt. AAD-Binding ist daher nicht
+erforderlich.
+
+**Padding-Oracle:** `open_layer` ruft `decrypt` **vor**
+`_unpad_plaintext`. Der AEAD-Tag wird also vor dem Unpad verifiziert —
+kein Padding-Oracle.
+
