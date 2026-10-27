@@ -120,6 +120,93 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         _chat.join_room(room_id, client_id)
         return f"REDIRECT:/chat/room/{room_id}".encode()
 
+    if path.startswith("/chat/room/") and "/e2e/" in path:
+        from . import chat_e2e as _e2e
+        import json as _json
+        parts = path.split("/")
+        # /chat/room/<id>/e2e/<action>  -> parts = ['', 'chat', 'room', '<id>', 'e2e', '<action>']
+        if len(parts) < 6:
+            return _json.dumps({"error": "invalid_e2e_url"}).encode()
+        room_id = parts[3]
+        action = parts[5]
+
+        if action == "key" and method == "POST":
+            body_json = _json.loads(body.decode("utf-8") or "{}")
+            role = body_json.get("role", "")
+            x_pub_hex = body_json.get("x25519_pub", "")
+            mlkem_pub_hex = body_json.get("mlkem_pub", "")
+            mlkem_ct_hex = body_json.get("mlkem_ct", "") or ""
+
+            if role not in ("initiator", "responder"):
+                return b"JSON:" + _json.dumps({"error": "invalid_role"}).encode()
+            if not x_pub_hex or not mlkem_pub_hex:
+                return b"JSON:" + _json.dumps({"error": "missing_pubkey"}).encode()
+
+            try:
+                x_pub = bytes.fromhex(x_pub_hex)
+                mlkem_pub = bytes.fromhex(mlkem_pub_hex)
+                mlkem_ct = bytes.fromhex(mlkem_ct_hex) if mlkem_ct_hex else b""
+            except ValueError:
+                return b"JSON:" + _json.dumps({"error": "invalid_hex"}).encode()
+
+            payload = _e2e.E2EPayload(
+                role=role,
+                x25519_pub=x_pub,
+                mlkem_pub=mlkem_pub,
+                mlkem_ct=mlkem_ct,
+            )
+            _e2e.store_key(room_id, client_id, role, payload)
+            return b"JSON:" + _json.dumps({"ok": True}).encode()
+
+        if action == "key" and method == "GET":
+            my_key = _e2e.get_key(room_id, client_id)
+            if not my_key:
+                return b"JSON:" + _json.dumps({"error": "no_own_key"}).encode()
+            partner = _e2e.get_partner_key(room_id, client_id, my_key["role"])
+            if partner is None:
+                return b"JSON:" + _json.dumps({"waiting": True}).encode()
+            return b"JSON:" + _json.dumps({
+                "role": partner["role"],
+                "x25519_pub": partner["x25519_pub"].hex(),
+                "mlkem_pub": partner["mlkem_pub"].hex(),
+                "mlkem_ct": partner["mlkem_ct"].hex() if partner["mlkem_ct"] else "",
+            }).encode()
+
+        if action == "send" and method == "POST":
+            body_json = _json.loads(body.decode("utf-8") or "{}")
+            nonce_hex = body_json.get("nonce", "")
+            ct_hex = body_json.get("ciphertext", "")
+            if not nonce_hex or not ct_hex:
+                return b"JSON:" + _json.dumps({"error": "missing_fields"}).encode()
+            try:
+                nonce = bytes.fromhex(nonce_hex)
+                ct = bytes.fromhex(ct_hex)
+            except ValueError:
+                return b"JSON:" + _json.dumps({"error": "invalid_hex"}).encode()
+            msg_id = _e2e.store_encrypted_message(room_id, client_id, nonce, ct)
+            return b"JSON:" + _json.dumps({"ok": True, "id": msg_id}).encode()
+
+        if action == "messages" and method == "GET":
+            from urllib.parse import parse_qs
+            q = parse_qs(query)
+            try:
+                since = float((q.get("since", ["0"])[0] or "0"))
+            except ValueError:
+                since = 0.0
+            msgs = _e2e.get_encrypted_messages(room_id, since)
+            return b"JSON:" + _json.dumps([
+                {
+                    "id": m["id"],
+                    "from": m["from"],
+                    "nonce": m["nonce"].hex(),
+                    "ciphertext": m["ciphertext"].hex(),
+                    "ts": m["ts"],
+                }
+                for m in msgs
+            ]).encode()
+
+        return b"JSON:" + _json.dumps({"error": "unknown_e2e_action"}).encode()
+
     if path.startswith("/chat/room/"):
         from . import chat as _chat, pages_chat
         parts = path.split("/")

@@ -1770,4 +1770,31 @@ def _migrate_chat_schema(conn: sqlite3.Connection) -> None:
             queued_at REAL NOT NULL
         )
     """)
+    # E2E-Tabellen (Chat-Partner-Verschluesselung)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_e2e_keys (
+            room_id TEXT NOT NULL,
+            cookie TEXT NOT NULL,
+            role TEXT NOT NULL,               -- 'initiator' oder 'responder'
+            x25519_pub BLOB NOT NULL,
+            mlkem_pub BLOB NOT NULL,
+            mlkem_ct BLOB,                    -- vom Responder gesetzt
+            created_at REAL NOT NULL,
+            PRIMARY KEY (room_id, cookie)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_e2e_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id TEXT NOT NULL,
+            author_cookie TEXT NOT NULL,
+            nonce BLOB NOT NULL,
+            ciphertext BLOB NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_e2e_messages_room_ts
+        ON chat_e2e_messages (room_id, created_at)
+    """)
 
