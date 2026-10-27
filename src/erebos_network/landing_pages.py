@@ -11,7 +11,9 @@ from .pages_onboarding import render_welcome, render_landing, render_wiki
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
 from .pages_mail import _render_rotate_confirm, _handle_rotate_post, _render_mail
-from .pages_forum import render_forum_index, render_forum_health
+from .pages_forum import (render_forum_index, render_forum_health,
+                        render_forum_login, render_forum_register,
+                        render_forum_logout)
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
                        get_mail_keys_by_version, set_mail_verified,
@@ -236,34 +238,13 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
 
     # --- Auth-Routen ---
     if path == "/forum/login":
-        if method == "POST":
-            form = forum.parse_form_body(body)
-            token, reason = forum.login_user(
-                form.get("username", ""), form.get("password", ""),
-                client_id=client_id,
-            )
-            if token:
-                return b"REDIRECT:/forum\nSET_SESSION:" + token.encode("utf-8")
-            if reason == "rate_limit":
-                # HTTP 429: Too Many Requests
-                return b"RATE_LIMIT:1"
-            return _page("Login", address, forum.render_login_form(
-                "Login fehlgeschlagen."
-            ))
-        return _page("Login", address, forum.render_login_form())
+        return render_forum_login(address, method, body, client_id)
 
     if path == "/forum/register":
-        if method == "POST":
-            form = forum.parse_form_body(body)
-            ok, msg = forum.register_user(form.get("username", ""), form.get("password", ""))
-            if ok:
-                return b"REDIRECT:/forum/login"
-            return _page("Registrieren", address, forum.render_register_form(msg))
-        return _page("Registrieren", address, forum.render_register_form())
+        return render_forum_register(address, method, body)
 
     if path == "/forum/logout":
-        forum.logout_user(session_token)
-        return b"REDIRECT:/forum\nCLEAR_SESSION:1"
+        return render_forum_logout(address, session_token)
 
     if path == "/forum/my-threads":
         if not username:
