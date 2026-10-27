@@ -5,10 +5,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlcipher-dev sqlcipher \
     && rm -rf /var/lib/apt/lists/*
 
-# liboqs 0.16.0 — passt zu liboqs-python 0.16.0.1
-ARG LIBOQS_VERSION=0.16.0
-RUN git clone --depth 1 --branch ${LIBOQS_VERSION} \
-        https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs \
+# liboqs 0.16.0 — Commit-Pin fuer reproduzierbare Builds
+# Commit: v0.16.0 (5a1a854b0dc9f2141bdc771c555ee60c37950183)
+ARG LIBOQS_COMMIT=5a1a854b0dc9f2141bdc771c555ee60c37950183
+RUN git clone https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs \
+    && cd /tmp/liboqs && git checkout ${LIBOQS_COMMIT} \
     && cmake -S /tmp/liboqs -B /tmp/liboqs/build -GNinja \
         -DBUILD_SHARED_LIBS=ON \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
