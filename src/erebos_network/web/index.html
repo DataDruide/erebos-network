@@ -52,7 +52,7 @@
     border-radius: 8px;
     color: var(--fg2);
     font-size: 0.9rem;
-    transition: all 0.2s;
+    transition: background-color 0.12s ease, color 0.12s ease;
   }
   nav a:hover { background: var(--bg3); color: var(--fg); text-decoration: none; }
 
@@ -74,9 +74,9 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.25rem;
-    transition: all 0.2s;
+    transition: border-color 0.12s ease;
   }
-  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card:hover { border-color: var(--accent); }
   .card h3 { font-size: 1.05rem; margin-bottom: 0.5rem; }
   .card p { color: var(--fg2); font-size: 0.9rem; }
 
@@ -206,7 +206,7 @@
     border: 1px solid var(--border);
     background: var(--bg3);
     color: var(--fg);
-    transition: all 0.2s;
+    transition: border-color 0.12s ease, background-color 0.12s ease;
   }
   .btn:hover { border-color: var(--accent); text-decoration: none; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
