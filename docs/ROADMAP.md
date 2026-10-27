@@ -1,6 +1,6 @@
 # Erebos Network - Roadmap
 
-Status: 23 Phasen komplett, 479 Tests
+Status: 27 Phasen komplett, 781 Tests
 
 ## Abgeschlossen
 
@@ -219,6 +219,32 @@ Gesamt: 489 Tests.
 - Backup/Restore: docs + Skripte + Cron + systemd-Timer
 - 25 neue Tests (Identity, Onboarding, Auto-Login, Recovery)
 
-Gesamt: 767 Tests.
+Gesamt: 781 Tests.
 
-Status: 26 Phasen komplett, 767 Tests.
+Status: 27 Phasen komplett, 781 Tests.
+
+---
+
+### Phase 27: Refactor + Security Hardening (2026-10-27)
+- **liboqs-API-Contract-Tests** (8 Tests):
+  - ML-DSA-65: generate_keypair/export_secret_key/sign/verify
+  - ML-KEM-1024: generate_keypair/export_secret_key/encap/decap
+  - Mechanism-Listen (ML-DSA-65, ML-KEM-1024)
+  - Schlaegt sofort fehl bei liboqs-python-Update
+- **Timing-sichere Signatur-Verifikation**:
+  - verify_mail prueft Ed25519 UND ML-DSA-65 IMMER
+  - _safe_ed25519_verify(), _safe_mldsa_verify()
+  - Verhindert Timing-Angriffe
+- **landing_pages.py aufgeteilt** (1115 -> 395 Zeilen, -65%):
+  - renderers.py (75 Zeilen): _page, _escape, _format_timestamp,
+    _render_identity_box
+  - http_utils.py (74 Zeilen): http_response, parse_http_request
+  - pages_onboarding.py (122 Zeilen): Startseite, Regeln, Wiki
+  - pages_mail.py (~380 Zeilen): /mail + /mail/rotate
+  - pages_forum.py (~395 Zeilen): alle /forum-Routen
+  - landing_pages.py: nur noch render_page-Dispatcher
+- **14 neue Tests** (8 liboqs + 6 Timing)
+
+Gesamt: 781 Tests.
+
+Status: 27 Phasen komplett, 781 Tests.
