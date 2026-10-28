@@ -137,35 +137,59 @@ def render_landing(address: str, request_line: str) -> bytes:
 
 
 def render_wiki(address: str) -> bytes:
-    """Rendert das Hidden Wiki mit echten Erebos-Diensten."""
+    """Rendert das Hidden Wiki mit echten Erebos-Diensten und Disclaimer."""
     html = """<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
   <title>Hidden Wiki - Erebos</title>
   <style>
-    body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 2em; }
+    body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 2em; max-width: 900px; margin: 0 auto; }
     h1 { color: #00ff41; font-family: monospace; }
+    h2 { color: #39ff14; font-family: monospace; margin-top: 2em; border-bottom: 1px solid #30363d; padding-bottom: 0.5em; }
     .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 1.5em; margin-bottom: 2em; }
     ul { list-style: none; padding: 0; }
-    li { border-bottom: 1px solid #30363d; padding-bottom: 1em; margin-bottom: 1em; }
+    li { border-bottom: 1px solid #30363d; padding: 1em 0; }
     a { color: #39ff14; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .disclaimer { border: 1px solid #ff8800; background: rgba(255,136,0,0.05); padding: 1.5em; border-radius: 8px; margin-top: 2em; }
+    .disclaimer strong { color: #ff8800; }
+    .note { color: #8b949e; font-size: 0.9em; }
   </style>
 </head>
 <body>
-  <h1>Hidden Wiki</h1>
-  <p style="color: #8b949e;">Eine Liste der verfuegbaren Dienste im Erebos-Netzwerk.</p>
+  <h1>Erebos Hidden Wiki</h1>
+  
+  <div class="card">
+    <p class="note">Diese Seite wurde mit größter Sorgfalt für euch zusammengestellt. 
+    Wir haben die unten aufgeführten Dienste manuell geprüft, um euch einen sicheren Einstieg 
+    in das Erebos-Netzwerk zu ermöglichen.</p>
+  </div>
+
+  <h2>Verfügbare Dienste</h2>
   <div class="card">
     <ul>
-      <li><strong style="color:#00ff41;">Erebos Search</strong><br><span style="color:#8b949e; font-size:0.9em;">Die Suchmaschine für das gesamte Netzwerk.</span><br><a href="/search">/search</a></li>
-      <li><strong style="color:#00ff41;">Erebos Forum</strong><br><span style="color:#8b949e; font-size:0.9em;">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
-      <li><strong style="color:#00ff41;">Anonymes Postfach</strong><br><span style="color:#8b949e; font-size:0.9em;">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
-      <li><strong style="color:#00ff41;">Erebos Chat</strong><br><span style="color:#8b949e; font-size:0.9em;">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>
-      <li><strong style="color:#00ff41;">Regeln &amp; Richtlinien</strong><br><span style="color:#8b949e; font-size:0.9em;">Die Regeln des Erebos-Netzwerks.</span><br><a href="/rules">/rules</a></li>
+      <li><strong style="color:#00ff41;">Erebos Search</strong><br><span class="note">Die Suchmaschine für das gesamte Netzwerk.</span><br><a href="/search">/search</a></li>
+      <li><strong style="color:#00ff41;">Erebos Forum</strong><br><span class="note">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
+      <li><strong style="color:#00ff41;">Anonymes Postfach</strong><br><span class="note">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
+      <li><strong style="color:#00ff41;">Erebos Chat</strong><br><span class="note">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>
+      <li><strong style="color:#00ff41;">Regeln &amp; Richtlinien</strong><br><span class="note">Die Regeln des Erebos-Netzwerks.</span><br><a href="/rules">/rules</a></li>
     </ul>
   </div>
-  <p><a href="/">&larr; Zurueck zur Startseite</a></p>
+
+  <h2>Wichtige Hinweise</h2>
+  <div class="disclaimer">
+    <p><strong>⚠ Keine Gewähr:</strong> Wir übernehmen keine Haftung oder Gewähr für die Inhalte, 
+    Sicherheit oder Erreichbarkeit der verlinkten Dienste. Jeder Nutzer ist für sein eigenes Handeln 
+    selbst verantwortlich.</p>
+    <p><strong>⚠ Illegale Aktivitäten:</strong> Wir lehnen illegale Aktivitäten strikt ab. 
+    Das Erebos-Netzwerk dient der Forschung und dem sicheren, anonymen Austausch. 
+    Jegliche Nutzung für Straftaten wird nicht toleriert und kann strafrechtliche Konsequenzen haben.</p>
+    <p><strong>⚠ Eigene Verantwortung:</strong> Nutze das Netzwerk auf eigenes Risiko. 
+    Wir empfehlen, keine persönlichen Daten preiszugeben und die Regeln des Netzwerks zu respektieren.</p>
+  </div>
+
+  <p style="margin-top:2em;"><a href="/" class="btn">&larr; Zurück zur Startseite</a></p>
   <p style="color:#30363d; font-size:0.8em; margin-top:3em;">Diese Instanz: """ + address + """</p>
 </body>
 </html>"""
