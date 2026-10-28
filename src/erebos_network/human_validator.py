@@ -73,6 +73,41 @@ class HumanValidator:
         return False
 
     def check_human_json(self, headers: dict) -> bool:
+        """Prüft, ob der Client ein 'human.json'-Signal sendet."""
+        return False
+
+    # --- MEHRSCHICHTIGER HUMAN VALIDATOR ---
+    def generate_stage1(self) -> str:
+        """Ebene 1: Hash-Code zum Kopieren generieren."""
+        return os.urandom(8).hex().upper()
+
+    def check_stage2(self, puzzle_input: str) -> bool:
+        """Ebene 2: Puzzle-Logik (Platzhalter für echte Bild-Logik)."""
+        # Hier kommt die Logik für das Verschieben von Figuren rein.
+        # Fürs Erste prüfen wir nur, ob der Input dem erwarteten Muster entspricht.
+        return puzzle_input.strip() == "EREBOS"
+
+    def check_stage3(self, emotion_input: str) -> bool:
+        """Ebene 3: Emotionale Logik (Was passt nicht dazu?)."""
+        # Erwartete Antwort: 'Angst' passt nicht zu 'Freude, Glück, Zufriedenheit'
+        return emotion_input.strip().lower() == "angst"
+
+    def issue_human_token(self) -> str:
+        """Stellt ein Token aus, wenn alle Ebenen bestanden sind."""
+        token = os.urandom(16).hex()
+        # Token im Speicher ablegen (für 5 Minuten gültig)
+        self.active_challenges[f"human_{token}"] = (time.time(), 0)
+        return token
+
+    def verify_human_token(self, token: str) -> bool:
+        """Prüft, ob das Token gültig ist."""
+        self._cleanup()
+        key = f"human_{token}"
+        if key in self.active_challenges:
+            # Token ist einmalig
+            del self.active_challenges[key]
+            return True
+        return False
         """
         Custom-Erweiterung: Prüft, ob der Client ein 'human.json'-Signal sendet.
         In der Praxis: Ein Browser-Add-on setzt diesen Header, wenn der Nutzer

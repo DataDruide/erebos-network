@@ -55,6 +55,7 @@ from .e2e import (
 )
 
 from .human_validator import HumanValidator
+from . import pages_human
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +469,56 @@ class HiddenServiceRuntime:
                     identity_uuid = part[len(IDENTITY_COOKIE) + 1:].strip()
             username = get_session_user(session_token) or ""
 
+            # --- HUMAN VALIDATOR ROUTEN ---
+            if path == "/human":
+                from urllib.parse import parse_qs
+                q = parse_qs(query)
+                stage = int(q.get("stage", ["1"])[0])
+                hash_code = q.get("hash", [""])[0]
+                if not hash_code and stage == 1:
+                    hash_code = _human_validator.generate_stage1()
+                body_out = pages_human.render_human_challenge(self.address, stage, hash_code)
+                resp = http_response(200, "text/html; charset=utf-8", body_out)
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            if path == "/human/verify" and method == "POST":
+                from urllib.parse import parse_qs
+                q = parse_qs(body.decode("utf-8", errors="replace"))
+                stage = int(q.get("stage", ["0"])[0])
+                user_input = q.get("input_code", [""])[0].strip()
+                
+                if stage == 1:
+                    expected = q.get("expected", [""])[0]
+                    if user_input == expected:
+                        # Weiter zu Stufe 2
+                        resp = http_response(302, "text/plain", b"", location="/human?stage=2")
+                    else:
+                        body_out = pages_human.render_human_challenge(self.address, 1, expected, "Falscher Code!")
+                        resp = http_response(200, "text/html; charset=utf-8", body_out)
+                elif stage == 2:
+                    if _human_validator.check_stage2(user_input):
+                        resp = http_response(302, "text/plain", b"", location="/human?stage=3")
+                    else:
+                        body_out = pages_human.render_human_challenge(self.address, 2, error="Falsches Lösungswort!")
+                        resp = http_response(200, "text/html; charset=utf-8", body_out)
+                elif stage == 3:
+                    if _human_validator.check_stage3(user_input):
+                        token = _human_validator.issue_human_token()
+                        # Token als Cookie setzen und zur Startseite
+                        set_cookie = f"erebos_human={token}; Path=/; HttpOnly; SameSite=Lax"
+                        resp = http_response(302, "text/plain", b"", location="/", set_cookie=set_cookie)
+                    else:
+                        body_out = pages_human.render_human_challenge(self.address, 3, error="Falsches Gefühl!")
+                        resp = http_response(200, "text/html; charset=utf-8", body_out)
+                else:
+                    resp = http_response(400, "text/plain", b"Bad Request")
+                
+                writer.write(resp)
+                await writer.drain()
+                return
+            # --- ENDE HUMAN ROUTEN ---
             # 4b) CUSTOM HUMAN VALIDATOR (PoW + human.json)
             client_ip = headers.get("x-forwarded-for", "127.0.0.1").split(",")[0].strip()
             pow_nonce = headers.get("x-erebos-pow-nonce")
@@ -480,13 +531,30 @@ class HiddenServiceRuntime:
                 pow_nonce = (q.get("pow_nonce", [""])[0] or "").strip()
                 pow_solution = (q.get("pow_solution", [""])[0] or "").strip()
             
-            if _human_validator.check_human_json(headers):
+            # --- 1. Prüfe Human-Token (Cookie oder URL) ---
+            human_token = headers.get("x-erebos-human-token") or parse_qs(query).get("human_token", [""])[0]
+            has_human_token = human_token and _human_validator.verify_human_token(human_token)
+            
+            if has_human_token:
+                logger.info("Human-Token gültig, PoW und Rätsel übersprungen.")
+            elif path.startswith("/human"):
+                # Der Nutzer ist gerade im Rätsel-Prozess
+                pass
+            elif _human_validator.check_human_json(headers):
                 logger.info("Human-json-Signal erkannt, PoW übersprungen.")
             else:
+                # --- 2. PoW prüfen ---
                 if pow_nonce and pow_solution:
                     if not _human_validator.verify_solution(pow_nonce, pow_solution):
                         logger.warning("PoW-Validierung fehlgeschlagen.")
                         resp = http_response(403, "text/plain; charset=utf-8", b"PoW validation failed")
+                        writer.write(resp)
+                        await writer.drain()
+                        return
+                    # PoW bestanden -> jetzt Human-Token prüfen
+                    if not has_human_token:
+                        logger.info("PoW bestanden, aber kein Human-Token -> leite zu /human um.")
+                        resp = http_response(302, "text/plain", b"", location="/human?stage=1")
                         writer.write(resp)
                         await writer.drain()
                         return
