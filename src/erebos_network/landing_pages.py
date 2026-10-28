@@ -88,6 +88,16 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             pass
 
     # -----------------------------------------------------------------
+    # Suchmaschine (Erebos Search)
+    # -----------------------------------------------------------------
+    if path in ("/search", "/search/"):
+        from . import pages_search
+        from urllib.parse import parse_qs
+        q = parse_qs(query)
+        search_query = (q.get("q", [""])[0] or "").strip()
+        return pages_search.render_search(address, search_query)
+
+    # -----------------------------------------------------------------
     # Chat-Routen (eigener Hidden Service, Port 8081)
     # -----------------------------------------------------------------
     if path in ("/chat", "/chat/"):

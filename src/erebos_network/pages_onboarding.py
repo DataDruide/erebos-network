@@ -137,21 +137,35 @@ def render_landing(address: str, request_line: str) -> bytes:
 
 
 def render_wiki(address: str) -> bytes:
-    entries = _load_wiki_entries()
-    items = []
-    for e in entries:
-        name = _escape(str(e.get("name", "?")))
-        url = _escape(str(e.get("url", "#")))
-        desc = _escape(str(e.get("desc", "")))
-        items.append(
-            f"<li><a href=\"{url}\">{name}</a> \u2014 {desc}<br><code>{url}</code></li>"
-        )
-    if not items:
-        items.append("<li><em>Noch keine Eintr\u00e4ge. Bearbeite wiki.json und mounte sie neu.</em></li>")
-    body = (
-        "<h1>Hidden Wiki</h1>\n"
-        "<p>Eine Liste von Diensten im Erebos-Netzwerk. Platzhalter-Eintr\u00e4ge, bis echte Dienste existieren.</p>\n"
-        f"<ul>\n{chr(10).join(items)}\n</ul>\n"
-        "<a class=\"btn\" href=\"/\">\u2190 Zur\u00fcck zur Startseite</a>\n"
-    )
-    return _page("Hidden Wiki", address, body)
+    """Rendert das Hidden Wiki mit echten Erebos-Diensten."""
+    html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Hidden Wiki - Erebos</title>
+  <style>
+    body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 2em; }
+    h1 { color: #00ff41; font-family: monospace; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 1.5em; margin-bottom: 2em; }
+    ul { list-style: none; padding: 0; }
+    li { border-bottom: 1px solid #30363d; padding-bottom: 1em; margin-bottom: 1em; }
+    a { color: #39ff14; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Hidden Wiki</h1>
+  <p style="color: #8b949e;">Eine Liste der verfuegbaren Dienste im Erebos-Netzwerk.</p>
+  <div class="card">
+    <ul>
+      <li><strong style="color:#00ff41;">Erebos Forum</strong><br><span style="color:#8b949e; font-size:0.9em;">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
+      <li><strong style="color:#00ff41;">Anonymes Postfach</strong><br><span style="color:#8b949e; font-size:0.9em;">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
+      <li><strong style="color:#00ff41;">Erebos Chat</strong><br><span style="color:#8b949e; font-size:0.9em;">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>
+      <li><strong style="color:#00ff41;">Regeln &amp; Richtlinien</strong><br><span style="color:#8b949e; font-size:0.9em;">Die Regeln des Erebos-Netzwerks.</span><br><a href="/rules">/rules</a></li>
+    </ul>
+  </div>
+  <p><a href="/">&larr; Zurueck zur Startseite</a></p>
+  <p style="color:#30363d; font-size:0.8em; margin-top:3em;">Diese Instanz: """ + address + """</p>
+</body>
+</html>"""
+    return html.encode("utf-8")

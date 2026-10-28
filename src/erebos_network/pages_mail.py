@@ -383,8 +383,36 @@ def _render_mail(anon_uuid: str, address: str, query: str = "",
         "  <p><button type=\"submit\" class=\"btn\">Senden</button></p>\n"
         "</form>\n"
         "<h2>Deine Mails</h2>\n"
-        f"<ul>\n{rows}\n</ul>\n"
+        f"<div class='mail-list'>"
+        f"{_render_mail_list(anon_uuid)}"
+        f"</div>"
         f"{key_info}"
         "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
     )
     return _page("MAIL", address, body_html, hero_image="mail-bg.jpeg")
+
+
+def _render_mail_list(anon_uuid: str) -> str:
+    """Lädt die Mails aus der DB und rendert sie im Hacker-Style."""
+    from .forum_db import load_mails
+    mails = load_mails(anon_uuid)
+    
+    if not mails:
+        return "<p style='color:#8b949e;'>Dein Postfach ist leer. Du hast noch keine Nachrichten empfangen.</p>"
+    
+    html = ""
+    for m in mails:
+        sender = m.get("sender_uuid", "Unbekannt")
+        subject = m.get("subject", "(Kein Betreff)")
+        body = m.get("body", "")
+        # Optional: Datum, falls in der DB vorhanden
+        # date = m.get("created_at", "")
+        
+        html += f"""
+        <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:1em; margin-bottom:1em;">
+            <div style="color:#00ff41; font-size:0.8em; margin-bottom:0.5em;">Von: {sender}</div>
+            <strong style="color:#c9d1d9; font-size:1.1em;">{subject}</strong>
+            <p style="color:#8b949e; margin-top:0.5em; font-size:0.9em;">{body}</p>
+        </div>
+        """
+    return html
