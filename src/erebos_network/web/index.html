@@ -6,17 +6,19 @@
 <title>Erebos — Aus der Dunkelheit ins Netz</title>
 <style>
   :root {
-    --bg: #0a0a0f;
-    --bg2: #12121a;
-    --bg3: #1a1a24;
-    --border: #2a2a3a;
-    --fg: #e0e0e8;
-    --fg2: #a0a0b0;
-    --accent: #7b5cff;
-    --accent2: #00d4aa;
-    --warn: #ffb020;
-    --err: #ff4060;
-    --ok: #00d4aa;
+    /* Matrix-Grün Palette */
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --border: #30363d;
+    --fg: #c9d1d9;
+    --fg2: #8b949e;
+    --accent: #00ff41;      /* Matrix-Grün */
+    --accent2: #39ff14;     /* Neon-Grün */
+    --warn: #d29922;
+    --err: #f85149;
+    --ok: #3fb950;
+    --font-mono: 'Courier New', Courier, monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -28,14 +30,44 @@
   a { color: var(--accent2); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
+  /* Hacker Header mit Matrix-Code-Pattern */
   header {
-    background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
-    border-bottom: 1px solid var(--border);
-    padding: 3rem 1.5rem 2rem;
+    position: relative;
+    background-color: #000;
+    background-image: url('https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80'); /* Matrix Code */
+    background-size: cover;
+    background-position: center;
+    border-bottom: 2px solid var(--accent);
+    padding: 4rem 1.5rem 3rem;
     text-align: center;
   }
-  header h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
-  header p { color: var(--fg2); font-size: 1.1rem; margin-top: 0.5rem; }
+  header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.75); /* Dark overlay für Lesbarkeit */
+    z-index: 1;
+  }
+  header > * { position: relative; z-index: 2; }
+  
+  /* Runder Avatar */
+  header .avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    margin: 0 auto 1rem;
+    background: #000;
+    object-fit: cover;
+    
+  }
+  header h1 { 
+    font-size: 2.5rem; 
+    letter-spacing: -0.02em; 
+    font-family: var(--font-mono);
+    
+  }
+  header p { color: #ccc; font-size: 1.1rem; margin-top: 0.5rem; }
 
   nav {
     display: flex;
@@ -54,7 +86,12 @@
     font-size: 0.9rem;
     transition: background-color 0.12s ease, color 0.12s ease;
   }
-  nav a:hover { background: var(--bg3); color: var(--fg); text-decoration: none; }
+  nav a:hover { 
+    background: var(--bg3); 
+    color: var(--accent); 
+    text-decoration: none; 
+    
+  }
 
   main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
   section { margin-bottom: 3rem; }
@@ -63,6 +100,7 @@
     margin-bottom: 1rem;
     border-left: 3px solid var(--accent);
     padding-left: 0.75rem;
+    font-family: var(--font-mono);
   }
 
   .grid { display: grid; gap: 1rem; }
@@ -74,10 +112,13 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.25rem;
-    transition: border-color 0.12s ease;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
   }
-  .card:hover { border-color: var(--accent); }
-  .card h3 { font-size: 1.05rem; margin-bottom: 0.5rem; }
+  .card:hover { 
+    border-color: var(--accent); 
+    
+  }
+  .card h3 { font-size: 1.05rem; margin-bottom: 0.5rem; color: var(--accent); }
   .card p { color: var(--fg2); font-size: 0.9rem; }
 
   .status {
@@ -98,125 +139,13 @@
   .dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
   .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
   .status-info { flex: 1; }
-  .status-info strong { display: block; }
-  .status-info span { color: var(--fg2); font-size: 0.85rem; }
-
-  .badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    color: var(--fg2);
-  }
-  .badge.accent { background: rgba(123,92,255,0.15); border-color: var(--accent); color: var(--accent); }
-  .badge.ok { background: rgba(0,212,170,0.15); border-color: var(--ok); color: var(--ok); }
-  .badge.warn { background: rgba(255,176,32,0.15); border-color: var(--warn); color: var(--warn); }
-
-  .forum-thread {
-    display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 0.5rem;
-  }
-  .forum-thread .votes {
-    text-align: center;
-    min-width: 40px;
-  }
-  .forum-thread .votes strong { display: block; font-size: 1.2rem; color: var(--accent2); }
-  .forum-thread .votes span { font-size: 0.7rem; color: var(--fg2); }
-  .forum-thread .thread-body { flex: 1; }
-  .forum-thread .thread-body h4 { font-size: 0.95rem; margin-bottom: 0.25rem; }
-  .forum-thread .thread-body .meta { font-size: 0.8rem; color: var(--fg2); }
-
-  .member-card {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-  }
-  .avatar {
-    width: 40px; height: 40px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; color: var(--bg);
-  }
-  .member-info strong { display: block; font-size: 0.9rem; }
-  .member-info span { font-size: 0.75rem; color: var(--fg2); }
-
-  .event {
-    display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 0.5rem;
-  }
-  .event .date {
-    text-align: center;
-    min-width: 60px;
-    padding: 0.5rem;
-    background: var(--bg3);
-    border-radius: 8px;
-  }
-  .event .date strong { display: block; font-size: 1.3rem; color: var(--accent); }
-  .event .date span { font-size: 0.7rem; color: var(--fg2); text-transform: uppercase; }
-  .event .event-body { flex: 1; }
-  .event .event-body h4 { font-size: 0.95rem; }
-  .event .event-body p { font-size: 0.85rem; color: var(--fg2); }
-
-  .tool-link {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    margin-bottom: 0.5rem;
-    color: var(--fg);
-  }
-  .tool-link:hover { border-color: var(--accent2); text-decoration: none; }
-  .tool-link .icon { font-size: 1.5rem; }
-
-  footer {
-    text-align: center;
-    padding: 2rem 1.5rem;
-    border-top: 1px solid var(--border);
-    color: var(--fg2);
-    font-size: 0.85rem;
-  }
-
-  .hero-actions { display: flex; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap; }
-  .btn {
-    display: inline-block;
-    padding: 0.6rem 1.25rem;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg3);
-    color: var(--fg);
-    transition: border-color 0.12s ease, background-color 0.12s ease;
-  }
-  .btn:hover { border-color: var(--accent); text-decoration: none; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
-  .btn.primary:hover { background: #6a4de6; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Erebos</h1>
+  <img src="https://images.unsplash.com/photo-1614064641938-3bbee52942c7?ixlib=rb-4.0.3&auto=format&fit=crop&w=200&q=80" alt="Hacker Avatar" class="avatar">
+  <h1>Erebos Hacker Forum</h1>
   <p>Aus der Dunkelheit ins Netz — Anonymes Netzwerk mit adaptiven Sektoren</p>
   <div class="hero-actions">
     <a href="#quickstart" class="btn primary">Jetzt starten</a>

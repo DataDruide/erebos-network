@@ -185,8 +185,11 @@ def render_welcome_onboarded(anon_uuid, address, _page, _escape):
 
     # HTML mit einfachen Quotes (keine escaped quotes noetig)
     body = (
-        '<h1>WILLKOMMEN BEI EREBOS</h1>'
-        '<div style="border:2px solid #00ff88; padding:1.5em; margin:1.5em 0; background:#0a0a15;">'
+        '<header style="text-align:center; margin-bottom:2em;">'
+        '<img src="/avatar.jpg" alt="Avatar" class="avatar" style="width:100px; height:100px; border-radius:50%; border:3px solid #00ff88; ">'
+        '<h1 style="font-family:monospace; color:#00ff88;  margin-top:1em;">WILLKOMMEN BEI EREBOS</h1>'
+        '</header>'
+        '<div style="border:2px solid #00ff88; padding:1.5em; margin:1.5em 0; background:#0a0a15; border-radius:8px; ">'
         '<p style="color:#00ff88; font-size:0.9em; letter-spacing:0.15em; margin-bottom:1em;">DEINE IDENTITAET</p>'
         '<p style="margin:0.8em 0;"><strong>UUID:</strong><br>'
         '<code style="color:#00ff88; word-break:break-all;">' + _escape(anon_uuid) + '</code></p>'
@@ -195,7 +198,7 @@ def render_welcome_onboarded(anon_uuid, address, _page, _escape):
         '<p style="margin:0.8em 0;"><strong>Forum:</strong><br>'
         '<code style="color:#00ff88;">' + _escape(forum_username) + '</code></p>'
         '</div>'
-        '<div style="border:2px solid #ff8800; padding:1.5em; margin:1.5em 0; background:#1a0f05;">'
+        '<div style="border:2px solid #ff8800; padding:1.5em; margin:1.5em 0; background:#1a0f05; border-radius:8px;">'
         '<p style="color:#ff8800; font-size:1em; letter-spacing:0.1em; margin-bottom:0.8em;">WICHTIG - SCHREIB DAS AUF</p>'
         '<p style="color:#ffcc88; margin:0.5em 0; line-height:1.6;">'
         'Diese Daten werden <strong>nicht dauerhaft</strong> gespeichert. '
@@ -204,13 +207,13 @@ def render_welcome_onboarded(anon_uuid, address, _page, _escape):
         '</p>'
         '</div>'
         '<form method="POST" action="/welcome/ack" style="margin:2em 0;">'
-        '<button type="submit" class="btn" style="background:#00ff88; color:#000; font-weight:bold; padding:1em 2em;">'
+        '<button type="submit" class="btn" style="background:#00ff88; color:#000; font-weight:bold; padding:1em 2em; border:none; border-radius:4px; cursor:pointer;">'
         'Ich habe es aufgeschrieben'
         '</button>'
         '</form>'
         '<p style="text-align:center; margin-top:1em;">'
-        '<a class="btn" href="/mail">-> Zum Postfach</a> '
-        '<a class="btn" href="/forum">-> Zum Forum</a>'
+        '<a class="btn" href="/mail" style="color:#00ff88; margin-right:1em;">-> Zum Postfach</a> '
+        '<a class="btn" href="/forum" style="color:#00ff88;">-> Zum Forum</a>'
         '</p>'
     )
     return _page("Willkommen", address, body)
