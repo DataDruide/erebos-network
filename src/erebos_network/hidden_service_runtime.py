@@ -54,7 +54,11 @@ from .e2e import (
     E2E_FLAG_KEY_RESP,
 )
 
+from .human_validator import HumanValidator
+
 logger = logging.getLogger(__name__)
+
+_human_validator = HumanValidator()
 
 # Maximal erlaubte HTTP-Body-Groesse (Schutz vor Memory-DoS).
 MAX_HTTP_BODY_BYTES = 1024 * 1024  # 1 MB (für Uploads)
@@ -463,6 +467,40 @@ class HiddenServiceRuntime:
                 elif part.startswith(IDENTITY_COOKIE + "="):
                     identity_uuid = part[len(IDENTITY_COOKIE) + 1:].strip()
             username = get_session_user(session_token) or ""
+
+            # 4b) CUSTOM HUMAN VALIDATOR (PoW + human.json)
+            client_ip = headers.get("x-forwarded-for", "127.0.0.1").split(",")[0].strip()
+            pow_nonce = headers.get("x-erebos-pow-nonce")
+            pow_solution = headers.get("x-erebos-pow-solution")
+            
+            # Fallback: Wenn die Lösung per URL-Parameter kommt (z.B. vom Browser-Skript)
+            if not pow_nonce or not pow_solution:
+                from urllib.parse import parse_qs
+                q = parse_qs(query)
+                pow_nonce = (q.get("pow_nonce", [""])[0] or "").strip()
+                pow_solution = (q.get("pow_solution", [""])[0] or "").strip()
+            
+            if _human_validator.check_human_json(headers):
+                logger.info("Human-json-Signal erkannt, PoW übersprungen.")
+            else:
+                if pow_nonce and pow_solution:
+                    if not _human_validator.verify_solution(pow_nonce, pow_solution):
+                        logger.warning("PoW-Validierung fehlgeschlagen.")
+                        resp = http_response(403, "text/plain; charset=utf-8", b"PoW validation failed")
+                        writer.write(resp)
+                        await writer.drain()
+                        return
+                else:
+                    challenge = _human_validator.issue_challenge(client_ip)
+                    extra_hdrs = (
+                        f"X-Erebos-PoW-Nonce: {challenge['nonce']}\r\n"
+                        f"X-Erebos-PoW-Difficulty: {challenge['difficulty']}\r\n"
+                        f"Retry-After: 5\r\n"
+                    )
+                    resp = http_response(429, "text/plain; charset=utf-8", b"PoW required", extra_headers=extra_hdrs)
+                    writer.write(resp)
+                    await writer.drain()
+                    return
 
             # 5) Response erzeugen
             body_out = render_page(
