@@ -19,6 +19,22 @@ Schema:
 
 import json
 import logging
+
+import re
+
+# Allow-List für Spaltennamen, die per ALTER TABLE hinzugefügt werden dürfen.
+# SQLite kann Identifier nicht parametrisieren, daher prüfen wir sie hier.
+_SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SAFE_TYPES = {"TEXT", "INTEGER", "REAL", "BLOB", "NUMERIC"}
+
+def _safe_alter_column(conn, table, name, typ):
+    """Führt ein sicheres ALTER TABLE aus, mit Allow-List-Prüfung."""
+    if not _SAFE_IDENT.match(name):
+        raise ValueError(f"Ungültiger Spaltenname: {name!r}")
+    typ_upper = typ.upper()
+    if typ_upper not in _SAFE_TYPES:
+        raise ValueError(f"Ungültiger Spaltentyp: {typ!r}")
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
 try:
     from sqlcipher3 import dbapi2 as sqlite3
     _SQLCIPHER_AVAILABLE = True
@@ -375,7 +391,7 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
     ]:
         if name not in hist_cols:
             try:
-                conn.execute(f"ALTER TABLE mail_key_history ADD COLUMN {name} {typ}")
+                _safe_alter_column(conn, "mail_key_history", name, typ)
                 logger.info(f"mail_key_history: Spalte '{name}' hinzugefuegt")
             except Exception as e:
                 logger.warning(f"mail_key_history: '{name}' nicht hinzugefuegt: {e}")
@@ -396,7 +412,7 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
     ]:
         if name not in existing:
             try:
-                conn.execute(f"ALTER TABLE mail_keys ADD COLUMN {name} {typ}")
+                _safe_alter_column(conn, "mail_keys", name, typ)
                 logger.info(f"mail_keys: Spalte '{name}' hinzugefuegt")
             except Exception as e:
                 logger.warning(f"mail_keys: Spalte '{name}' konnte nicht hinzugefuegt werden: {e}")
