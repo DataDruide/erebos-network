@@ -158,6 +158,7 @@ def render_wiki(address: str) -> bytes:
   <p style="color: #8b949e;">Eine Liste der verfuegbaren Dienste im Erebos-Netzwerk.</p>
   <div class="card">
     <ul>
+      <li><strong style="color:#00ff41;">Erebos Search</strong><br><span style="color:#8b949e; font-size:0.9em;">Die Suchmaschine für das gesamte Netzwerk.</span><br><a href="/search">/search</a></li>
       <li><strong style="color:#00ff41;">Erebos Forum</strong><br><span style="color:#8b949e; font-size:0.9em;">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
       <li><strong style="color:#00ff41;">Anonymes Postfach</strong><br><span style="color:#8b949e; font-size:0.9em;">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
       <li><strong style="color:#00ff41;">Erebos Chat</strong><br><span style="color:#8b949e; font-size:0.9em;">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>

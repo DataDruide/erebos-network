@@ -44,3 +44,6 @@ forum.db-shm
 backups/
 backups/cron.log
 docker-compose.yml.bak
+
+# Nym-Client (externes Repo, nicht Teil von Erebos)
+nym/

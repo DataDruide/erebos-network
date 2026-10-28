@@ -88,6 +88,13 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
             pass
 
     # -----------------------------------------------------------------
+    # Regeln
+    # -----------------------------------------------------------------
+    if path in ("/rules", "/rules/"):
+        from . import pages_rules
+        return pages_rules.render_rules(address)
+
+    # -----------------------------------------------------------------
     # Suchmaschine (Erebos Search)
     # -----------------------------------------------------------------
     if path in ("/search", "/search/"):
