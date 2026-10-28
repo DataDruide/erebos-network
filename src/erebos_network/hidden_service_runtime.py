@@ -427,7 +427,11 @@ class HiddenServiceRuntime:
                     body += chunk
                     need -= len(chunk)
 
-            logger.info(f"HTTP {method} {path} ({len(body)}B body)")
+            # Suchanfragen nicht mit Query-String loggen (Privacy)
+            log_path = path
+            if path.startswith("/search"):
+                log_path = "/search (query redacted)"
+            logger.info(f"HTTP {method} {log_path} ({len(body)}B body)")
 
             # 3) Query-String aus dem Original-Request extrahieren
             query = ""

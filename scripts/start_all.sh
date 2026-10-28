@@ -84,6 +84,10 @@ fi
 
 echo ""
 echo "=== 7. Test-Hidden-Service starten (im Hintergrund) ==="
+# .env laden, damit EREBOS_DB_KEY im Prozess verfuegbar ist
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
 nohup python -u scripts/create_test_hidden_service.py > /tmp/hidden_service.log 2>&1 &
 sleep 5
 
