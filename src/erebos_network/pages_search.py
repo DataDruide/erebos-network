@@ -1,9 +1,12 @@
 """Rendert die Suchmaschinen-Seite."""
 
 def render_search(address: str, query: str) -> bytes:
-    """Baut das HTML für die Suchseite."""
+    """Baut das HTML für die Suchseite (XSS-sicher)."""
+    import html as _html
     from .search_engine import search_all
     
+    # Suchbegriff escapen, bevor er ins HTML geht
+    query_safe = _html.escape(query, quote=True)
     results = search_all(query) if query else []
     
     results_html = ""
@@ -39,7 +42,7 @@ def render_search(address: str, query: str) -> bytes:
   <p style="color: #8b949e;">Durchsuche das gesamte Erebos-Netzwerk.</p>
   
   <form method="GET" action="/search" class="search-box">
-    <input type="text" name="q" value="{query}" placeholder="Suche nach Threads, Wiki-Einträgen..." autofocus>
+    <input type="text" name="q" value="{query_safe}" placeholder="Suche nach Threads, Wiki-Einträgen..." autofocus>
     <button type="submit">Suchen</button>
   </form>
 
