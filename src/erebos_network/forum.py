@@ -1098,7 +1098,7 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
                 f"User bannen</button></form>"
             )
         posts_html += (
-            f"<div{last_anchor} style=\"border:1px solid #ddd;padding:0.8em;margin:0.8em 0;border-radius:4px\">\n"
+            f"<div{last_anchor} style=\"border:1px solid #30363d; padding:1.5em; margin:1em 0; border-radius:12px; background:#161b22; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: border-color 0.2s;\" onmouseover=\"this.style.borderColor='#00ff41'\" onmouseout=\"this.style.borderColor='#30363d'\">\n"
             f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
             f"{quote_btn}{report_btn}{ban_btn}{admin_btn}</p>\n"
             f"  <p>{body}</p>\n"

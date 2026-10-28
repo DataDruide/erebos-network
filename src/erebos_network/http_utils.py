@@ -28,7 +28,7 @@ def http_response(status: int, content_type: str, body: bytes,
         # CSP: kein externes Script, kein Inline-Script, nur eigene Styles
         # und Inline-Styles (die Templates nutzen style="...")
         "Content-Security-Policy: default-src 'self'; "
-        "script-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "form-action 'self'; "
