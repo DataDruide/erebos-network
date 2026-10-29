@@ -126,14 +126,14 @@ def check_pow_skip_log():
     """Prüft im Hidden-Service-Log, ob die Localhost-Ausnahme gezündet hat."""
     print("\n[3/4] Hidden-Service-Log (Localhost-Ausnahme) ...")
     try:
-        with open("/tmp/hidden_service.log", "r", errors="ignore") as f:
+        with open("/tmp/erebos_debug.log", "r", errors="ignore") as f:
             lines = f.readlines()
     except FileNotFoundError:
-        print("  ⚠️  /tmp/hidden_service.log nicht gefunden – übersprungen")
+        print("  ⚠️  /tmp/erebos_debug.log nicht gefunden – übersprungen")
         return True
     last = "".join(lines[-50:])
-    if "Localhost-Client" in last and "übersprungen" in last:
-        print("  ✅ 'Localhost-Client ... übersprungen' im Log gefunden")
+    if ("LAN-Whitelist" in last and "überspringt PoW" in last) or ("LAN-Whitelist" in last and "übersprungen" in last):
+        print("  ✅ LAN-Whitelist-Ausnahme im Log gefunden")
         return True
     print("  ⚠️  Keine Localhost-Ausnahme im Log (letzte 50 Zeilen) – "
           "evtl. noch kein Request seit Neustart")
@@ -152,7 +152,7 @@ def check_encrypted_traffic(duration: float = 2.0):
     # tcpdump im Hintergrund starten
     try:
         proc = subprocess.Popen(
-            ["sudo", "-n", "tcpdump", "-i", "lo0", "-A", "-c", "20",
+            ["sudo", "-n", "/usr/sbin/tcpdump", "-i", "lo0", "-A", "-c", "20",
              "tcp port 9999"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
