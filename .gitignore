@@ -53,3 +53,4 @@ nym/
 *.bak
 full_reset_start.py
 full_reset_start.sh
+*.bak2
