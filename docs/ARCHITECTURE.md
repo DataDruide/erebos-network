@@ -154,3 +154,11 @@ Der Test prüft vier Dinge:
   `127.0.0.1`/`::1` von der PoW-Prüfung aus.
 - **Browser-Proxy:** SOCKS5 (nicht HTTP) auf `127.0.0.1:4448`, mit
   `network.proxy.socks_remote_dns = true`.
+
+## Härtung & Tests
+
+- **PoW-Ausnahme** nur mit `EREBOS_DEV_MODE=1` (Standard: PoW aktiv)
+- **Log-Level**: Konsole INFO, `/tmp/erebos_debug.log` DEBUG
+- **Peers** lauschen auf `0.0.0.0` (LAN-IP erreichbar)
+- **Peer-Ausfall-Test**: `tests/test_peer_failure.py` → sauberer Fehler
+- **Lasttest**: `tests/load_test.py` → 100/100 Requests, p50 = 184 ms
