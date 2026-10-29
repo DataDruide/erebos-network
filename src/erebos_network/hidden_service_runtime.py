@@ -655,38 +655,6 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
-            # Platzhalter für die Wiki-Dienste (damit Status-Punkte grün werden)
-            if path in ("/search", "/forum", "/mail", "/chat", "/rules"):
-                _titles = {
-                    "/search": "Erebos Search",
-                    "/forum": "Erebos Forum",
-                    "/mail": "Anonymes Postfach",
-                    "/chat": "Erebos Chat",
-                    "/rules": "Regeln & Richtlinien",
-                }
-                _title = _titles.get(path, path)
-                _html = (
-                    f"<!DOCTYPE html><html lang='de'><head>"
-                    f"<meta charset='utf-8'><title>{_title}</title>"
-                    f"<style>body{{background:#050508;color:#c8d8c8;"
-                    f"font-family:'Courier New',monospace;padding:2rem;"
-                    f"max-width:800px;margin:0 auto}}"
-                    f"h1{{color:#4ade80}}a{{color:#4ade80}}</style>"
-                    f"</head><body>"
-                    f"<h1>{_title}</h1>"
-                    f"<p>Diese Seite ist ein Platzhalter. Der Dienst "
-                    f"<code>{path}</code> wird in einer zukünftigen "
-                    f"Version implementiert.</p>"
-                    f"<p><a href='/wiki'>← Zurück zur Wiki</a></p>"
-                    f"</body></html>"
-                ).encode("utf-8")
-                resp = http_response(
-                    200, "text/html; charset=utf-8", _html
-                )
-                writer.write(resp)
-                await writer.drain()
-                return
-
             # Alle anderen Pfade → render_page (bestehende Logik)
             body_out = render_page(
                 path, self.address, f"{method} {path}",
