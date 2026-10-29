@@ -361,6 +361,7 @@ class HiddenServiceRuntime:
 
     async def _start_http_backend(self) -> None:
         handler = self.http_request_handler or self._default_http_handler
+        logger.info(f"[DEBUG-START] Verwende Handler: {handler}")
         self._http_server = await asyncio.start_server(
             handler, self.bind_host, self.bind_port
         )
@@ -368,6 +369,7 @@ class HiddenServiceRuntime:
 
     async def _default_http_handler(self, reader, writer) -> None:
         """HTTP-Backend: Startseite, Wiki, Forum (mit POST-Support)."""
+        logger.info("[DEBUG-HANDLER] _default_http_handler aufgerufen")
         # 0) Globales HTTP-Request-Limit (Schutz vor Flooding/DoS)
         import time as _time
         now = _time.time()
@@ -375,7 +377,34 @@ class HiddenServiceRuntime:
             t for t in self._http_request_log
             if now - t < HTTP_WINDOW_SECONDS
         ]
-        if len(self._http_request_log) >= MAX_HTTP_REQUESTS_PER_WINDOW:
+        # LAN-Whitelist: Rate-Limit für localhost/LAN überspringen
+        import ipaddress as _ipaddress
+        import os as _os_rl
+        _lan_env = _os_rl.environ.get(
+            "EREBOS_LAN_WHITELIST", "192.168.0.0/24,127.0.0.1/32,::1/128"
+        )
+        _is_lan = False
+        try:
+            # Kommagetrennte Liste von Netzwerken
+            _lan_nets = [
+                _ipaddress.ip_network(s.strip(), strict=False)
+                for s in _lan_env.split(",")
+                if s.strip()
+            ]
+            # Client-IP aus asyncio-Writer holen
+            _peer = writer.get_extra_info("peername")
+            _client_ip_str = _peer[0] if _peer else ""
+            logger.info(f"[DEBUG-RL] peer={_peer!r}, client_ip={_client_ip_str!r}, lan_nets={[str(n) for n in _lan_nets]}")
+            try:
+                _client_ip = _ipaddress.ip_address(_client_ip_str)
+                _is_lan = any(_client_ip in net for net in _lan_nets)
+            except ValueError:
+                pass
+            logger.info(f"[DEBUG-RL] is_lan={_is_lan}")
+        except (ValueError, AttributeError):
+            pass
+
+        if not _is_lan and len(self._http_request_log) >= MAX_HTTP_REQUESTS_PER_WINDOW:
             logger.warning(
                 f"HTTP-Rate-Limit erreicht "
                 f"({len(self._http_request_log)}/{MAX_HTTP_REQUESTS_PER_WINDOW} "
@@ -583,16 +612,23 @@ class HiddenServiceRuntime:
                         await writer.drain()
                         return
                 else:
+                    logger.info(f"[DEBUG] client_ip={client_ip!r}, lan_network={_human_validator.lan_network}")
                     challenge = _human_validator.issue_challenge(client_ip)
-                    extra_hdrs = (
-                        f"X-Erebos-PoW-Nonce: {challenge['nonce']}\r\n"
-                        f"X-Erebos-PoW-Difficulty: {challenge['difficulty']}\r\n"
-                        f"Retry-After: 5\r\n"
-                    )
-                    resp = http_response(429, "text/plain; charset=utf-8", b"PoW required", extra_headers=extra_hdrs)
-                    writer.write(resp)
-                    await writer.drain()
-                    return
+                    logger.info(f"[DEBUG] challenge={challenge}")
+                    if challenge.get("skip"):
+                        # LAN-Whitelist: PoW überspringen, weiter zur Antwort
+                        logger.info(f"LAN-Whitelist: {client_ip} – PoW übersprungen")
+                        # nichts tun, Fallthrough zur Response-Erzeugung
+                    else:
+                        extra_hdrs = (
+                            f"X-Erebos-PoW-Nonce: {challenge['nonce']}\r\n"
+                            f"X-Erebos-PoW-Difficulty: {challenge['difficulty']}\r\n"
+                            f"Retry-After: 5\r\n"
+                        )
+                        resp = http_response(429, "text/plain; charset=utf-8", b"PoW required", extra_headers=extra_hdrs)
+                        writer.write(resp)
+                        await writer.drain()
+                        return
 
             # 5) Response erzeugen
             # --- Statische Seiten + JSON + Status-API ---

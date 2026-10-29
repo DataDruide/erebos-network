@@ -1,6 +1,7 @@
 """Custom Human Extension Validator (PoW + human.json Signal)."""
 
 import hashlib
+import ipaddress
 import os
 import time
 import logging
@@ -12,6 +13,21 @@ class HumanValidator:
     def __init__(self, base_difficulty: int = 4, challenge_ttl: int = 120):
         self.base_difficulty = base_difficulty
         self.challenge_ttl = challenge_ttl
+        # LAN-Whitelist: Subnetz aus Env, Default 192.168.0.0/24
+        _lan = os.environ.get(
+            "EREBOS_LAN_WHITELIST", "192.168.0.0/24,127.0.0.1/32,::1/128"
+        )
+        try:
+            self.lan_network = [
+                ipaddress.ip_network(s.strip(), strict=False)
+                for s in _lan.split(",")
+                if s.strip()
+            ]
+        except ValueError:
+            self.lan_network = None
+            logger.warning(f"Ungültiges EREBOS_LAN_WHITELIST: {_lan!r} – Whitelist deaktiviert")
+        if self.lan_network:
+            logger.info(f"LAN-Whitelist aktiv: {[str(n) for n in self.lan_network]}")
         # Speichert aktive Challenges: nonce -> (timestamp, difficulty)
         self.active_challenges: Dict[str, tuple] = {}
         # Rate-Limit-Tracking: ip -> [timestamps]
@@ -36,7 +52,19 @@ class HumanValidator:
     def issue_challenge(self, client_ip: str) -> dict:
         """Stellt eine neue PoW-Challenge aus und passt die Schwierigkeit dynamisch an."""
         self._cleanup()
-        
+
+        # --- LAN-WHITELIST: Kein PoW für lokales Netzwerk ---
+        if self.lan_network is not None:
+            try:
+                ip = ipaddress.ip_address(client_ip)
+                for net in self.lan_network:
+                    if ip in net:
+                        logger.info(f"LAN-Whitelist: {client_ip} überspringt PoW")
+                        return {"nonce": "", "difficulty": 0, "skip": True}
+            except ValueError:
+                pass
+        # ---------------------------------------------------
+
         # Rate-Limit prüfen (DDoS-Schutz)
         now = time.time()
         self.ip_requests.setdefault(client_ip, []).append(now)
