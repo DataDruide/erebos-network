@@ -531,9 +531,18 @@ class HiddenServiceRuntime:
                 pow_nonce = (q.get("pow_nonce", [""])[0] or "").strip()
                 pow_solution = (q.get("pow_solution", [""])[0] or "").strip()
             
+            # --- 0. LOCALHOST-AUSNAHME: Kein PoW für lokale Clients ---
+            _is_localhost = client_ip in ("127.0.0.1", "::1", "localhost")
+            if _is_localhost:
+                logger.info(f"Localhost-Client ({client_ip}): PoW/Human-Token übersprungen")
+                has_human_token = True  # erzwingt, dass der PoW-Block übersprungen wird
+            else:
+                has_human_token = False
+            
             # --- 1. Prüfe Human-Token (Cookie oder URL) ---
             human_token = headers.get("x-erebos-human-token") or parse_qs(query).get("human_token", [""])[0]
-            has_human_token = human_token and _human_validator.verify_human_token(human_token)
+            if not _is_localhost:
+                has_human_token = human_token and _human_validator.verify_human_token(human_token)
             
             if has_human_token:
                 logger.info("Human-Token gültig, PoW und Rätsel übersprungen.")

@@ -47,3 +47,9 @@ docker-compose.yml.bak
 
 # Nym-Client (externes Repo, nicht Teil von Erebos)
 nym/
+
+# Erebos-spezifisch
+.erebos-profile/
+*.bak
+full_reset_start.py
+full_reset_start.sh

@@ -582,7 +582,6 @@ class ErebosSocks5Server:
                 intro_host, intro_port = intro_point.address.split(":")
                 intro_port = int(intro_port)
 
-                from .tunnel import ErebosTunnelClient
                 _lat = latency_for_peer("peer1")  # Intro-Peer (peer1)
                 tunnel_client = ErebosTunnelClient(host=intro_host, port=intro_port)
                 try:
@@ -599,7 +598,6 @@ class ErebosSocks5Server:
                             # 2-Hop-Onion: peer3 (Intro) -> peer1 (Rendezvous)
                             # Beide Richtungen laufen ueber peer3.
                             logger.info(f"[{conn_id}] Baue 2-Hop-Onion zu peer3 (Port 9997) -> peer1 (Port 9999)")
-                            from .tunnel import ErebosTunnelClient, FRAME_RELAY
                             from .onion import pack_onion_3hop, pack_onion_2hop
                             import json as _json
                             from pathlib import Path

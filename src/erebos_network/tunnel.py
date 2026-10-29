@@ -29,9 +29,9 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from .onion import open_layer
 from .crypto.hybrid_kem import derive_hybrid_key
 from .dht import PeerDhtStore
+from .onion import open_layer
 
 logger = logging.getLogger(__name__)
 
@@ -967,7 +967,6 @@ async def run_peer_server(port: int = PEER_PORT,
                 try:
                     # 2-Hop-Onion: Pruefe, ob payload eine Onion-Schicht ist
                     # (dann ist der eigentliche Payload verschluesselt).
-                    from .onion import open_layer
                     try:
                         self_priv = (KEYS_DIR / f"{peer_name}_x25519").read_bytes()
                         decrypted = open_layer(self_priv, payload)
