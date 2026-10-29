@@ -352,67 +352,548 @@ def _render_mail(anon_uuid: str, address: str, query: str = "",
         warning = ""
         if days_left is not None and days_left < 14:
             if days_left < 0:
-                warning = " <span style=\"color:#cc0000;\"><strong>⚠ Schlüssel abgelaufen</strong></span>"
+                warning = ' <span style="color:var(--danger);"><strong>⚠ Schlüssel abgelaufen</strong></span>'
             else:
-                warning = f" <span style=\"color:#cc8800;\"><strong>⚠ Läuft in {days_left} Tagen ab</strong></span>"
+                warning = f' <span style="color:var(--warn);"><strong>⚠ Läuft in {days_left} Tagen ab</strong></span>'
         key_info = (
-            "<hr style=\"margin:20px 0;\">"
-            "<div style=\"background:#f0f0f0;padding:10px;border-radius:4px;\">"
-            "<strong>Schlüssel-Verwaltung</strong><br>"
-            f"Aktuelle Version: <strong>v{version}</strong> "
-            f"(gültig bis {until_str}){warning}<br>"
-            "<form method=\"GET\" action=\"/mail/rotate\" style=\"margin-top:10px;\">"
-            "<button type=\"submit\" class=\"btn\">Schlüssel rotieren</button>"
-            "</form>"
-            "</div>"
+            '<div class="key-status">'
+            '<span class="dot"></span>'
+            '<span>Schlüssel aktiv</span>'
+            '</div>'
+            '<div class="identity-row">'
+            '<span class="identity-label">Aktuelle Version</span>'
+            f'<span class="identity-value">v{version}</span>'
+            '</div>'
+            '<div class="identity-row">'
+            '<span class="identity-label">Gültig bis</span>'
+            f'<span class="identity-value">{until_str}{warning}</span>'
+            '</div>'
+            '<div style="margin-top:1rem;">'
+            '<form method="GET" action="/mail/rotate">'
+            '<button type="submit" class="rotate-btn" style="background:var(--warn);color:var(--bg);border:none;padding:.7rem 1.4rem;font-family:var(--mono);font-size:.9rem;font-weight:bold;border-radius:6px;cursor:pointer;">'
+            'Schlüssel rotieren'
+            '</button>'
+            '</form>'
+            '</div>'
         )
 
-    body_html = (
-        f"<h1>Mail</h1>\n"
-        f"{rotated_banner}"
-        f"{_render_identity_box(anon_uuid)}"
-        "<h2>Neue Mail senden</h2>\n"
-        "<form method=\"post\" action=\"/mail\">\n"
-        "  <p><label>An (UUID des Empfaengers):<br>"
-        "  <input name=\"to_uuid\" required style=\"width:100%\" "
-        "placeholder=\"z.B. 132aa4b3-74de-54e2-b5f5-525012af0264\"></label></p>\n"
-        "  <p><label>Betreff:<br>"
-        "  <input name=\"subject\" required maxlength=\"200\" style=\"width:100%\"></label></p>\n"
-        "  <p><label>Nachricht:<br>"
-        "  <textarea name=\"body\" rows=\"6\" maxlength=\"4000\" required style=\"width:100%\"></textarea></label></p>\n"
-        "  <p><button type=\"submit\" class=\"btn\">Senden</button></p>\n"
-        "</form>\n"
-        "<h2>Deine Mails</h2>\n"
-        f"<div class='mail-list'>"
-        f"{_render_mail_list(anon_uuid)}"
-        f"</div>"
-        f"{key_info}"
-        "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
-    )
-    return _page("MAIL", address, body_html, hero_image="mail-bg.jpeg")
+    # --- NEU: Moderne Mail-Seite mit Tabs, Live-Status, Copy-Buttons ---
+    short_uuid = anon_uuid[:8]
+    email = f"{short_uuid}@erebos"
+    mails_count = len(mails)
+
+    # Mails als JSON für JS
+    import json as _json
+    mails_json = _json.dumps([
+        {
+            "id": m.get("id"),
+            "subject": m.get("subject", "(Kein Betreff)"),
+            "sender": (m.get("sender_uuid") or "")[:8],
+            "date": _format_timestamp(m.get("created_at", 0)),
+            "read": bool(m.get("read")),
+            "encrypted": bool(m.get("encrypted")),
+        }
+        for m in mails
+    ], ensure_ascii=False)
+
+    body_html = f"""
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erebos Mail</title>
+<style>
+  :root {{
+    --bg: #050508; --bg-card: #0d0d14; --bg-card-hover: #14141f;
+    --fg: #c8d8c8; --fg-dim: #7a8a7a;
+    --accent: #4ade80; --accent-dim: #22c55e33;
+    --warn: #fbbf24; --danger: #f87171; --border: #1f2937;
+    --mono: 'Courier New', 'Monaco', monospace;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html {{ scroll-behavior: smooth; }}
+  body {{
+    background: var(--bg); color: var(--fg); font-family: var(--mono);
+    font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
+  }}
+  body::before {{
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(circle at 20% 20%, #4ade8010 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, #4ade8008 0%, transparent 50%);
+    pointer-events: none; z-index: -1;
+  }}
+  .container {{ max-width: 960px; margin: 0 auto; }}
+  header {{ text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }}
+  h1 {{ font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px var(--accent-dim); }}
+  .subtitle {{ color: var(--fg-dim); font-size: .85rem; }}
+  .tabs {{ display: flex; gap: .5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: .5rem; flex-wrap: wrap; }}
+  .tab {{ background: transparent; border: 1px solid var(--border); color: var(--fg-dim); padding: .5rem 1rem; font-family: var(--mono); font-size: .9rem; cursor: pointer; border-radius: 6px; transition: all .2s; }}
+  .tab:hover {{ border-color: var(--accent); color: var(--fg); }}
+  .tab.active {{ background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }}
+  .panel {{ display: none; }}
+  .panel.active {{ display: block; animation: fadeIn .3s; }}
+  @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
+  .card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; }}
+  .card h2 {{ color: var(--accent); font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px; }}
+  .identity-row {{ display: flex; justify-content: space-between; align-items: center; padding: .6rem 0; border-bottom: 1px solid var(--border); }}
+  .identity-row:last-child {{ border-bottom: none; }}
+  .identity-label {{ color: var(--fg-dim); font-size: .85rem; }}
+  .identity-value {{ color: var(--fg); font-size: .85rem; font-family: var(--mono); word-break: break-all; text-align: right; max-width: 60%; }}
+  .identity-value.muted {{ color: var(--fg-dim); font-style: italic; }}
+  .copy-btn {{ background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); padding: .2rem .6rem; margin-left: .5rem; border-radius: 4px; cursor: pointer; font-size: .75rem; font-family: var(--mono); transition: all .2s; }}
+  .copy-btn:hover {{ background: var(--accent); color: var(--bg); }}
+  form {{ display: flex; flex-direction: column; gap: 1rem; }}
+  label {{ color: var(--fg-dim); font-size: .85rem; display: block; margin-bottom: .3rem; }}
+  input, textarea {{ width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: .7rem 1rem; font-family: var(--mono); font-size: .9rem; border-radius: 6px; transition: border-color .2s; }}
+  input:focus, textarea:focus {{ outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }}
+  textarea {{ min-height: 120px; resize: vertical; }}
+  button[type="submit"] {{ background: var(--accent); color: var(--bg); border: none; padding: .8rem 1.5rem; font-family: var(--mono); font-size: .95rem; font-weight: bold; border-radius: 6px; cursor: pointer; transition: all .2s; align-self: flex-start; }}
+  button[type="submit"]:hover {{ background: #22c55e; }}
+  button[type="submit"]:disabled {{ opacity: .5; cursor: not-allowed; }}
+  .empty-state {{ text-align: center; padding: 3rem 1rem; color: var(--fg-dim); }}
+  .empty-state .icon {{ font-size: 3rem; margin-bottom: 1rem; opacity: .5; }}
+  .mail-item {{ background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-bottom: .8rem; transition: border-color .2s; }}
+  .mail-item:hover {{ border-color: var(--accent); }}
+  .mail-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; font-size: .85rem; }}
+  .mail-from {{ color: var(--accent); }}
+  .mail-date {{ color: var(--fg-dim); font-size: .75rem; }}
+  .mail-subject {{ color: var(--fg); font-weight: bold; margin-bottom: .5rem; }}
+  .mail-body {{ color: var(--fg-dim); font-size: .85rem; }}
+  .key-status {{ display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }}
+  .key-status .dot {{ width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }}
+  @keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:.4}} }}
+  .footer {{ text-align: center; padding-top: 2rem; margin-top: 2rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: .8rem; }}
+  .footer a {{ color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); }}
+  .footer a:hover {{ border-bottom-style: solid; }}
+  .instance {{ margin-top: .5rem; font-size: .75rem; word-break: break-all; }}
+  .toast {{ position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent); color: var(--bg); padding: .7rem 1.4rem; border-radius: 6px; font-weight: bold; font-size: .85rem; opacity: 0; transition: transform .3s, opacity .3s; pointer-events: none; z-index: 1000; }}
+  .toast.show {{ transform: translateX(-50%) translateY(0); opacity: 1; }}
+  .toast.error {{ background: var(--danger); color: #fff; }}
+  .badge {{ display: inline-block; padding: .1rem .4rem; border-radius: 4px; font-size: .7rem; margin-left: .3rem; }}
+  .badge-verified {{ background: #22c55e33; color: var(--accent); border: 1px solid var(--accent); }}
+  .badge-outdated {{ background: #fbbf2433; color: var(--warn); border: 1px solid var(--warn); }}
+  .badge-failed {{ background: #f8717133; color: var(--danger); border: 1px solid var(--danger); }}
+  @media (prefers-reduced-motion: reduce) {{
+    *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }}
+  }}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Erebos Mail</h1>
+    <p class="subtitle">Sichere Nachrichten im Erebos-Netzwerk</p>
+  </header>
+
+  {rotated_banner}
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="compose" role="tab">✉ Neue Mail</button>
+    <button class="tab" data-tab="inbox" role="tab">📥 Postfach <span id="inbox-count">({mails_count})</span></button>
+    <button class="tab" data-tab="identity" role="tab">🆔 Identität</button>
+    <button class="tab" data-tab="keys" role="tab">🔑 Schlüssel</button>
+  </div>
+
+  <div class="panel active" id="panel-compose">
+    <div class="card">
+      <h2>Neue Mail senden</h2>
+      <form method="post" action="/mail" id="compose-form">
+        <div>
+          <label for="to_uuid">An (UUID des Empfängers)</label>
+          <input type="text" id="to_uuid" name="to_uuid" placeholder="z. B. 132aa4b3-74de-54e2-b5f5-525012af0264" required>
+        </div>
+        <div>
+          <label for="subject">Betreff</label>
+          <input type="text" id="subject" name="subject" maxlength="200" required>
+        </div>
+        <div>
+          <label for="body">Nachricht</label>
+          <textarea id="body" name="body" maxlength="4000" required></textarea>
+        </div>
+        <button type="submit" id="send-btn">Senden</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-inbox">
+    <div class="card">
+      <h2>Deine Mails</h2>
+      <div id="inbox-content">
+        {_render_mail_list(anon_uuid)}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-identity">
+    <div class="card">
+      <h2>Deine Identität</h2>
+      <div class="identity-row">
+        <span class="identity-label">UUID</span>
+        <span class="identity-value" id="uuid-val">{anon_uuid} <button class="copy-btn" data-copy="{anon_uuid}">Kopieren</button></span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">E-Mail</span>
+        <span class="identity-value">{email} <button class="copy-btn" data-copy="{email}">Kopieren</button></span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Forum</span>
+        <span class="identity-value muted">(wird beim ersten Forum-Login angelegt)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-keys">
+    <div class="card">
+      <h2>Schlüssel-Verwaltung</h2>
+      {key_info}
+    </div>
+  </div>
+
+  <footer class="footer">
+    <a href="/">← Startseite</a>
+    <div class="instance" id="instance"></div>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {{
+  'use strict';
+  const $ = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+  const toast = $('#toast');
+  let toastTimer;
+  function showToast(msg, isError=false) {{
+    toast.textContent = msg;
+    toast.classList.toggle('error', isError);
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+  }}
+
+  // Tabs
+  $$('.tab').forEach(tab => {{
+    tab.addEventListener('click', () => {{
+      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const panel = $('#panel-' + tab.dataset.tab);
+      if (panel) panel.classList.add('active');
+    }});
+  }});
+
+  // Copy-Buttons
+  $$('.copy-btn').forEach(btn => {{
+    btn.addEventListener('click', async (e) => {{
+      e.stopPropagation();
+      try {{
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        showToast('Kopiert!');
+      }} catch {{
+        showToast('Kopieren fehlgeschlagen', true);
+      }}
+    }});
+  }});
+
+  // Compose-Submit: Loading-State
+  const form = $('#compose-form');
+  if (form) {{
+    form.addEventListener('submit', () => {{
+      const btn = $('#send-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sende…';
+    }});
+  }}
+
+  // Rotate-Button
+  const rotateBtn = document.querySelector('.rotate-btn');
+  if (rotateBtn) {{
+    rotateBtn.addEventListener('click', () => {{
+      showToast('Schlüsselrotation würde jetzt starten (Demo)');
+    }});
+  }}
+
+  // Instance
+  const instance = $('#instance');
+  if (instance) {{
+    const host = window.location.hostname;
+    instance.textContent = host && host !== 'localhost' && host !== '127.0.0.1'
+      ? 'Diese Instanz: ' + host
+      : 'Diese Instanz: lokaler Test-Modus';
+  }}
+}})();
+</script>
+</body>
+</html>
+"""
+    return body_html.encode("utf-8")
 
 
 def _render_mail_list(anon_uuid: str) -> str:
-    """Lädt die Mails aus der DB und rendert sie im Hacker-Style."""
+    """Lädt die Mails aus der DB und rendert sie im modernen Card-Style."""
     from .forum_db import load_mails
     mails = load_mails(anon_uuid)
-    
+
     if not mails:
-        return "<p style='color:#8b949e;'>Dein Postfach ist leer. Du hast noch keine Nachrichten empfangen.</p>"
-    
+        return (
+            '<div class="empty-state">'
+            '<div class="icon">📭</div>'
+            '<p>Dein Postfach ist leer.</p>'
+            '<p style="font-size:.8rem;margin-top:.5rem;">'
+            'Du hast noch keine Nachrichten empfangen.'
+            '</p>'
+            '</div>'
+        )
+
     html = ""
     for m in mails:
-        sender = m.get("sender_uuid", "Unbekannt")
+        sender = (m.get("sender_uuid") or "Unbekannt")[:8]
         subject = m.get("subject", "(Kein Betreff)")
-        body = m.get("body", "")
-        # Optional: Datum, falls in der DB vorhanden
-        # date = m.get("created_at", "")
-        
-        html += f"""
-        <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:1em; margin-bottom:1em;">
-            <div style="color:#00ff41; font-size:0.8em; margin-bottom:0.5em;">Von: {sender}</div>
-            <strong style="color:#c9d1d9; font-size:1.1em;">{subject}</strong>
-            <p style="color:#8b949e; margin-top:0.5em; font-size:0.9em;">{body}</p>
-        </div>
-        """
+        body = (m.get("body") or "").replace("\n", "<br>")
+        date = _format_timestamp(m.get("created_at", 0))
+        unread = " <strong>[neu]</strong>" if not m.get("read") else ""
+
+        html += (
+            '<div class="mail-item">'
+            '<div class="mail-header">'
+            f'<span class="mail-from">Von: #{sender}</span>'
+            f'<span class="mail-date">{date}</span>'
+            '</div>'
+            f'<div class="mail-subject">{_escape(subject)}{unread}</div>'
+            f'<div class="mail-body">{body}</div>'
+            '</div>'
+        )
     return html
+
+
+
+def _render_mail_modern(anon_uuid: str, address: str, query: str,
+                        my_keys: dict, mails: list,
+                        rotated_banner: str, key_info: str) -> str:
+    """Moderne Mail-Seite mit Tabs, Live-Status, Copy-Buttons. Gibt str zurück."""
+    short_uuid = anon_uuid[:8]
+    email = f"{short_uuid}@erebos"
+    mails_count = len(mails)
+    mails_html = _render_mail_list(anon_uuid)
+
+    body = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erebos Mail</title>
+<style>
+  :root {{
+    --bg: #050508; --bg-card: #0d0d14; --bg-card-hover: #14141f;
+    --fg: #c8d8c8; --fg-dim: #7a8a7a;
+    --accent: #4ade80; --accent-dim: #22c55e33;
+    --warn: #fbbf24; --danger: #f87171; --border: #1f2937;
+    --mono: 'Courier New', 'Monaco', monospace;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html {{ scroll-behavior: smooth; }}
+  body {{
+    background: var(--bg); color: var(--fg); font-family: var(--mono);
+    font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
+  }}
+  body::before {{
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(circle at 20% 20%, #4ade8010 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, #4ade8008 0%, transparent 50%);
+    pointer-events: none; z-index: -1;
+  }}
+  .container {{ max-width: 960px; margin: 0 auto; }}
+  header {{ text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }}
+  h1 {{ font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px var(--accent-dim); }}
+  .subtitle {{ color: var(--fg-dim); font-size: .85rem; }}
+  .tabs {{ display: flex; gap: .5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: .5rem; flex-wrap: wrap; }}
+  .tab {{ background: transparent; border: 1px solid var(--border); color: var(--fg-dim); padding: .5rem 1rem; font-family: var(--mono); font-size: .9rem; cursor: pointer; border-radius: 6px; transition: all .2s; }}
+  .tab:hover {{ border-color: var(--accent); color: var(--fg); }}
+  .tab.active {{ background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }}
+  .panel {{ display: none; }}
+  .panel.active {{ display: block; animation: fadeIn .3s; }}
+  @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
+  .card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; }}
+  .card h2 {{ color: var(--accent); font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px; }}
+  .identity-row {{ display: flex; justify-content: space-between; align-items: center; padding: .6rem 0; border-bottom: 1px solid var(--border); }}
+  .identity-row:last-child {{ border-bottom: none; }}
+  .identity-label {{ color: var(--fg-dim); font-size: .85rem; }}
+  .identity-value {{ color: var(--fg); font-size: .85rem; font-family: var(--mono); word-break: break-all; text-align: right; max-width: 60%; }}
+  .identity-value.muted {{ color: var(--fg-dim); font-style: italic; }}
+  .copy-btn {{ background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); padding: .2rem .6rem; margin-left: .5rem; border-radius: 4px; cursor: pointer; font-size: .75rem; font-family: var(--mono); transition: all .2s; }}
+  .copy-btn:hover {{ background: var(--accent); color: var(--bg); }}
+  form {{ display: flex; flex-direction: column; gap: 1rem; }}
+  label {{ color: var(--fg-dim); font-size: .85rem; display: block; margin-bottom: .3rem; }}
+  input, textarea {{ width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: .7rem 1rem; font-family: var(--mono); font-size: .9rem; border-radius: 6px; transition: border-color .2s; }}
+  input:focus, textarea:focus {{ outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }}
+  textarea {{ min-height: 120px; resize: vertical; }}
+  button[type="submit"] {{ background: var(--accent); color: var(--bg); border: none; padding: .8rem 1.5rem; font-family: var(--mono); font-size: .95rem; font-weight: bold; border-radius: 6px; cursor: pointer; transition: all .2s; align-self: flex-start; }}
+  button[type="submit"]:hover {{ background: #22c55e; }}
+  button[type="submit"]:disabled {{ opacity: .5; cursor: not-allowed; }}
+  .empty-state {{ text-align: center; padding: 3rem 1rem; color: var(--fg-dim); }}
+  .empty-state .icon {{ font-size: 3rem; margin-bottom: 1rem; opacity: .5; }}
+  .mail-item {{ background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-bottom: .8rem; transition: border-color .2s; }}
+  .mail-item:hover {{ border-color: var(--accent); }}
+  .mail-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; font-size: .85rem; }}
+  .mail-from {{ color: var(--accent); }}
+  .mail-date {{ color: var(--fg-dim); font-size: .75rem; }}
+  .mail-subject {{ color: var(--fg); font-weight: bold; margin-bottom: .5rem; }}
+  .mail-body {{ color: var(--fg-dim); font-size: .85rem; }}
+  .key-status {{ display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }}
+  .key-status .dot {{ width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }}
+  @keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:.4}} }}
+  .footer {{ text-align: center; padding-top: 2rem; margin-top: 2rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: .8rem; }}
+  .footer a {{ color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); }}
+  .footer a:hover {{ border-bottom-style: solid; }}
+  .instance {{ margin-top: .5rem; font-size: .75rem; word-break: break-all; }}
+  .toast {{ position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent); color: var(--bg); padding: .7rem 1.4rem; border-radius: 6px; font-weight: bold; font-size: .85rem; opacity: 0; transition: transform .3s, opacity .3s; pointer-events: none; z-index: 1000; }}
+  .toast.show {{ transform: translateX(-50%) translateY(0); opacity: 1; }}
+  .toast.error {{ background: var(--danger); color: #fff; }}
+  @media (prefers-reduced-motion: reduce) {{
+    *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }}
+  }}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Erebos Mail</h1>
+    <p class="subtitle">Sichere Nachrichten im Erebos-Netzwerk</p>
+  </header>
+
+  {rotated_banner}
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="compose" role="tab">✉ Neue Mail</button>
+    <button class="tab" data-tab="inbox" role="tab">📥 Postfach <span id="inbox-count">({mails_count})</span></button>
+    <button class="tab" data-tab="identity" role="tab">🆔 Identität</button>
+    <button class="tab" data-tab="keys" role="tab">🔑 Schlüssel</button>
+  </div>
+
+  <div class="panel active" id="panel-compose">
+    <div class="card">
+      <h2>Neue Mail senden</h2>
+      <form method="post" action="/mail" id="compose-form">
+        <div>
+          <label for="to_uuid">An (UUID des Empfängers)</label>
+          <input type="text" id="to_uuid" name="to_uuid" placeholder="z. B. 132aa4b3-74de-54e2-b5f5-525012af0264" required>
+        </div>
+        <div>
+          <label for="subject">Betreff</label>
+          <input type="text" id="subject" name="subject" maxlength="200" required>
+        </div>
+        <div>
+          <label for="body">Nachricht</label>
+          <textarea id="body" name="body" maxlength="4000" required></textarea>
+        </div>
+        <button type="submit" id="send-btn">Senden</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-inbox">
+    <div class="card">
+      <h2>Deine Mails</h2>
+      <div id="inbox-content">
+        {mails_html}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-identity">
+    <div class="card">
+      <h2>Deine Identität</h2>
+      <div class="identity-row">
+        <span class="identity-label">UUID</span>
+        <span class="identity-value">{anon_uuid} <button class="copy-btn" data-copy="{anon_uuid}">Kopieren</button></span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">E-Mail</span>
+        <span class="identity-value">{email} <button class="copy-btn" data-copy="{email}">Kopieren</button></span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Forum</span>
+        <span class="identity-value muted">(wird beim ersten Forum-Login angelegt)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-keys">
+    <div class="card">
+      <h2>Schlüssel-Verwaltung</h2>
+      {key_info}
+    </div>
+  </div>
+
+  <footer class="footer">
+    <a href="/">← Startseite</a>
+    <div class="instance" id="instance"></div>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {{
+  'use strict';
+  const $ = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+  const toast = $('#toast');
+  let toastTimer;
+  function showToast(msg, isError=false) {{
+    toast.textContent = msg;
+    toast.classList.toggle('error', isError);
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+  }}
+
+  $$('.tab').forEach(tab => {{
+    tab.addEventListener('click', () => {{
+      $$('.tab').forEach(t => t.classList.remove('active'));
+      $$('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const panel = $('#panel-' + tab.dataset.tab);
+      if (panel) panel.classList.add('active');
+    }});
+  }});
+
+  $$('.copy-btn').forEach(btn => {{
+    btn.addEventListener('click', async (e) => {{
+      e.stopPropagation();
+      try {{
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        showToast('Kopiert!');
+      }} catch {{
+        showToast('Kopieren fehlgeschlagen', true);
+      }}
+    }});
+  }});
+
+  const form = $('#compose-form');
+  if (form) {{
+    form.addEventListener('submit', () => {{
+      const btn = $('#send-btn');
+      btn.disabled = true;
+      btn.textContent = 'Sende…';
+    }});
+  }}
+
+  const instance = $('#instance');
+  if (instance) {{
+    const host = window.location.hostname;
+    instance.textContent = host && host !== 'localhost' && host !== '127.0.0.1'
+      ? 'Diese Instanz: ' + host
+      : 'Diese Instanz: lokaler Test-Modus';
+  }}
+}})();
+</script>
+</body>
+</html>"""
+    return body
