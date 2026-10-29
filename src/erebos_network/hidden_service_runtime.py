@@ -361,7 +361,6 @@ class HiddenServiceRuntime:
 
     async def _start_http_backend(self) -> None:
         handler = self.http_request_handler or self._default_http_handler
-        logger.info(f"[DEBUG-START] Verwende Handler: {handler}")
         self._http_server = await asyncio.start_server(
             handler, self.bind_host, self.bind_port
         )
@@ -369,7 +368,6 @@ class HiddenServiceRuntime:
 
     async def _default_http_handler(self, reader, writer) -> None:
         """HTTP-Backend: Startseite, Wiki, Forum (mit POST-Support)."""
-        logger.info("[DEBUG-HANDLER] _default_http_handler aufgerufen")
         # 0) Globales HTTP-Request-Limit (Schutz vor Flooding/DoS)
         import time as _time
         now = _time.time()
@@ -394,13 +392,11 @@ class HiddenServiceRuntime:
             # Client-IP aus asyncio-Writer holen
             _peer = writer.get_extra_info("peername")
             _client_ip_str = _peer[0] if _peer else ""
-            logger.info(f"[DEBUG-RL] peer={_peer!r}, client_ip={_client_ip_str!r}, lan_nets={[str(n) for n in _lan_nets]}")
             try:
                 _client_ip = _ipaddress.ip_address(_client_ip_str)
                 _is_lan = any(_client_ip in net for net in _lan_nets)
             except ValueError:
                 pass
-            logger.info(f"[DEBUG-RL] is_lan={_is_lan}")
         except (ValueError, AttributeError):
             pass
 
