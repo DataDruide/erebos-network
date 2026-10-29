@@ -59,6 +59,19 @@ from . import pages_human
 
 logger = logging.getLogger(__name__)
 
+# --- DEBUG-Handler nur für Datei (Konsole bleibt INFO) ---
+import logging as _logging
+from logging.handlers import RotatingFileHandler as _RotatingFileHandler
+_debug_handler = _RotatingFileHandler(
+    "/tmp/erebos_debug.log", maxBytes=5_000_000, backupCount=3
+)
+_debug_handler.setLevel(_logging.DEBUG)
+_debug_handler.setFormatter(_logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s"
+))
+_logging.getLogger().addHandler(_debug_handler)
+_logging.getLogger().setLevel(_logging.INFO)
+
 _human_validator = HumanValidator()
 
 # Maximal erlaubte HTTP-Body-Groesse (Schutz vor Memory-DoS).
@@ -531,11 +544,13 @@ class HiddenServiceRuntime:
                 pow_nonce = (q.get("pow_nonce", [""])[0] or "").strip()
                 pow_solution = (q.get("pow_solution", [""])[0] or "").strip()
             
-            # --- 0. LOCALHOST-AUSNAHME: Kein PoW für lokale Clients ---
+            # --- 0. LOCALHOST-AUSNAHME: Nur im Dev-Modus (EREBOS_DEV_MODE=1) ---
+            import os as _os
+            _is_dev = _os.environ.get("EREBOS_DEV_MODE", "0") == "1"
             _is_localhost = client_ip in ("127.0.0.1", "::1", "localhost")
-            if _is_localhost:
-                logger.info(f"Localhost-Client ({client_ip}): PoW/Human-Token übersprungen")
-                has_human_token = True  # erzwingt, dass der PoW-Block übersprungen wird
+            if _is_dev and _is_localhost:
+                logger.info(f"DEV-MODE: Localhost-Client ({client_ip}): PoW übersprungen")
+                has_human_token = True
             else:
                 has_human_token = False
             
