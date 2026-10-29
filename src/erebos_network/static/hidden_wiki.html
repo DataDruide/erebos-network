@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erebos Hidden Wiki</title>
+<style>
+  :root {
+    --bg: #050508;
+    --bg-card: #0d0d14;
+    --bg-card-hover: #14141f;
+    --fg: #c8d8c8;
+    --fg-dim: #7a8a7a;
+    --accent: #4ade80;
+    --accent-dim: #22c55e33;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --border: #1f2937;
+    --mono: 'Courier New', 'Monaco', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.7;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 20%, #4ade8010 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, #4ade8008 0%, transparent 50%);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h1 {
+    font-size: 2.2rem;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: .5rem;
+    text-shadow: 0 0 20px var(--accent-dim);
+  }
+  .subtitle {
+    color: var(--fg-dim);
+    font-size: .85rem;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .search-bar {
+    margin: 2rem auto;
+    max-width: 600px;
+    position: relative;
+  }
+  .search-bar input {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: .8rem 1rem .8rem 2.5rem;
+    font-family: var(--mono);
+    font-size: .95rem;
+    border-radius: 6px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .search-bar input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .search-bar::before {
+    content: '⌕';
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--fg-dim);
+    font-size: 1.2rem;
+  }
+
+  .services {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-bottom: 3rem;
+  }
+  .service-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    cursor: pointer;
+    transition: transform .2s, border-color .2s, background .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .service-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: var(--accent);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform .3s;
+  }
+  .service-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+    background: var(--bg-card-hover);
+  }
+  .service-card:hover::after { transform: scaleY(1); }
+  .service-card:active { transform: translateY(0); }
+  .service-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .service-name {
+    color: var(--accent);
+    font-weight: bold;
+    font-size: 1.05rem;
+    margin-bottom: .4rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .service-status {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  .service-status.offline {
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+    animation: none;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .4; }
+  }
+  .service-desc {
+    color: var(--fg-dim);
+    font-size: .85rem;
+    margin-bottom: .8rem;
+    min-height: 2.6em;
+  }
+  .service-path {
+    display: inline-block;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: .15rem .5rem;
+    border-radius: 4px;
+    font-size: .8rem;
+    border: 1px solid transparent;
+    transition: border-color .2s;
+  }
+  .service-card:hover .service-path {
+    border-color: var(--accent);
+  }
+  .service-card[hidden] { display: none; }
+
+  .warnings {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .warnings h2 {
+    color: var(--warn);
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .warning-item {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+    position: relative;
+    font-size: .85rem;
+    color: var(--fg-dim);
+  }
+  .warning-item::before {
+    content: '⚠';
+    position: absolute;
+    left: 0;
+    color: var(--warn);
+  }
+  .warning-item strong { color: var(--fg); }
+  .warning-item:last-child { margin-bottom: 0; }
+
+  .footer {
+    text-align: center;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--fg-dim);
+    font-size: .8rem;
+  }
+  .footer a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--accent);
+    transition: border-color .2s;
+  }
+  .footer a:hover { border-bottom-style: solid; }
+  .instance {
+    margin-top: .5rem;
+    font-size: .75rem;
+    color: var(--fg-dim);
+    word-break: break-all;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--accent);
+    color: var(--bg);
+    padding: .7rem 1.4rem;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: .85rem;
+    opacity: 0;
+    transition: transform .3s, opacity .3s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Erebos Hidden Wiki</h1>
+    <p class="subtitle">
+      Manuell geprüfte Dienste für einen sicheren Einstieg ins Erebos-Netzwerk.
+    </p>
+  </header>
+
+  <div class="search-bar">
+    <input type="search" id="search" placeholder="Dienste durchsuchen… (z. B. Forum, Mail, Chat)" autocomplete="off" aria-label="Dienste durchsuchen">
+  </div>
+
+  <main class="services" id="services" role="list"></main>
+
+  <section class="warnings" aria-labelledby="warn-title">
+    <h2 id="warn-title">Wichtige Hinweise</h2>
+    <div class="warning-item"><strong>Keine Gewähr:</strong> Wir übernehmen keine Haftung für Inhalte, Sicherheit oder Erreichbarkeit der verlinkten Dienste. Jeder Nutzer handelt auf eigene Verantwortung.</div>
+    <div class="warning-item"><strong>Illegale Aktivitäten:</strong> Wir lehnen illegale Aktivitäten strikt ab. Das Erebos-Netzwerk dient der Forschung und dem sicheren, anonymen Austausch.</div>
+    <div class="warning-item"><strong>Eigene Verantwortung:</strong> Nutze das Netzwerk auf eigenes Risiko. Gib keine persönlichen Daten preis und respektiere die Regeln.</div>
+  </section>
+
+  <footer class="footer">
+    <a href="/">← Zurück zur Startseite</a>
+    <div class="instance" id="instance"></div>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // === DATEN (datengetrieben, kein Hardcoding im Markup) ===
+  const SERVICES = [
+    { name: 'Erebos Search', desc: 'Die Suchmaschine für das gesamte Netzwerk.', path: '/search' },
+    { name: 'Erebos Forum',  desc: 'Threads erstellen und diskutieren.', path: '/forum' },
+    { name: 'Anonymes Postfach', desc: 'Sichere Nachrichten empfangen und senden.', path: '/mail' },
+    { name: 'Erebos Chat',   desc: 'Echtzeit-Kommunikation im Darknet.', path: '/chat' },
+    { name: 'Regeln & Richtlinien', desc: 'Die Regeln des Erebos-Netzwerks.', path: '/rules' },
+  ];
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+
+  // === TOAST ===
+  const toast = $('#toast');
+  let toastTimer;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  // === KARTEN RENDERN ===
+  const container = $('#services');
+  const frag = document.createDocumentFragment();
+
+  SERVICES.forEach((svc, i) => {
+    const card = document.createElement('article');
+    card.className = 'service-card';
+    card.setAttribute('role', 'listitem');
+    card.tabIndex = 0;
+    card.dataset.name = svc.name.toLowerCase();
+    card.dataset.desc = svc.desc.toLowerCase();
+    card.dataset.path = svc.path;
+    card.setAttribute('aria-label', `${svc.name}: ${svc.desc}`);
+
+    const status = document.createElement('span');
+    status.className = 'service-status';
+    status.id = `status-${i}`;
+    status.title = 'Status wird geprüft…';
+
+    const name = document.createElement('div');
+    name.className = 'service-name';
+    name.append(status, document.createTextNode(svc.name));
+
+    const desc = document.createElement('div');
+    desc.className = 'service-desc';
+    desc.textContent = svc.desc;
+
+    const path = document.createElement('span');
+    path.className = 'service-path';
+    path.textContent = svc.path;
+
+    card.append(name, desc, path);
+
+    // Navigation: Klick + Enter/Space
+    const go = () => {
+      showToast(`Öffne ${svc.name}…`);
+      setTimeout(() => { window.location.href = svc.path; }, 300);
+    };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+    });
+
+    frag.appendChild(card);
+  });
+
+  container.appendChild(frag);
+
+  // === LIVE-SUCHE ===
+  const search = $('#search');
+  const cards = () => Array.from(container.children);
+
+  function filter() {
+    const q = search.value.trim().toLowerCase();
+    let visible = 0;
+    for (const card of cards()) {
+      const match = !q
+        || card.dataset.name.includes(q)
+        || card.dataset.desc.includes(q)
+        || card.dataset.path.includes(q);
+      card.hidden = !match;
+      if (match) visible++;
+    }
+    // Leerzustand
+    let empty = container.querySelector('.empty');
+    if (visible === 0) {
+      if (!empty) {
+        empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.style.cssText = 'grid-column:1/-1;text-align:center;color:var(--fg-dim);padding:2rem;';
+        empty.textContent = 'Keine Dienste gefunden.';
+        container.appendChild(empty);
+      }
+    } else if (empty) {
+      empty.remove();
+    }
+  }
+  search.addEventListener('input', filter);
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { search.value = ''; filter(); search.blur(); }
+  });
+
+  // === STATUS-CHECK (simuliert; im echten Betrieb via /api/status) ===
+  async function checkStatus() {
+    await Promise.allSettled(
+      SERVICES.map(async (svc, i) => {
+        const dot = document.getElementById(`status-${i}`);
+        if (!dot) return;
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 3000);
+          const res = await fetch(svc.path, { method: 'HEAD', signal: ctrl.signal, cache: 'no-store' });
+          clearTimeout(t);
+          const ok = res.ok || res.status === 302 || res.status === 401;
+          dot.classList.toggle('offline', !ok);
+          dot.title = ok ? `Online (HTTP ${res.status})` : `Offline (HTTP ${res.status})`;
+        } catch {
+          dot.classList.add('offline');
+          dot.title = 'Nicht erreichbar';
+        }
+      })
+    );
+  }
+
+  // === INSTANZ-ADRESSE dynamisch aus dem Host ===
+  const instance = $('#instance');
+  if (instance) {
+    const host = window.location.hostname;
+    instance.textContent = host && host !== 'localhost' && host !== '127.0.0.1'
+      ? `Diese Instanz: ${host}`
+      : 'Diese Instanz: lokaler Test-Modus';
+  }
+
+  // === INIT ===
+  checkStatus();
+  setInterval(checkStatus, 30000);
+})();
+</script>
+</body>
+</html>

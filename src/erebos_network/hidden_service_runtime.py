@@ -580,13 +580,22 @@ class HiddenServiceRuntime:
                     return
 
             # 5) Response erzeugen
-            body_out = render_page(
-                path, self.address, f"{method} {path}",
-                method=method, body=body, query=query, client_id=client_id,
-                username=username, session_token=session_token,
-                admin_cookie=admin_cookie, identity_uuid=identity_uuid,
-                headers=headers,
-            )
+            # --- /wiki: statische Hidden-Wiki-Seite ausliefern ---
+            if path == "/wiki":
+                from pathlib import Path as _Path
+                wiki_path = _Path(__file__).parent / "static" / "hidden_wiki.html"
+                if wiki_path.exists():
+                    body_out = wiki_path.read_bytes()
+                else:
+                    body_out = b"<h1>404 - Hidden Wiki nicht gefunden</h1>"
+            else:
+                body_out = render_page(
+                    path, self.address, f"{method} {path}",
+                    method=method, body=body, query=query, client_id=client_id,
+                    username=username, session_token=session_token,
+                    admin_cookie=admin_cookie, identity_uuid=identity_uuid,
+                    headers=headers,
+                )
 
             # 3a) Rate-Limit-Fall (HTTP 429)
             # Format: RATE_LIMIT:<retry_after_sec>\n<html>...
