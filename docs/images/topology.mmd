@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph Client["Client (Browser / curl)"]
+        B["Erebos.app<br/>SOCKS5 127.0.0.1:4448"]
+    end
+
+    subgraph Local["Lokaler Erebos-Stack"]
+        P["SOCKS5-Proxy<br/>:4448"]
+        A["API-Server<br/>:9050"]
+        P1["Peer1 (Entry)<br/>:9999"]
+        P2["Peer2 (Mix)<br/>:9998"]
+        P3["Peer3 (Exit/Intro)<br/>:9997"]
+        HS["Hidden-Service<br/>HTTP :8080"]
+    end
+
+    subgraph Onion["Hidden-Service-Adresse"]
+        O["pkzhbyj6...erebos"]
+    end
+
+    B -->|SOCKS5| P
+    P -->|3-Hop-Onion| P1
+    P1 --> P2
+    P2 --> P3
+    P3 -->|Rendezvous| HS
+    HS -.->|DHT-Descriptor| P3
+    O -.->|aufgelöst zu| HS

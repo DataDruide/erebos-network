@@ -1,0 +1,15 @@
+flowchart TB
+    subgraph L1["Layer 1 (Client -> Peer1)"]
+        A1["Hybrid-Tunnel<br/>X25519 + ML-KEM<br/>(verschluesselt)"]
+    end
+    subgraph L2["Layer 2 (Peer1 -> Peer2)"]
+        A2["Onion-Layer 2<br/>(nur Peer2 kann oeffnen)"]
+    end
+    subgraph L3["Layer 3 (Peer2 -> Peer3)"]
+        A3["Onion-Layer 3<br/>(nur Peer3 kann oeffnen)"]
+    end
+    subgraph L4["Payload (Peer3 -> Hidden-Service)"]
+        A4["HTTP GET /<br/>(Klartext am Exit)"]
+    end
+
+    Client["Client"] --> A1 --> A2 --> A3 --> A4 --> HS["Hidden-Service"]

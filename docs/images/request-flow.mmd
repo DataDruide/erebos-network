@@ -1,0 +1,29 @@
+sequenceDiagram
+    autonumber
+    participant C as Client (curl/Browser)
+    participant P as Proxy :4448
+    participant P1 as Peer1 :9999
+    participant P2 as Peer2 :9998
+    participant P3 as Peer3 :9997
+    participant HS as Hidden-Service :8080
+
+    C->>P: SOCKS5 CONNECT pkzhbyj6...erebos:80 (remote DNS)
+    P->>P1: Hybrid-Tunnel (X25519+ML-KEM) + Onion-Request
+    P1->>P2: Relay (Layer 2)
+    P2->>P3: Relay (Layer 3)
+    P3->>HS: HTTP GET /
+    HS-->>P3: 302 Found, Location: /onboard
+    P3-->>P2: Relay
+    P2-->>P1: Relay
+    P1-->>P: Relay
+    P-->>C: 302 Found
+    C->>P: SOCKS5 CONNECT (erneut, /onboard)
+    P->>P1: ...
+    P1->>P2: ...
+    P2->>P3: ...
+    P3->>HS: HTTP GET /onboard
+    HS-->>P3: 200 OK, 14906 Bytes HTML
+    P3-->>P2: Relay
+    P2-->>P1: Relay
+    P1-->>P: Relay
+    P-->>C: 200 OK
