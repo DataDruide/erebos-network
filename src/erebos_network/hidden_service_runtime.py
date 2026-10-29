@@ -580,22 +580,121 @@ class HiddenServiceRuntime:
                     return
 
             # 5) Response erzeugen
-            # --- /wiki: statische Hidden-Wiki-Seite ausliefern ---
+            # --- Statische Seiten + JSON + Status-API ---
+            from pathlib import Path as _Path
+            _static_dir = _Path(__file__).parent / "static"
+
+            # /api/status – prüft alle Dienste auf einmal
+            if path == "/api/status":
+                import json as _json
+                _services = [
+                    "/", "/onboard", "/wiki",
+                    "/search", "/forum", "/mail", "/chat", "/rules",
+                ]
+                _status = {}
+                for _p in _services:
+                    # HEAD-Request gegen uns selbst (localhost, kein Proxy)
+                    try:
+                        import asyncio as _asyncio
+                        _reader, _writer = await _asyncio.open_connection(
+                            "127.0.0.1", 8080
+                        )
+                        _req = (
+                            f"HEAD {_p} HTTP/1.1\r\n"
+                            f"Host: 127.0.0.1:8080\r\n"
+                            f"Connection: close\r\n\r\n"
+                        ).encode()
+                        _writer.write(_req)
+                        await _writer.drain()
+                        _line = await _asyncio.wait_for(
+                            _reader.readline(), timeout=2.0
+                        )
+                        _parts = _line.split()
+                        _code = int(_parts[1]) if len(_parts) > 1 else 0
+                        _status[_p] = {"ok": 200 <= _code < 400, "code": _code}
+                        _writer.close()
+                        try:
+                            await _writer.wait_closed()
+                        except Exception:
+                            pass
+                    except Exception:
+                        _status[_p] = {"ok": False, "code": 0}
+                body_out = _json.dumps(_status).encode("utf-8")
+                resp = http_response(
+                    200, "application/json; charset=utf-8", body_out
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # /wiki-services.json – Dienste-Liste für die Wiki-Seite
+            if path == "/wiki-services.json":
+                _svc_path = _static_dir / "wiki-services.json"
+                if _svc_path.exists():
+                    body_out = _svc_path.read_bytes()
+                else:
+                    body_out = b"[]"
+                resp = http_response(
+                    200, "application/json; charset=utf-8", body_out
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # /wiki – statische Hidden-Wiki-Seite
             if path == "/wiki":
-                from pathlib import Path as _Path
-                wiki_path = _Path(__file__).parent / "static" / "hidden_wiki.html"
-                if wiki_path.exists():
-                    body_out = wiki_path.read_bytes()
+                _wiki_path = _static_dir / "hidden_wiki.html"
+                if _wiki_path.exists():
+                    body_out = _wiki_path.read_bytes()
                 else:
                     body_out = b"<h1>404 - Hidden Wiki nicht gefunden</h1>"
-            else:
-                body_out = render_page(
-                    path, self.address, f"{method} {path}",
-                    method=method, body=body, query=query, client_id=client_id,
-                    username=username, session_token=session_token,
-                    admin_cookie=admin_cookie, identity_uuid=identity_uuid,
-                    headers=headers,
+                resp = http_response(
+                    200, "text/html; charset=utf-8", body_out
                 )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # Platzhalter für die Wiki-Dienste (damit Status-Punkte grün werden)
+            if path in ("/search", "/forum", "/mail", "/chat", "/rules"):
+                _titles = {
+                    "/search": "Erebos Search",
+                    "/forum": "Erebos Forum",
+                    "/mail": "Anonymes Postfach",
+                    "/chat": "Erebos Chat",
+                    "/rules": "Regeln & Richtlinien",
+                }
+                _title = _titles.get(path, path)
+                _html = (
+                    f"<!DOCTYPE html><html lang='de'><head>"
+                    f"<meta charset='utf-8'><title>{_title}</title>"
+                    f"<style>body{{background:#050508;color:#c8d8c8;"
+                    f"font-family:'Courier New',monospace;padding:2rem;"
+                    f"max-width:800px;margin:0 auto}}"
+                    f"h1{{color:#4ade80}}a{{color:#4ade80}}</style>"
+                    f"</head><body>"
+                    f"<h1>{_title}</h1>"
+                    f"<p>Diese Seite ist ein Platzhalter. Der Dienst "
+                    f"<code>{path}</code> wird in einer zukünftigen "
+                    f"Version implementiert.</p>"
+                    f"<p><a href='/wiki'>← Zurück zur Wiki</a></p>"
+                    f"</body></html>"
+                ).encode("utf-8")
+                resp = http_response(
+                    200, "text/html; charset=utf-8", _html
+                )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # Alle anderen Pfade → render_page (bestehende Logik)
+            body_out = render_page(
+                path, self.address, f"{method} {path}",
+                method=method, body=body, query=query, client_id=client_id,
+                username=username, session_token=session_token,
+                admin_cookie=admin_cookie, identity_uuid=identity_uuid,
+                headers=headers,
+            )
 
             # 3a) Rate-Limit-Fall (HTTP 429)
             # Format: RATE_LIMIT:<retry_after_sec>\n<html>...

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Erebos Search",
+    "desc": "Die Suchmaschine für das gesamte Netzwerk.",
+    "path": "/search"
+  },
+  {
+    "name": "Erebos Forum",
+    "desc": "Threads erstellen und diskutieren.",
+    "path": "/forum"
+  },
+  {
+    "name": "Anonymes Postfach",
+    "desc": "Sichere Nachrichten empfangen und senden.",
+    "path": "/mail"
+  },
+  {
+    "name": "Erebos Chat",
+    "desc": "Echtzeit-Kommunikation im Darknet.",
+    "path": "/chat"
+  },
+  {
+    "name": "Regeln & Richtlinien",
+    "desc": "Die Regeln des Erebos-Netzwerks.",
+    "path": "/rules"
+  }
+]
