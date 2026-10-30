@@ -23,5 +23,10 @@
     "name": "Regeln & Richtlinien",
     "desc": "Die Regeln des Erebos-Netzwerks.",
     "path": "/rules"
+  },
+  {
+    "name": "Habibbi Pay",
+    "desc": "Das verborgene Zahlungssystem für anonyme Transaktionen.",
+    "path": "/habibbi"
   }
 ]
