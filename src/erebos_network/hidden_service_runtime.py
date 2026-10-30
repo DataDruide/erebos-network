@@ -688,6 +688,43 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
+            # /static/ – statische Dateien (Bilder, CSS, JS)
+            if path.startswith("/static/"):
+                _rel = path[len("/static/"):]
+                # Pfad-Traversal verhindern
+                if ".." in _rel or _rel.startswith("/"):
+                    resp = http_response(400, "text/plain", b"Bad Request")
+                else:
+                    _file = _static_dir / _rel
+                    if _file.is_file():
+                        _ext = _file.suffix.lower()
+                        _mime = {
+                            ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
+                            ".png": "image/png", ".gif": "image/gif",
+                            ".svg": "image/svg+xml", ".webp": "image/webp",
+                            ".css": "text/css", ".js": "application/javascript",
+                            ".json": "application/json", ".html": "text/html",
+                        }.get(_ext, "application/octet-stream")
+                        body_out = _file.read_bytes()
+                        resp = http_response(200, _mime, body_out)
+                    else:
+                        resp = http_response(404, "text/plain", b"Not Found")
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # /habibbi – Habibbi Pay Vorstellungsseite
+            if path in ("/habibbi", "/habibbi/"):
+                _habibbi_path = _static_dir / "habibbi.html"
+                if _habibbi_path.exists():
+                    body_out = _habibbi_path.read_bytes()
+                else:
+                    body_out = b"<h1>404 - Habibbi Pay nicht gefunden</h1>"
+                resp = http_response(200, "text/html; charset=utf-8", body_out)
+                writer.write(resp)
+                await writer.drain()
+                return
+
             # /wiki – statische Hidden-Wiki-Seite
             if path == "/wiki":
                 _wiki_path = _static_dir / "hidden_wiki.html"

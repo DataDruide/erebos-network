@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Habibbi Pay – Das verborgene Zahlungssystem</title>
+<style>
+  :root {
+    --bg: #030305;
+    --bg-card: #0a0a10;
+    --bg-card-hover: #111118;
+    --fg: #b8c8b8;
+    --fg-dim: #5a6a5a;
+    --accent: #4ade80;
+    --accent-dim: #22c55e22;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --border: #151520;
+    --mono: 'Courier New', 'Monaco', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--mono);
+    font-size: 15px; line-height: 1.8; min-height: 100vh;
+    padding: 2rem 1rem; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at 30% 20%, #4ade8008 0%, transparent 60%),
+      radial-gradient(ellipse at 70% 80%, #4ade8005 0%, transparent 60%);
+    pointer-events: none; z-index: -2;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none; z-index: -1;
+  }
+  .container { max-width: 900px; margin: 0 auto; position: relative; }
+
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: 0.7; }
+    94% { opacity: 1; }
+    96% { opacity: 0.8; }
+    97% { opacity: 1; }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 5px var(--accent-dim); }
+    50% { box-shadow: 0 0 20px var(--accent-dim), 0 0 40px var(--accent-dim); }
+  }
+  @keyframes scanline {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+  }
+  @keyframes typewriter {
+    from { width: 0; }
+    to { width: 100%; }
+  }
+
+  header {
+    text-align: center; margin-bottom: 4rem;
+    padding: 3rem 0 2rem; border-bottom: 1px solid var(--border);
+    animation: fadeInUp 1s ease-out;
+  }
+  h1 {
+    font-size: 2.8rem; color: var(--accent); letter-spacing: 4px;
+    text-transform: uppercase; margin-bottom: .5rem;
+    text-shadow: 0 0 30px var(--accent-dim), 0 0 60px var(--accent-dim);
+    animation: flicker 4s infinite;
+  }
+  .subtitle {
+    color: var(--fg-dim); font-size: .85rem; max-width: 600px;
+    margin: 0 auto; letter-spacing: 1px;
+  }
+  .badge {
+    display: inline-block; background: transparent; color: var(--accent);
+    padding: .3rem .8rem; border-radius: 2px; font-size: .7rem;
+    text-transform: uppercase; letter-spacing: 2px; margin-top: 1.5rem;
+    border: 1px solid var(--accent);
+    animation: pulseGlow 3s infinite;
+  }
+
+  .scanline {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+    opacity: 0.3; z-index: 100; pointer-events: none;
+    animation: scanline 8s linear infinite;
+  }
+
+  section {
+    margin-bottom: 4rem; animation: fadeInUp 1s ease-out;
+    animation-fill-mode: both;
+  }
+  section:nth-child(2) { animation-delay: 0.2s; }
+  section:nth-child(3) { animation-delay: 0.4s; }
+  section:nth-child(4) { animation-delay: 0.6s; }
+  section:nth-child(5) { animation-delay: 0.8s; }
+
+  h2 {
+    color: var(--accent); font-size: 1.1rem; text-transform: uppercase;
+    letter-spacing: 2px; margin-bottom: 1.5rem;
+    padding-bottom: .8rem; border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  h2::before {
+    content: '▸ '; color: var(--accent);
+  }
+  p { color: var(--fg-dim); margin-bottom: 1rem; }
+  strong { color: var(--fg); }
+  em { color: var(--accent); font-style: normal; }
+
+  .features {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.2rem;
+  }
+  .feature-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1.5rem; position: relative;
+    transition: all .4s ease; overflow: hidden;
+  }
+  .feature-card::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 2px; height: 100%; background: var(--accent);
+    transform: scaleY(0); transform-origin: top;
+    transition: transform .4s ease;
+  }
+  .feature-card:hover {
+    border-color: var(--accent); background: var(--bg-card-hover);
+    transform: translateY(-3px);
+  }
+  .feature-card:hover::before { transform: scaleY(1); }
+  .feature-card h3 {
+    color: var(--accent); font-size: .9rem; margin-bottom: .8rem;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .feature-card p { font-size: .85rem; margin-bottom: 0; }
+
+  .how-it-works {
+    counter-reset: step;
+  }
+  .step {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1.5rem; margin-bottom: 1rem;
+    position: relative; padding-left: 4rem;
+    transition: border-color .3s;
+  }
+  .step:hover { border-color: var(--accent); }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute; left: 1.2rem; top: 1.5rem;
+    width: 2rem; height: 2rem; border-radius: 50%;
+    background: var(--accent-dim); border: 1px solid var(--accent);
+    color: var(--accent); font-weight: bold; font-size: .9rem;
+    display: flex; align-items: center; justify-content: center;
+    animation: pulseGlow 3s infinite;
+  }
+  .step h3 {
+    color: var(--fg); font-size: .95rem; margin-bottom: .5rem;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .step p { font-size: .85rem; margin-bottom: 0; }
+
+  .contact-box {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 4px;
+    padding: 2rem; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .contact-box::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 50%, var(--accent-dim) 0%, transparent 70%);
+    opacity: 0.3; pointer-events: none;
+  }
+  .contact-box p { position: relative; z-index: 1; }
+  .contact-box a {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px dashed var(--accent);
+    font-size: 1.1rem; letter-spacing: 1px;
+    transition: all .3s;
+  }
+  .contact-box a:hover {
+    border-bottom-style: solid;
+    text-shadow: 0 0 15px var(--accent);
+  }
+
+  .warning-box {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-left: 3px solid var(--warn); border-radius: 4px;
+    padding: 1.5rem; margin-bottom: 2rem;
+  }
+  .warning-box h3 {
+    color: var(--warn); font-size: .85rem; margin-bottom: .8rem;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .warning-box p { font-size: .8rem; margin-bottom: .5rem; }
+  .warning-box p:last-child { margin-bottom: 0; }
+
+  .footer {
+    text-align: center; padding-top: 3rem; margin-top: 3rem;
+    border-top: 1px solid var(--border); color: var(--fg-dim);
+    font-size: .8rem; letter-spacing: 1px;
+  }
+  .footer a {
+    color: var(--accent); text-decoration: none;
+    border-bottom: 1px dashed var(--accent);
+  }
+  .footer a:hover { border-bottom-style: solid; }
+  .instance { margin-top: 1rem; font-size: .7rem; opacity: .5; word-break: break-all; }
+
+  .glitch {
+    position: relative; display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text); position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.8;
+  }
+  .glitch::before {
+    color: #4ade80; z-index: -1;
+    animation: glitch1 3s infinite;
+  }
+  .glitch::after {
+    color: #f87171; z-index: -2;
+    animation: glitch2 3s infinite;
+  }
+  @keyframes glitch1 {
+    0%, 100% { transform: translate(0); }
+    20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); }
+    60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); }
+  }
+  @keyframes glitch2 {
+    0%, 100% { transform: translate(0); }
+    20% { transform: translate(2px, -2px); }
+    40% { transform: translate(2px, 2px); }
+    60% { transform: translate(-2px, -2px); }
+    80% { transform: translate(-2px, 2px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  @media (max-width: 600px) {
+    h1 { font-size: 1.8rem; letter-spacing: 2px; }
+    .step { padding-left: 3rem; }
+    .step::before { left: .8rem; width: 1.6rem; height: 1.6rem; font-size: .8rem; }
+  }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+<div class="container">
+
+  <header>
+    <h1 class="glitch" data-text="HABIBBI PAY">HABIBBI PAY</h1>
+    <p class="subtitle">Das verborgene Zahlungssystem. Anonym. Dezentral. Unaufhaltsam.</p>
+    <span class="badge">⚠ Forschungssystem – kein Echtgeld</span>
+  </header>
+
+  <section>
+    <h2>Was ist Habibbi Pay?</h2>
+    <p>
+      <strong>Habibbi Pay</strong> ist ein experimentelles, anonymes Zahlungssystem,
+      das im Schatten des Erebos-Netzwerks entsteht. Es wurde für die
+      <em>Forschung</em> entwickelt – um zu untersuchen, wie digitale Werte
+      ohne zentrale Instanz, ohne Bank und ohne Identitätspreisgabe
+      übertragen werden können.
+    </p>
+    <p>
+      Kein Konto. Keine Registrierung. Keine Spur. Nur du, dein Schlüssel
+      und die Transaktion. <em>Das ist der Kern von Habibbi Pay.</em>
+    </p>
+  </section>
+
+  <section>
+    <h2>Wie es funktioniert</h2>
+    <div class="how-it-works">
+      <div class="step">
+        <h3>Identität erzeugen</h3>
+        <p>
+          Deine Identität ist eine <strong>UUID</strong> – keine E-Mail,
+          kein Name, keine Nummer. Sie wird lokal generiert und verlässt
+          deinen Rechner nie. Sie ist dein Schlüssel zu deinem Guthaben.
+        </p>
+      </div>
+      <div class="step">
+        <h3>Guthaben empfangen</h3>
+        <p>
+          Teile deine UUID mit jemandem, der dir Guthaben senden möchte.
+          Die Transaktion wird <strong>Ende-zu-Ende verschlüsselt</strong>
+          über das Erebos-Netzwerk übertragen – durch drei Hops,
+          keinen davon kann man zurückverfolgen.
+        </p>
+      </div>
+      <div class="step">
+        <h3>Anonym senden</h3>
+        <p>
+          Sende Guthaben an eine andere UUID. Der Empfänger sieht nur
+          deine <strong>anonyme Absender-ID</strong>, nicht deine Identität.
+          Die Transaktion ist signiert, aber nicht zuordenbar.
+        </p>
+      </div>
+      <div class="step">
+        <h3>Historie prüfen</h3>
+        <p>
+          Jede Transaktion wird in deiner <strong>lokalen, verschlüsselten
+          Datenbank</strong> gespeichert. Du hast die volle Kontrolle –
+          niemand sonst kann deine Historie einsehen.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was es besonders macht</h2>
+    <div class="features">
+      <div class="feature-card">
+        <h3>🔒 Anonym</h3>
+        <p>
+          Keine KYC, keine AML, keine Identitätspreisgabe. Deine UUID
+          ist dein einziger Schlüssel – und sie bleibt bei dir.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3>🌐 Dezentral</h3>
+        <p>
+          Kein zentraler Server, keine Bank, keine Instanz, die
+          Transaktionen blockieren oder einfrieren kann.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3>🧅 Onion-Routing</h3>
+        <p>
+          Jede Transaktion läuft durch drei Hops im Erebos-Netzwerk.
+          Kein Peer kennt Absender und Empfänger gleichzeitig.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3>🔐 PQ-Verschlüsselung</h3>
+        <p>
+          Hybrid-Verschlüsselung mit X25519 + ML-KEM-768. Sicher gegen
+          klassische und quantencomputerbasierte Angriffe.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3>💾 Lokale Kontrolle</h3>
+        <p>
+          Deine Transaktionshistorie liegt in einer lokalen, mit
+          SQLCipher verschlüsselten Datenbank. Nur du hast Zugriff.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3>⚠ Forschungssystem</h3>
+        <p>
+          Habibbi Pay ist ein <strong>Forschungssystem</strong>. Es
+          verwendet kein Echtgeld. Ziel ist die Untersuchung anonymer
+          Zahlungssysteme.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wichtige Hinweise</h2>
+    <div class="warning-box">
+      <h3>⚠ Forschungssystem – kein Echtgeld</h3>
+      <p>
+        Habibbi Pay ist ein <strong>experimentelles Forschungssystem</strong>.
+        Es wird <strong>kein Echtgeld</strong> verwendet. Alle Guthaben
+        und Transaktionen sind simuliert und haben keinen realen Wert.
+      </p>
+      <p>
+        Das System dient ausschließlich der <strong>wissenschaftlichen
+        Untersuchung</strong> anonymer Zahlungssysteme und der
+        Netzwerk-Sicherheit.
+      </p>
+    </div>
+    <div class="warning-box">
+      <h3>⚠ Keine Haftung</h3>
+      <p>
+        Die Nutzung erfolgt auf eigenes Risiko. Es wird keine Haftung
+        für Datenverlust, Fehlfunktionen oder Schäden übernommen.
+        Habibbi Pay ist ein <strong>Forschungsobjekt</strong>, kein
+        Produkt.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Interesse?</h2>
+    <div class="contact-box">
+      <p>
+        Wenn du mehr über Habibbi Pay erfahren oder an der Forschung
+        teilnehmen möchtest, kontaktiere uns über das Erebos-Netzwerk:
+      </p>
+      <p style="margin-top:1.5rem;">
+        <a href="/mail" id="contact-link">→ Sende eine Nachricht über /mail</a>
+      </p>
+      <p style="font-size:.8rem; margin-top:1rem; opacity:.6;">
+        Deine UUID bleibt anonym. Wir antworten über denselben Kanal.
+      </p>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <a href="/">← Zurück zur Startseite</a>
+    <div class="instance" id="instance"></div>
+  </footer>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // Kontakt-Link: Wenn eine E-Mail-Adresse in der URL steht, direkt verlinken
+  // Ansonsten: /mail öffnen
+  const contactLink = document.getElementById('contact-link');
+  if (contactLink) {
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get('email');
+    if (email) {
+      contactLink.href = '/mail?to=' + encodeURIComponent(email);
+    }
+  }
+
+  // Instanz-Adresse
+  const instance = document.getElementById('instance');
+  if (instance) {
+    const host = window.location.hostname;
+    instance.textContent = host && host !== 'localhost' && host !== '127.0.0.1'
+      ? 'Diese Instanz: ' + host
+      : 'Diese Instanz: lokaler Test-Modus';
+  }
+
+  // Glitch-Effekt bei Hover auf H1
+  const h1 = document.querySelector('h1.glitch');
+  if (h1) {
+    h1.addEventListener('mouseenter', () => {
+      h1.style.animation = 'none';
+      setTimeout(() => { h1.style.animation = ''; }, 300);
+    });
+  }
+})();
+</script>
+</body>
+</html>
