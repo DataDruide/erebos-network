@@ -694,19 +694,62 @@ def list_authors() -> list:
 
 
 def list_categories() -> list:
-    """Liefert Kategorien mit Thread- und Post-Zaehler."""
+    """Liefert Kategorien mit Thread- und Post-Zaehler + letztem Thread."""
     data = load_forum()
     result = []
     for c in data.get("categories", []):
         cid = c["id"]
         threads = [t for t in data["threads"] if t.get("category_id") == cid]
         posts_count = sum(len(t.get("posts", [])) for t in threads)
+
+        # Letzter Thread: Thread mit dem neuesten Post
+        last_thread = None
+        last_post = None
+        best_ts = None
+        for t in threads:
+            for p in t.get("posts", []):
+                ts = p.get("created_at")
+                if ts is not None and (best_ts is None or ts > best_ts):
+                    best_ts = ts
+                    last_thread = t
+                    last_post = p
+        if last_thread is None and threads:
+            # Fallback: erster Thread (falls keine Posts)
+            last_thread = threads[0]
+
+        # last_thread als dict mit title, time, author, id
+        lt_dict = None
+        if last_thread:
+            import datetime as _dt
+            ts = best_ts
+            if ts is not None:
+                try:
+                    lt_time = _dt.datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M")
+                except Exception:
+                    lt_time = ""
+            else:
+                lt_time = ""
+            author = ""
+            if last_post:
+                author = last_post.get("author", "") or ""
+            if not author and last_thread:
+                author = last_thread.get("author", "") or ""
+            if not author:
+                author = "Anonym"
+            lt_dict = {
+                "id": last_thread.get("id", ""),
+                "title": last_thread.get("title", ""),
+                "time": lt_time,
+                "author": author,
+            }
+
         result.append({
             "id": cid,
             "name": c["name"],
             "desc": c.get("desc", ""),
             "threads_count": len(threads),
             "posts_count": posts_count,
+            "last_thread": lt_dict,
         })
     return result
 
@@ -1312,6 +1355,38 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
     if not rows:
         rows = "<li><em>Noch keine Kategorien.</em></li>"
 
+    # rows_table: Tabelle mit "Letzter Thread"-Spalte
+    rows_table = ""
+    for c in cats:
+        cid = _escape(c["id"])
+        name = _escape(c["name"])
+        desc = _escape(c["desc"])
+        last_thread = c.get("last_thread")
+        if last_thread:
+            lt_title = _escape(last_thread.get("title", ""))
+            lt_time = _escape(last_thread.get("time", ""))
+            lt_author = _escape(last_thread.get("author", ""))
+            lt_link = f"/forum/{cid}/thread/{last_thread.get('id', '')}"
+            last_post_html = (
+                f'<a href="{lt_link}">{lt_title}</a>'
+                f'<span class="last-post-meta">'
+                f'<time>{lt_time}</time> von <strong>{lt_author}</strong>'
+                f'</span>'
+            )
+        else:
+            last_post_html = '<span class="last-post-meta">Kein Thread</span>'
+        rows_table += (
+            '<tr>'
+            f'<td class="forum-name">'
+            f'<a href="/forum/{cid}">{name}</a>'
+            f'<p class="forum-desc">{desc}</p>'
+            '</td>'
+            f'<td class="forum-stats">{c["threads_count"]}</td>'
+            f'<td class="forum-stats">{c["posts_count"]}</td>'
+            f'<td class="forum-last-post">{last_post_html}</td>'
+            '</tr>'
+        )
+
     # Legende
     legend = (
         '<div class="legend" style="margin:1em 0; padding:0.8em; '
@@ -1379,20 +1454,59 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         )
 
     return (
-        "<h1>Erebos Community</h1>\n"
-        "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
-        f"{legend}"
-        f"{user_nav}"
-        f"{client_status}"
-        "<form method=\"get\" action=\"/forum/search\" style=\"margin:1em 0\">\n"
-        "  <input name=\"q\" placeholder=\"Suche in Titeln und Posts...\" "
-        "style=\"width:70%;padding:0.4em\"> "
-        "<button type=\"submit\" class=\"btn\">Suchen</button>\n"
-        "</form>\n"
-        f"<ul>\n{rows}</ul>\n"
-        "<a class=\"btn\" href=\"/forum/neu\">Neuen Thread erstellen</a>\n"
-        f"{admin_nav}"
-        "<a class=\"btn\" href=\"/\">← Startseite</a>\n"
+        # Navbar oben
+        '<header class="forum-header">'
+        '  <div class="header-inner">'
+        '    <a href="/forum" class="logo">EREBOS FORUM</a>'
+        '    <nav class="top-nav">'
+        '      <a href="/forum">Übersicht</a>'
+        '      <a href="/wiki">Wiki</a>'
+        '      <a href="/mail">Mail</a>'
+        '      <a href="/chat">Chat</a>'
+        '    </nav>'
+        '  </div>'
+        '</header>'
+        # Layout: Sidebar + Inhalt
+        '<div class="forum-layout">'
+        # Sidebar links
+        '  <aside class="forum-sidebar">'
+        '    <h3>Rubriken</h3>'
+        '    <ul class="sidebar-nav">'
+        f'      {rows}'
+        '    </ul>'
+        '  </aside>'
+        # Hauptinhalt
+        '  <main class="forum-main">'
+        '    <h1>Erebos Community</h1>'
+        '    <p>Diskutiere mit anderen im Erebos-Netzwerk.</p>'
+        f'    {legend}'
+        f'    {user_nav}'
+        f'    {client_status}'
+        # Suchformular
+        '    <form method="get" action="/forum/search" style="margin:1em 0">'
+        '      <input name="q" placeholder="Suche in Titeln und Posts..." '
+        'style="width:70%;padding:0.4em"> '
+        '      <button type="submit" class="btn">Suchen</button>'
+        '    </form>'
+        # Tabelle mit "Letzter Thread"-Spalte
+        '    <table class="forum-table">'
+        '      <thead>'
+        '        <tr>'
+        '          <th>Forum</th>'
+        '          <th>Themen</th>'
+        '          <th>Beiträge</th>'
+        '          <th class="col-last-post">Letzter Thread</th>'
+        '        </tr>'
+        '      </thead>'
+        '      <tbody>'
+        f'        {rows_table}'
+        '      </tbody>'
+        '    </table>'
+        '    <a class="btn" href="/forum/neu">Neuen Thread erstellen</a>'
+        f'    {admin_nav}'
+        '    <a class="btn" href="/">← Startseite</a>'
+        '  </main>'
+        '</div>'
     )
 
 

@@ -49,10 +49,11 @@ def _load_bg_image(name: str) -> str:
     return ""
 
 
-def _page(title: str, address: str, body: str, hero_image: str = "") -> bytes:
+def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: str = "") -> bytes:
     """Rendert eine komplette HTML-Seite mit optionalem Hero-Header.
 
     hero_image: Dateiname in assets/ (z.B. "mail-bg.jpeg") oder ""
+    body_bg: Optionaler Seitenhintergrund (z.B. "55.jpeg")
     """
     if hero_image and not hero_image.startswith("data:"):
         hero_image = _load_bg_image(hero_image)
@@ -387,6 +388,16 @@ def _page(title: str, address: str, body: str, hero_image: str = "") -> bytes:
         "</body>\n"
         "</html>\n"
     )
+    # body_bg: Platzhalter ersetzen + Div einfügen
+    if body_bg:
+        _bg_url = _load_bg_image(body_bg)
+        if _bg_url:
+            html = html.replace("{{BODY_BG}}", _bg_url)
+        else:
+            html = html.replace("{{BODY_BG}}", "")
+    else:
+        html = html.replace("{{BODY_BG}}", "")
+
     return html.encode("utf-8")
 
 
