@@ -4,12 +4,9 @@ import base64
 from pathlib import Path as _Path
 
 
-def _get_bg_base64() -> str:
-    """Lädt das Hintergrundbild als Base64 (inline, kein /static/-Endpoint nötig)."""
-    img_path = _Path(__file__).parent / "static" / "desktop3.jpeg"
-    if not img_path.exists():
-        return ""
-    return base64.b64encode(img_path.read_bytes()).decode("ascii")
+def _get_bg_url() -> str:
+    """Gibt die URL zum Hintergrundbild zurück (via /static/-Endpoint)."""
+    return "/static/desktop3.jpeg"
 
 
 def render_search(address: str, query: str) -> bytes:
@@ -19,7 +16,7 @@ def render_search(address: str, query: str) -> bytes:
 
     query_safe = _html.escape(query, quote=True)
     results = search_all(query) if query else []
-    bg_b64 = _get_bg_base64()
+    bg_url = _get_bg_url()
 
     # Ergebnis-Karten
     results_html = ""
@@ -52,7 +49,6 @@ def render_search(address: str, query: str) -> bytes:
             '</div>'
         )
 
-    bg_style = f"background-image: url('data:image/jpeg;base64,{bg_b64}');" if bg_b64 else ""
 
     html = f"""<!DOCTYPE html>
 <html lang="de">
@@ -73,14 +69,19 @@ def render_search(address: str, query: str) -> bytes:
   body {{
     background: var(--bg); color: var(--fg); font-family: var(--mono);
     font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
-    background-size: cover; background-position: center; background-attachment: fixed;
-    {bg_style}
+    position: relative;
   }}
-  body::before {{
-    content: ''; position: fixed; inset: 0;
+  .bg {{
+    position: fixed; inset: 0; z-index: -2;
+    background-image: url('{bg_url}');
+    background-size: cover; background-position: center;
+    background-repeat: no-repeat;
+  }}
+  .bg::after {{
+    content: ''; position: absolute; inset: 0;
     background: rgba(5, 5, 8, 0.85);
-    pointer-events: none; z-index: -1;
   }}
+  /* Overlay ist in .bg::after */
   .container {{ max-width: 960px; margin: 0 auto; position: relative; }}
   header {{ text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }}
   h1 {{ font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px var(--accent-dim); }}
@@ -158,6 +159,7 @@ def render_search(address: str, query: str) -> bytes:
 </style>
 </head>
 <body>
+<div class="bg"></div>
 <div class="container">
   <header>
     <h1>Erebos Search</h1>
