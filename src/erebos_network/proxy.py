@@ -479,34 +479,8 @@ class ErebosSocks5Server:
                 import os
                 
                 # Verteilte DHT (Kademlia-basiert)
-                from .distributed_dht import DistributedDescriptorStore
-                from .dht import PeerInfo
-                dht = getattr(self, "_descriptor_store", None)
-                if dht is None:
-                    own_id = "00" * 32
-                    dht = DistributedDescriptorStore(own_id)
-                    # Peers aus konfigurierbarer Liste laden (Fallback: Auto-Erkennung)
-                    from .peers_loader import load_peers
-                    configured = load_peers()
-                    if configured:
-                        for entry in configured:
-                            dht.add_peer(entry.to_peer_info())
-                            logger.info(
-                                "Peer aus peers.json: %s (%s, role=%s)",
-                                entry.name, entry.address, entry.role,
-                            )
-                    else:
-                        # Fallback: bisherige Ableitung aus peer_pubs
-                        from .peers_config import peer_host
-                        for i, (peer_name, peer_pub) in enumerate(self.peer_pubs.items()):
-                            peer_id = f"{i:02x}" * 32
-                            port = 9997 + i
-                            peer_info = PeerInfo(
-                                peer_id=peer_id,
-                                address=f"{peer_host(peer_name)}:{port}",
-                            )
-                            dht.add_peer(peer_info)
-                    self._descriptor_store = dht
+                from .dht import PeerDhtStore
+                # DHT_GET wird direkt an Peers gesendet (siehe unten)
                 
                 # Rendezvous-Punkt wählen – bevorzugt Entry-Rolle aus peers.json
                 rendezvous_peer = None
@@ -548,7 +522,7 @@ class ErebosSocks5Server:
                 client_ephemeral = os.urandom(32)
                 request = await connect_to_hidden_service(
                     address=host,
-                    dht=dht,
+                    # dht=dht,  # (nicht mehr benötigt – DHT_GET wird direkt gesendet)
                     rendezvous_peer_id=rendezvous_peer,
                     rendezvous_address=f"127.0.0.1:{_peer_name_to_port(rendezvous_peer)}",
                     client_ephemeral_key=client_ephemeral,
@@ -568,10 +542,37 @@ class ErebosSocks5Server:
                 # Descriptor aus dem Request nehmen (wurde von
                 # connect_to_hidden_service bereits aus der DHT geholt).
                 descriptor = getattr(request, "descriptor", None)
+                logger.info(f"[{conn_id}] DEBUG: descriptor={descriptor}, host={host}")
                 if descriptor is None:
-                    # Fallback: lokaler Lookup (z.B. fuer aeltere Aufrufer)
-                    from .hidden_service import lookup_descriptor
-                    descriptor = lookup_descriptor(dht, host)
+                    # DHT_GET an Peers senden (statt lokalem Lookup)
+                    import json as _json
+                    import hashlib as _hashlib
+                    # ErebosTunnelClient und FRAME_DHT_GET sind bereits auf Modulebene importiert (Zeile 15)
+                    from .peers_loader import load_peers
+                    from .hidden_service import HiddenServiceDescriptor
+
+                    key_hex = _hashlib.sha256(host.encode()).hexdigest()
+                    payload = _json.dumps({"key": key_hex}).encode("utf-8")
+
+                    for peer in load_peers():
+                        try:
+                            # peer.address parsen: "172.20.0.10:9999" → host, port
+                            _host, _port_str = peer.address.split(":")
+                            _port = int(_port_str)
+                            client = ErebosTunnelClient(host=_host, port=_port)
+                            await client.connect()
+                            await client.send_typed(FRAME_DHT_GET, payload)
+                            response_raw = await asyncio.wait_for(client.receive(), timeout=5.0)
+                            await client.close()
+                            if response_raw:
+                                response = _json.loads(response_raw.decode("utf-8"))
+                                if response.get("value"):
+                                    descriptor = HiddenServiceDescriptor.from_dict(response["value"])
+                                    logger.info(f"DHT_GET von {peer.name}: Descriptor gefunden")
+                                    break
+                        except Exception as e:
+                            logger.warning(f"DHT_GET von {peer.name} fehlgeschlagen: {e}")
+
                 if descriptor is None or not descriptor.intro_points:
                     logger.error(f"[{conn_id}] Kein Intro-Point im Descriptor")
                     await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)

@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 async def connect_to_hidden_service(
     address: str,
-    dht,
-    rendezvous_peer_id: str,
-    rendezvous_address: str,
-    client_ephemeral_key: bytes,
+    dht=None,
+    rendezvous_peer_id: str = "",
+    rendezvous_address: str = "",
+    client_ephemeral_key: bytes = b"",
     use_network: bool = False,
 ) -> Optional[RendezvousRequest]:
     """
@@ -35,14 +35,36 @@ async def connect_to_hidden_service(
     """
     logger.info(f"Suche Descriptor für {address}")
 
-    # 1. Descriptor holen (lokal oder über Netzwerk)
+    # 1. Descriptor holen (über DHT_GET an Peers)
     descriptor = None
-    if use_network and hasattr(dht, "async_get"):
-        import hashlib
-        key = hashlib.sha256(address.encode()).digest()
-        descriptor_dict = await dht.async_get(key)
-        if descriptor_dict:
-            descriptor = HiddenServiceDescriptor.from_dict(descriptor_dict)
+
+    if use_network:
+        # DHT_GET direkt an Peers senden
+        import hashlib as _hashlib
+        import json as _json
+        from .tunnel import ErebosTunnelClient, FRAME_DHT_GET
+        from .peers_loader import load_peers
+
+        key_hex = _hashlib.sha256(address.encode()).hexdigest()
+        payload = _json.dumps({"key": key_hex}).encode("utf-8")
+
+        for peer in load_peers():
+            try:
+                _host, _port_str = peer.address.split(":")
+                _port = int(_port_str)
+                client = ErebosTunnelClient(host=_host, port=_port)
+                await client.connect()
+                await client.send_typed(FRAME_DHT_GET, payload)
+                response_raw = await asyncio.wait_for(client.receive(), timeout=5.0)
+                await client.close()
+                if response_raw:
+                    response = _json.loads(response_raw.decode("utf-8"))
+                    if response.get("value"):
+                        descriptor = HiddenServiceDescriptor.from_dict(response["value"])
+                        logger.info(f"DHT_GET von {peer.name}: Descriptor gefunden")
+                        break
+            except Exception as e:
+                logger.warning(f"DHT_GET von {peer.name} fehlgeschlagen: {e}")
     else:
         descriptor = lookup_descriptor(dht, address)
 
