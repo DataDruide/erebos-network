@@ -5,6 +5,7 @@ import logging
 from .renderers import _page
 from .forum_db import get_identity, get_or_create_forum_session
 from . import forum
+from .forum import get_forum_css
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def render_forum_index(address: str, client_id: str, username: str,
                     )
     return _page(
         "EREBOS COMMUNITY", address,
-        forum.render_categories(
+        get_forum_css() + forum.render_categories(
             client_id=client_id, username=username,
             admin=admin, admin_token="", mod=mod,
         ),

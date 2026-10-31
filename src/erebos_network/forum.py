@@ -824,6 +824,56 @@ def search_threads(query: str, limit: int = 50) -> list:
     return results[:limit]
 
 
+def _avatar_html(username: str, size: int = 32) -> str:
+    """Initialen-Avatar mit deterministischer Farbe aus dem Username."""
+    import hashlib
+    safe = username or "Anonym"
+    h = int(hashlib.md5(safe.encode()).hexdigest()[:8], 16)
+    hue = h % 360
+    initials = (safe[:2] if len(safe) >= 2 else safe[:1]).upper()
+    return (
+        f'<span class="forum-avatar" style="'
+        f'width:{size}px;height:{size}px;'
+        f'background:hsl({hue},55%,45%);'
+        f'font-size:{max(10, size//2.5)}px;'
+        f'">{_escape(initials)}</span>'
+    )
+
+def get_forum_css() -> str:
+    """Zentrales CSS für das Forum (Avatare, Cards, Layout)."""
+    return """<style>
+.forum-avatar{display:inline-flex;align-items:center;justify-content:center;
+  border-radius:50%;color:#fff;font-weight:600;vertical-align:middle;
+  margin-right:12px;flex-shrink:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.post-card{display:flex;gap:14px;border:1px solid #2a3038;padding:1.25em;
+  margin:1em 0;border-radius:8px;background:#12161c;
+  transition:border-color .2s ease;}
+.post-card:hover{border-color:#444c56;}
+.post-body{flex:1;min-width:0;}
+.post-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.post-head strong{font-size:1.02em;color:#e6edf3;}
+.post-head time, .post-head small{color:#7d8590;font-size:.85em;}
+.post-body p{margin:.4em 0;word-wrap:break-word;}
+.thread-card{display:flex;gap:14px;padding:1em;margin:.5em 0;
+  border:1px solid #2a3038;border-radius:8px;background:#12161c;
+  text-decoration:none;color:inherit;transition:border-color .2s ease;}
+.thread-card:hover{border-color:#444c56;}
+.thread-info{flex:1;min-width:0;}
+.thread-info strong{display:block;margin-bottom:4px;color:#e6edf3;}
+.thread-meta{color:#7d8590;font-size:.85em;}
+.category-card{display:flex;align-items:center;gap:14px;padding:1.1em;
+  margin:.5em 0;border:1px solid #2a3038;border-radius:8px;
+  background:#12161c;text-decoration:none;color:inherit;
+  transition:border-color .2s ease;}
+.category-card:hover{border-color:#444c56;}
+.category-info{flex:1;min-width:0;}
+.category-info strong{display:block;font-size:1.05em;margin-bottom:2px;color:#e6edf3;}
+.category-desc{color:#7d8590;font-size:.88em;margin:2px 0;}
+.category-last{color:#7d8590;font-size:.8em;margin-top:4px;}
+.category-last a{color:#58a6ff;}
+.category-stats{color:#7d8590;font-size:.8em;white-space:nowrap;text-align:right;}
+</style>"""
+
 def render_markdown(text: str) -> str:
     """Sicheres Markdown-Mini ohne Regex (ReDoS-Schutz).
 
@@ -1075,7 +1125,7 @@ def render_forum_list(admin: bool = False, client_id: str = "") -> str:
         f"(Fenster: {status['window_seconds'] // 60} Minuten)</small></p>\n"
     )
     return (
-        "<h1>Forum</h1>\n"
+        ""
         "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
         f"{client_status}"
         f"<ul>\n{items}\n</ul>\n"
@@ -1140,11 +1190,17 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
                 f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer;font-size:0.85em\">"
                 f"User bannen</button></form>"
             )
+        avatar = _avatar_html(p.get("author", "Anonym"), size=40)
         posts_html += (
-            f"<div{last_anchor} style=\"border:1px solid #30363d; padding:1.5em; margin:1em 0; border-radius:12px; background:#161b22; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: border-color 0.2s;\" onmouseover=\"this.style.borderColor='#00ff41'\" onmouseout=\"this.style.borderColor='#30363d'\">\n"
-            f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
-            f"{quote_btn}{report_btn}{ban_btn}{admin_btn}</p>\n"
-            f"  <p>{body}</p>\n"
+            f"<div{last_anchor} class=\"post-card\">\n"
+            f"  {avatar}\n"
+            f"  <div class=\"post-body\">\n"
+            f"    <div class=\"post-head\">\n"
+            f"      <strong>{author}</strong> <small>{created}</small>{edited_marker}\n"
+            f"      <span style=\"margin-left:auto\">{quote_btn}{report_btn}{ban_btn}{admin_btn}</span>\n"
+            f"    </div>\n"
+            f"    <p>{body}</p>\n"
+            f"  </div>\n"
             f"</div>\n"
         )
     sticky_locked = ""
@@ -1186,8 +1242,8 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
         )
 
     return (
-        f"<h1>{title}{sticky_locked}</h1>\n"
         f"<p><a href=\"/forum\">← Zurück zum Forum</a></p>\n"
+        f"<p class=\"thread-header-meta\">{sticky_locked}</p>\n"
         f"{last_post_link}"
         f"{posts_html}\n"
         f"{reply_block}"
@@ -1196,7 +1252,6 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
 
 def render_not_found() -> str:
     return (
-        "<h1>Thread nicht gefunden</h1>\n"
         "<p>Dieser Thread existiert nicht (mehr).</p>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
     )
@@ -1356,35 +1411,34 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         rows = "<li><em>Noch keine Kategorien.</em></li>"
 
     # rows_table: Tabelle mit "Letzter Thread"-Spalte
-    rows_table = ""
+    cards_html = ""
     for c in cats:
         cid = _escape(c["id"])
         name = _escape(c["name"])
         desc = _escape(c["desc"])
+        threads = c["threads_count"]
+        posts = c["posts_count"]
+        # Letzter Thread als Info
         last_thread = c.get("last_thread")
         if last_thread:
             lt_title = _escape(last_thread.get("title", ""))
-            lt_time = _escape(last_thread.get("time", ""))
             lt_author = _escape(last_thread.get("author", ""))
-            lt_link = f"/forum/{cid}/thread/{last_thread.get('id', '')}"
-            last_post_html = (
-                f'<a href="{lt_link}">{lt_title}</a>'
-                f'<span class="last-post-meta">'
-                f'<time>{lt_time}</time> von <strong>{lt_author}</strong>'
-                f'</span>'
-            )
+            lt_time = _escape(last_thread.get("time", ""))
+            last_info = f"<div class=\"category-last\">Letzter: <a href=\"/forum/{cid}/thread/{last_thread.get('id', '')}\">{lt_title}</a> von {lt_author} ({lt_time})</div>"
         else:
-            last_post_html = '<span class="last-post-meta">Kein Thread</span>'
-        rows_table += (
-            '<tr>'
-            f'<td class="forum-name">'
-            f'<a href="/forum/{cid}">{name}</a>'
-            f'<p class="forum-desc">{desc}</p>'
-            '</td>'
-            f'<td class="forum-stats">{c["threads_count"]}</td>'
-            f'<td class="forum-stats">{c["posts_count"]}</td>'
-            f'<td class="forum-last-post">{last_post_html}</td>'
-            '</tr>'
+            last_info = "<div class=\"category-last muted\">Kein Thread</div>"
+        
+        cards_html += (
+            f'<a class="category-card" href="/forum/{cid}">'
+            f'  <div class="category-info">'
+            f'    <strong>{name}</strong>'
+            f'    <p class="category-desc">{desc}</p>'
+            f'    {last_info}'
+            f'  </div>'
+            f'  <div class="category-stats">'
+            f'    {threads} Threads<br>{posts} Posts'
+            f'  </div>'
+            f'</a>'
         )
 
     # Legende
@@ -1453,7 +1507,7 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
             "</small></p>\n"
         )
 
-    return (
+    return get_forum_css() + (
         # Navbar oben
         '<header class="forum-header">'
         '  <div class="header-inner">'
@@ -1477,7 +1531,6 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         '  </aside>'
         # Hauptinhalt
         '  <main class="forum-main">'
-        '    <h1>Erebos Community</h1>'
         '    <p>Diskutiere mit anderen im Erebos-Netzwerk.</p>'
         f'    {legend}'
         f'    {user_nav}'
@@ -1488,20 +1541,10 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         'style="width:70%;padding:0.4em"> '
         '      <button type="submit" class="btn">Suchen</button>'
         '    </form>'
-        # Tabelle mit "Letzter Thread"-Spalte
-        '    <table class="forum-table">'
-        '      <thead>'
-        '        <tr>'
-        '          <th>Forum</th>'
-        '          <th>Themen</th>'
-        '          <th>Beiträge</th>'
-        '          <th class="col-last-post">Letzter Thread</th>'
-        '        </tr>'
-        '      </thead>'
-        '      <tbody>'
-        f'        {rows_table}'
-        '      </tbody>'
-        '    </table>'
+        # Karten-Liste statt Tabelle
+        '    <div class="category-list">'
+        f'        {cards_html}'
+        '    </div>'
         '    <a class="btn" href="/forum/neu">Neuen Thread erstellen</a>'
         f'    {admin_nav}'
         '    <a class="btn" href="/">← Startseite</a>'
@@ -1540,11 +1583,17 @@ def render_thread_list(category_id: str, page: int = 1,
                     f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer\">"
                     f"Löschen</button></form>"
                 )
+            avatar = _avatar_html(t["author"], size=36)
             items += (
-                f"<li><a href=\"/forum/{tid}\">{title}</a> "
-                f"<small>von {author} · {replies} Antwort(en) · "
-                f"erstellt {created} · zuletzt aktiv {last}</small>"
-                f"{admin_btn}</li>\n"
+                f"<a class=\"thread-card\" href=\"/forum/{tid}\">\n"
+                f"  {avatar}\n"
+                f"  <div class=\"thread-info\">\n"
+                f"    <strong>{title}</strong>\n"
+                f"    <div class=\"thread-meta\">von {author} · {replies} Antwort(en) · "
+                f"erstellt {created} · zuletzt aktiv {last}</div>\n"
+                f"    {admin_btn}\n"
+                f"  </div>\n"
+                f"</a>\n"
             )
     sort_links = " · ".join(
         f"<a href=\"/forum/{_escape(category_id)}?sort={s}\""
@@ -1556,11 +1605,10 @@ def render_thread_list(category_id: str, page: int = 1,
         result["page"], result["pages"], f"/forum/{_escape(category_id)}", sort
     )
     return (
-        f"<h1>{_escape(cat['name'])}</h1>\n"
         f"<p>{_escape(cat.get('desc', ''))}</p>\n"
         f"<p><small>Sortieren: {sort_links}</small></p>\n"
         f"<p><small>{result['total']} Thread(s), Seite {result['page']} / {result['pages']}</small></p>\n"
-        f"<ul>\n{items}\n</ul>\n"
+        f"<div class=\"thread-list\">\n{items}\n</div>\n"
         f"{pag_html}"
         f"<a class=\"btn\" href=\"/forum/neu?category={_escape(category_id)}\">"
         f"Neuen Thread in {_escape(cat['name'])}</a>\n"
@@ -1572,7 +1620,6 @@ def render_search_results(query: str, results: list) -> str:
     q = _escape(query)
     if not results:
         return (
-            f"<h1>Suche: {q}</h1>\n"
             "<p>Keine Treffer.</p>\n"
             "<a class=\"btn\" href=\"/forum\">← Zurück</a>\n"
         )
@@ -1584,7 +1631,6 @@ def render_search_results(query: str, results: list) -> str:
         cat = _escape(t.get("category_id", "allgemein"))
         items += f"<li><a href=\"/forum/{tid}\">{title}</a> <small>({cat})</small></li>\n"
     return (
-        f"<h1>Suche: {q}</h1>\n"
         f"<p>{len(results)} Treffer.</p>\n"
         f"<ul>\n{items}\n</ul>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück</a>\n"
