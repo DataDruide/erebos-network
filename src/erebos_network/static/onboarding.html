@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Erebos Network — Onboarding</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.6; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 2rem; margin: 0 0 8px; }
+  h2 { font-size: 1.25rem; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  p { margin: 8px 0; }
+  .muted { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+          padding: 18px 20px; margin: 16px 0; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              font-size: 0.92em; background: var(--code-bg);
+              border: 1px solid var(--border); border-radius: 6px; }
+  code { padding: 2px 6px; }
+  pre { padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+  pre code { border: 0; padding: 0; background: transparent; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px;
+           font-size: 0.75rem; font-weight: 600;
+           background: rgba(63,185,80,0.15); color: var(--ok);
+           border: 1px solid rgba(63,185,80,0.4); }
+  ol, ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Erebos Network</h1>
+  <p class="muted">Onboarding — Zugriff auf <code>.erebos</code>-Hidden-Services</p>
+
+  <div class="card">
+    <span class="badge">Willkommen</span>
+    <p style="margin-top:10px">
+      Diese Seite wird über einen <strong>Erebos Hidden Service</strong> ausgeliefert.
+      Dein Traffic lief über Intro-Point, Rendezvous-Punkt und Onion-Layer.
+    </p>
+  </div>
+
+  <h2>1. SOCKS5-Proxy einrichten</h2>
+  <p>Der Erebos-Client stellt einen lokalen SOCKS5-Proxy bereit. Alle Anfragen an
+     <code>*.erebos</code>-Adressen werden automatisch durch das Netz geleitet.</p>
+  <p><strong>Proxy-Adresse:</strong> <code>127.0.0.1:4448</code> (SOCKS5)</p>
+
+  <h2>2. Testen</h2>
+  <pre><code>curl --socks5-hostname 127.0.0.1:4448 \
+  http://7og2zplgthz36a3w6u5j37bwa5xf7lb4kwmzmklq5gonfettzvgq.erebos/</code></pre>
+
+  <h2>3. Timing &amp; Debug</h2>
+  <pre><code>curl --socks5-hostname 127.0.0.1:4448 \
+  http://7og2zplgthz36a3w6u5j37bwa5xf7lb4kwmzmklq5gonfettzvgq.erebos/api/tunnel-timing</code></pre>
+
+  <h2>4. Wie funktioniert's?</h2>
+  <ol>
+    <li><strong>DHT_GET</strong> — Descriptor des Hidden Service aus dem DHT holen</li>
+    <li><strong>Intro-Point-Tunnel</strong> — verschlüsselter Tunnel zum Intro-Point</li>
+    <li><strong>Rendezvous-Request</strong> — Rendezvous-Anfrage über den Intro-Point</li>
+    <li><strong>Onion-Build</strong> — 3-Hop-Onion-Layer aufbauen und senden</li>
+    <li><strong>Rendezvous-Paar</strong> — beide Seiten verbunden, Datenfluss startet</li>
+  </ol>
+
+  <h2>5. Mehr</h2>
+  <ul>
+    <li>Status: <a href="/api/tunnel-timing">/api/tunnel-timing</a> (JSON)</li>
+    <li>Diese Seite: <a href="/static/onboarding.html">/static/onboarding.html</a></li>
+  </ul>
+
+  <p class="muted" style="margin-top:40px;font-size:0.85rem">
+    Erebos Network — dezentral, verschlüsselt, onion-geroutet.
+  </p>
+
+</div>
+</body>
+</html>

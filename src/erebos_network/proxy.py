@@ -13,6 +13,7 @@ from typing import Optional
 from .router import ErebosRouter, RouteType
 from .sectors import SectorType
 from .tunnel import ErebosTunnelClient, FRAME_OPEN, FRAME_RELAY, FRAME_COVER, FRAME_DATA
+from .timing import get_recorder
 from .cover import CoverConfig, TunnelCoverInjector
 from .onion import seal_for
 from .augur_defense import AugurConfig, PredictivePerturbation, RateShaper
@@ -470,6 +471,9 @@ class ErebosSocks5Server:
 
             port = int.from_bytes(await reader.readexactly(2), "big")
             logger.info(f"[{conn_id}] SOCKS5 -> {host}:{port}")
+            _rec = get_recorder()
+            _rec.start()
+            _rec.mark("SOCKS5-Connect", f"{host}:{port}")
 
             # Prüfe, ob es eine .erebos-Adresse ist
             if host.endswith(".erebos"):
@@ -497,6 +501,8 @@ class ErebosSocks5Server:
                             f"[{conn_id}] Rendezvous-Peer nach Rolle (entry): "
                             f"{rendezvous_peer}"
                         )
+                        _rec = get_recorder()
+                        _rec.mark("Rendezvous-Peer gewaehlt", rendezvous_peer)
                 except Exception as e:
                     logger.warning(
                         f"[{conn_id}] Rollen-basierte Rendezvous-Auswahl "
@@ -569,6 +575,7 @@ class ErebosSocks5Server:
                                 if response.get("value"):
                                     descriptor = HiddenServiceDescriptor.from_dict(response["value"])
                                     logger.info(f"DHT_GET von {peer.name}: Descriptor gefunden")
+                                    _rec.mark("DHT_GET", peer.name)
                                     break
                         except Exception as e:
                             logger.warning(f"DHT_GET von {peer.name} fehlgeschlagen: {e}")
@@ -588,8 +595,10 @@ class ErebosSocks5Server:
                 try:
                     await tunnel_client.connect(latency_s=_lat)
                     logger.info(f"[{conn_id}] [1/4] Intro-Point-Tunnel ... OK ({intro_point.address})")
+                    _rec.mark("Intro-Point-Tunnel", intro_point.address)
                     await tunnel_client.send_rendezvous_request(request.to_dict())
                     logger.info(f"[{conn_id}] [2/4] Rendezvous-Request ... OK")
+                    _rec.mark("Rendezvous-Request", intro_point.address)
                     # Warte auf Antwort
                     raw = await asyncio.wait_for(tunnel_client.receive(), timeout=10.0)
                     if raw:
@@ -612,6 +621,7 @@ class ErebosSocks5Server:
                             reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
                             onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, reg_payload)
                             logger.info(f"[{conn_id}] [3/4] Onion-Build (3 Hops) ... OK ({len(onion)}B)")
+                            _rec.mark("Onion-Build", f"{len(onion)}B")
 
                             from .peers_config import peer_host
                             _lat = latency_for_peer("peer2")
@@ -619,6 +629,7 @@ class ErebosSocks5Server:
                             await rendezvous_client.connect(latency_s=_lat)
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
                             logger.info(f"[{conn_id}] [3/4] Onion an peer2 gesendet ... OK")
+                            _rec.mark("Onion-gesendet", "peer2")
 
                             # Warte auf 'ready' vom Rendezvous-Punkt
                             # (Der Rendezvous-Punkt sendet 'ready', sobald beide Rollen registriert sind)
@@ -633,6 +644,7 @@ class ErebosSocks5Server:
                                         logger.info(f"[{conn_id}] Rendezvous-Nachricht: {ready_data}")
                                         if ready_data.get("status") == "ready":
                                             logger.info(f"[{conn_id}] [4/4] Rendezvous-Paar vollständig!")
+                                            _rec.mark("Rendezvous-Paar", host)
                                             _log_rendezvous_banner(
                                                 conn_id=conn_id,
                                                 target=host,
@@ -772,6 +784,38 @@ class ErebosSocks5Server:
                                 http_request = b"GET / HTTP/1.1\r\nHost: " + host.encode() + b"\r\nConnection: close\r\n\r\n"
                             first_http_line = http_request.split(b"\r\n", 1)[0].decode("utf-8", "replace")
                             logger.info(f"[{conn_id}] HTTP-Request vom Client: {first_http_line!r}")
+
+                            # Timing-Marks als Header anhaengen (vor E2E-Verschluesselung),
+                            # damit der Hidden-Service sie im /api/tunnel-timing-Endpoint
+                            # zurueckgeben kann (Prozess-Grenze ueberbruecken).
+                            try:
+                                import base64 as _b64, json as _json_t
+                                _snap = _rec.snapshot()
+                                _timing_hdr = _b64.b64encode(
+                                    _json_t.dumps(_snap, ensure_ascii=False).encode("utf-8")
+                                ).decode("ascii")
+                                if b"\r\n\r\n" in http_request:
+                                    _head, _rest = http_request.split(b"\r\n\r\n", 1)
+                                    http_request = (
+                                        _head
+                                        + b"\r\nX-Erebos-Timing: "
+                                        + _timing_hdr.encode("ascii")
+                                        + b"\r\n\r\n"
+                                        + _rest
+                                    )
+                                else:
+                                    http_request = http_request.rstrip(b"\r\n") + (
+                                        b"\r\nX-Erebos-Timing: "
+                                        + _timing_hdr.encode("ascii")
+                                        + b"\r\n\r\n"
+                                    )
+                                logger.info(
+                                    f"[{conn_id}] X-Erebos-Timing-Header angehaengt "
+                                    f"({len(_snap.get('steps', []))} Marks)"
+                                )
+                            except Exception as _e:
+                                logger.warning(f"[{conn_id}] Timing-Header fehlgeschlagen: {_e}")
+
                             if e2e_key is not None:
                                 encrypted = e2e_client.encrypt(http_request)
                                 e2e_flag = E2E_FLAG_ENCRYPTED

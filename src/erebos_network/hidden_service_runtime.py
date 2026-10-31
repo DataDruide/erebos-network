@@ -642,6 +642,36 @@ class HiddenServiceRuntime:
             from pathlib import Path as _Path
             _static_dir = _Path(__file__).parent / "static"
 
+            # /api/tunnel-timing – Timing-Daten des letzten Tunnel-Aufbaus
+            if path == "/api/tunnel-timing":
+                import json as _json
+                # 1) Bevorzugt: Marks aus dem X-Erebos-Timing-Header des
+                #    Proxy-Prozesses (ueberbrueckt die Prozess-Grenze).
+                _timing_hdr = headers.get("x-erebos-timing", "")
+                body_out = None
+                if _timing_hdr:
+                    try:
+                        import base64 as _b64
+                        body_out = _b64.b64decode(_timing_hdr)
+                        # Validierung: muss gueltiges JSON sein
+                        _json.loads(body_out)
+                    except Exception as _e:
+                        logger.warning(
+                            f"X-Erebos-Timing-Header ungueltig: {_e}"
+                        )
+                        body_out = None
+                # 2) Fallback: lokaler Recorder (z.B. wenn kein Header da ist)
+                if body_out is None:
+                    from .timing import get_recorder
+                    _rec = get_recorder()
+                    body_out = _json.dumps(
+                        _rec.snapshot(), ensure_ascii=False
+                    ).encode("utf-8")
+                resp = http_response(200, "application/json; charset=utf-8", body_out)
+                writer.write(resp)
+                await writer.drain()
+                return
+
             # /api/status – prüft alle Dienste auf einmal
             if path == "/api/status":
                 import json as _json
@@ -746,6 +776,18 @@ class HiddenServiceRuntime:
                 resp = http_response(
                     200, "text/html; charset=utf-8", body_out
                 )
+                writer.write(resp)
+                await writer.drain()
+                return
+
+            # /onboarding — Onboarding-Seite für neue Nutzer
+            if path in ("/onboarding", "/onboarding.html"):
+                _onb_path = _static_dir / "onboarding.html"
+                if _onb_path.exists():
+                    body_out = _onb_path.read_bytes()
+                else:
+                    body_out = b"<h1>404 - Onboarding nicht gefunden</h1>"
+                resp = http_response(200, "text/html; charset=utf-8", body_out)
                 writer.write(resp)
                 await writer.drain()
                 return
