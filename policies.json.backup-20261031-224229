@@ -1,0 +1,11 @@
+{
+  "policies": {
+    "Proxy": {
+      "Mode": "manual",
+      "SOCKSProxy": "127.0.0.1:4448",
+      "SOCKSVersion": 5,
+      "UseProxyForDNS": true,
+      "Locked": false
+    }
+  }
+}
