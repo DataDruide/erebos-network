@@ -5,7 +5,7 @@ services:
     volumes:
       - ./erebos_keys:/app/erebos_keys:ro
     environment:
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
       - EREBOS_PEER_HOST=0.0.0.0
     networks:
       erebos-net:
@@ -20,7 +20,7 @@ services:
     volumes:
       - ./erebos_keys:/app/erebos_keys:ro
     environment:
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
       - EREBOS_PEER_HOST=0.0.0.0
     networks:
       erebos-net:
@@ -35,7 +35,7 @@ services:
     volumes:
       - ./erebos_keys:/app/erebos_keys:ro
     environment:
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
       - EREBOS_PEER_HOST=0.0.0.0
     networks:
       erebos-net:
@@ -50,7 +50,7 @@ services:
     volumes:
       - ./erebos_keys:/app/erebos_keys:ro
     environment:
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
       - EREBOS_PROXY_BIND=0.0.0.0
     networks:
       erebos-net:
@@ -68,8 +68,9 @@ services:
       - ./forum.db:/app/forum.db
     environment:
       - EREBOS_FORUM_ADMIN_TOKEN=${EREBOS_FORUM_ADMIN_TOKEN}
+      - EREBOS_LAN_WHITELIST=172.20.0.0/24,127.0.0.1/32
       - EREBOS_DB_KEY=${EREBOS_DB_KEY:-}
-      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12
+      - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
     entrypoint: >
       python -u scripts/create_test_hidden_service.py
       --rendezvous-host 172.20.0.10

@@ -59,6 +59,17 @@ from . import pages_human
 
 logger = logging.getLogger(__name__)
 
+# --- Logging-Setup: INFO auf stdout (sonst keine Logs im Container) ---
+import logging as _logging
+if not _logging.getLogger().handlers:
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=__import__("sys").stdout,
+    )
+    _logging.getLogger().setLevel(_logging.INFO)
+# ---------------------------------------------------------------------
+
 # --- DEBUG-Handler nur für Datei (Konsole bleibt INFO) ---
 import logging as _logging
 from logging.handlers import RotatingFileHandler as _RotatingFileHandler

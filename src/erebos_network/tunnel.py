@@ -77,6 +77,7 @@ X25519_PUB_LEN = 32
 # Port → Peer-Identitaet. Jeder Peer weiss anhand seines Listen-Ports,
 # welcher Private-Key ihm gehoert.
 PORT_TO_PEER_NAME = {
+    9996: "peer4",
     9997: "peer3",
     9998: "peer2",
     9999: "peer1",
