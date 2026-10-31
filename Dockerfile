@@ -26,6 +26,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 COPY scripts/ scripts/
+COPY peers.json /app/peers.json
 COPY erebos_keys/ erebos_keys/
 
 RUN pip install --no-cache-dir -e .
