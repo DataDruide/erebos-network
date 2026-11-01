@@ -129,6 +129,7 @@ class HiddenServiceRuntime:
         http_request_handler: Optional[Callable] = None,
         bind_host: str = "127.0.0.1",
         bind_port: int = 8080,
+        key_file: Path | None = None,
     ):
         self.rendezvous_host = rendezvous_host
         self.rendezvous_port = rendezvous_port
@@ -154,6 +155,7 @@ class HiddenServiceRuntime:
         self.http_request_handler = http_request_handler
         self.bind_host = bind_host
         self.bind_port = bind_port
+        self.key_file = key_file
 
         # Wird in run() gesetzt
         self.address: Optional[str] = None
@@ -214,7 +216,9 @@ class HiddenServiceRuntime:
         .erebos-Adresse ueber Neustarts stabil (wichtig fuer Clients,
         die die Adresse gecacht haben).
         """
-        key_path = Path.home() / ".erebos" / f"hs_key_{self.bind_port}.pem"
+        key_path = self.key_file or (
+            Path.home() / ".erebos" / f"hs_key_{self.bind_port}.pem"
+        )
         if key_path.exists():
             try:
                 self.private_key = serialization.load_pem_private_key(

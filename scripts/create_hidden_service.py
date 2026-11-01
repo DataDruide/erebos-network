@@ -122,6 +122,7 @@ def main() -> int:
         ttl_seconds=3600,
         bind_host=args.bind_host,
         bind_port=args.port,
+        key_file=key_file,
         http_request_handler=handler,
     )
 
