@@ -447,6 +447,15 @@ class HiddenServiceRuntime:
 
             method, path, headers, body = parse_http_request(raw)
 
+            # Host-Header auswerten (Subdomain-Routing: forum.xyz.erebos → forum)
+            _host_full = (headers.get("host") or "").split(":")[0].lower()
+            _subdomain = ""
+            if _host_full and "." in _host_full:
+                _parts = _host_full.split(".")
+                if len(_parts) >= 3:  # z.B. forum.xyz.erebos (3 Teile)
+                    _subdomain = _parts[0]
+                    logger.info(f"HTTP Host: {_host_full} → Subdomain: {_subdomain}")
+
             # 2) Body nachlesen, falls Content-Length groesser als bereits
             #    gelesener Body. Kurzer Timeout (1s), damit ein haengender
             #    Client den Dienst nicht blockiert.
@@ -483,6 +492,30 @@ class HiddenServiceRuntime:
 
             # Suchanfragen nicht mit Query-String loggen (Privacy)
             log_path = path
+            # Subdomain-Routing: Wenn Subdomain gesetzt, Pfad umschreiben
+            # ABER: /static/ und /api/ nie umschreiben (sonst 404)
+            if not path.startswith("/static/") and not path.startswith("/api/"):
+                if _subdomain == "forum":
+                    if path == "/" or path == "":
+                        path = "/forum"
+                    elif not path.startswith("/forum"):
+                        path = "/forum" + path
+                elif _subdomain == "mail":
+                    if path == "/" or path == "":
+                        path = "/mail"
+                    elif not path.startswith("/mail"):
+                        path = "/mail" + path
+                elif _subdomain == "chat":
+                    if path == "/" or path == "":
+                        path = "/chat"
+                    elif not path.startswith("/chat"):
+                        path = "/chat" + path
+                elif _subdomain == "wiki":
+                    if path == "/" or path == "":
+                        path = "/wiki"
+                    elif not path.startswith("/wiki"):
+                        path = "/wiki" + path
+
             if path.startswith("/search"):
                 log_path = "/search (query redacted)"
             logger.info(f"HTTP {method} {log_path} ({len(body)}B body)")

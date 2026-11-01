@@ -476,7 +476,17 @@ class ErebosSocks5Server:
             _rec.mark("SOCKS5-Connect", f"{host}:{port}")
 
             # Prüfe, ob es eine .erebos-Adresse ist
-            if host.endswith(".erebos"):
+            if ".erebos" in host:
+                # Subdomain abschneiden: "forum.xyz.erebos" → "xyz.erebos"
+                _original_host = host
+                _parts = host.split(".")
+                if len(_parts) > 2:  # z.B. forum.xyz.erebos → 3 Teile
+                    _subdomain = _parts[0]
+                    _base_address = ".".join(_parts[1:])
+                    logger.info(
+                        f"[{conn_id}] Subdomain-Routing: {_subdomain}.{_base_address}"
+                    )
+                    host = _base_address
                 logger.info(f"[{conn_id}] .erebos-Adresse erkannt: {host}")
                 from .hidden_service_client import connect_to_hidden_service
                 from .descriptor_store import DescriptorStore
@@ -781,7 +791,7 @@ class ErebosSocks5Server:
                                 http_request = b""
                             if not http_request:
                                 # Fallback: minimaler Request (Startseite)
-                                http_request = b"GET / HTTP/1.1\r\nHost: " + host.encode() + b"\r\nConnection: close\r\n\r\n"
+                                http_request = b"GET / HTTP/1.1\r\nHost: " + _original_host.encode() + b"\r\nConnection: close\r\n\r\n"
                             first_http_line = http_request.split(b"\r\n", 1)[0].decode("utf-8", "replace")
                             logger.info(f"[{conn_id}] HTTP-Request vom Client: {first_http_line!r}")
 

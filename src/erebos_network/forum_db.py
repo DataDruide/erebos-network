@@ -69,7 +69,10 @@ CREATE TABLE IF NOT EXISTS users (
     salt TEXT NOT NULL,
     created_at REAL NOT NULL,
     mail_uuid TEXT,
-    role TEXT DEFAULT 'user'
+    role TEXT DEFAULT 'user',
+    bio TEXT DEFAULT '',
+    avatar_path TEXT DEFAULT '',
+    profile_confirmed INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -263,6 +266,7 @@ def get_db() -> sqlite3.Connection:
     _migrate_incomplete_mail_keys(_conn)
     _migrate_chat_schema(_conn)
     _backfill_key_history_privkeys(_conn)
+    _migrate_user_columns(_conn)
     return _conn
 
 def _migrate_mailboxes(conn: sqlite3.Connection) -> None:
@@ -569,6 +573,18 @@ def _backfill_key_history_privkeys(conn: sqlite3.Connection) -> None:
         logger.info(f"mail_key_history: {updated} Privkeys nachgetragen")
     conn.commit()
 
+
+
+def _migrate_user_columns(conn):
+    """Fügt fehlende Spalten in users hinzu (für bestehende DBs)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "bio" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''")
+    if "avatar_path" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT DEFAULT ''")
+    if "profile_confirmed" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN profile_confirmed INTEGER DEFAULT 0")
+    conn.commit()
 
 def load_forum_from_db() -> dict:
     """Laedt alle Tabellen in ein Dict (gleiche Struktur wie forum.json)."""

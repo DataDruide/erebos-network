@@ -27,6 +27,7 @@ from .pages_forum import (
     render_forum_search, render_forum_my_threads, render_forum_new_thread,
     render_forum_toggle_sticky, render_forum_toggle_locked,
     render_forum_category, render_forum_thread,
+    render_forum_profile, render_forum_profile_edit,
 )
 from .forum_db import (find_identity_by_identifier, get_or_create_forum_session, load_mails, save_mail, mark_mail_read,
                        get_or_create_mail_keys, get_mail_keys,
@@ -475,6 +476,18 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         return render_forum_admin_mods_set(address, admin, body)
     if path == "/forum/search":
         return render_forum_search(address, query)
+
+    # /forum/profil/edit — Profil bearbeiten (nur eingeloggt)
+    if path == "/forum/profil/edit":
+        return render_forum_profile_edit(
+            address, method=method, body=body, session_user=username
+        )
+
+    # /forum/profil/<username> — öffentliches Profil
+    if path.startswith("/forum/profil/"):
+        _profile_user = path[len("/forum/profil/"):]
+        if _profile_user:
+            return render_forum_profile(address, _profile_user, session_user=username)
 
     # /forum/<category> (nur wenn Kategorie existiert)
     if (path.startswith("/forum/")

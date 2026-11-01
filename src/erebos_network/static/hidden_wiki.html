@@ -6,46 +6,69 @@
 <title>Erebos Hidden Wiki</title>
 <style>
   :root {
-    --bg: #050508; --bg-card: #0d0d14; --bg-card-hover: #14141f;
-    --fg: #c8d8c8; --fg-dim: #7a8a7a;
-    --accent: #4ade80; --accent-dim: #22c55e33;
-    --warn: #fbbf24; --danger: #f87171; --border: #1f2937;
-    --mono: 'Courier New', 'Monaco', monospace;
+    --bg: #050508;
+    --bg-card: #0d1117;
+    --bg-card-hover: #161b22;
+    --fg: #e6edf3;
+    --fg-dim: #7d8590;
+    --accent: #ff3333;
+    --accent-dim: rgba(255, 51, 51, 0.15);
+    --warn: #fbbf24;
+    --danger: #da3633;
+    --border: #30363d;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body {
-    background: var(--bg); color: var(--fg); font-family: var(--mono);
-    font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    background-image:
+      linear-gradient(rgba(5, 5, 8, 0.92), rgba(5, 5, 8, 0.98)),
+      url('/static/hacker.jpeg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
   }
-  body::before {
-    content: ''; position: fixed; inset: 0;
-    background:
-      radial-gradient(circle at 20% 20%, #4ade8010 0%, transparent 50%),
-      radial-gradient(circle at 80% 80%, #4ade8008 0%, transparent 50%);
-    pointer-events: none; z-index: -1;
-  }
-  .container { max-width: 960px; margin: 0 auto; }
+  .container { max-width: 900px; margin: 0 auto; }
   header {
-    text-align: center; margin-bottom: 3rem;
-    padding-bottom: 2rem; border-bottom: 1px solid var(--border);
+    text-align: center; margin-bottom: 2rem;
+    padding-bottom: 1.5rem; border-bottom: 1px solid var(--border);
   }
   h1 {
-    font-size: 2.2rem; color: var(--accent); letter-spacing: 2px;
+    font-size: 2rem; color: var(--accent); letter-spacing: 2px;
     text-transform: uppercase; margin-bottom: .5rem;
-    text-shadow: 0 0 20px var(--accent-dim);
+    text-shadow: 0 0 20px rgba(255, 51, 51, 0.3);
   }
   .subtitle { color: var(--fg-dim); font-size: .85rem; max-width: 600px; margin: 0 auto; }
+  .privacy-banner {
+    background: rgba(255, 51, 51, 0.08);
+    border-left: 4px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    font-size: 0.85em;
+    color: #ffcccc;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .privacy-banner .icon { font-size: 1.2em; }
   .search-bar { margin: 2rem auto; max-width: 600px; position: relative; }
   .search-bar input {
     width: 100%; background: var(--bg-card); border: 1px solid var(--border);
     color: var(--fg); padding: .8rem 1rem .8rem 2.5rem;
-    font-family: var(--mono); font-size: .95rem; border-radius: 6px;
-    transition: border-color .2s, box-shadow .2s;
+    font-family: var(--font); font-size: .95rem; border-radius: 6px;
+    transition: border-color .3s ease;
   }
   .search-bar input:focus {
     outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-dim);
   }
   .search-bar::before {
     content: '⌕'; position: absolute; left: 1rem; top: 50%;
@@ -57,21 +80,20 @@
   }
   .service-card {
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 8px; padding: 1.2rem; cursor: pointer;
-    transition: transform .2s, border-color .2s, background .2s;
+    border-radius: 8px; padding: 1.5em; cursor: pointer;
+    transition: border-color .3s ease, background-color .3s ease;
     position: relative; overflow: hidden;
   }
   .service-card::after {
     content: ''; position: absolute; top: 0; left: 0;
     width: 3px; height: 100%; background: var(--accent);
-    transform: scaleY(0); transform-origin: top; transition: transform .3s;
+    transform: scaleY(0); transform-origin: top; transition: transform .3s ease;
   }
   .service-card:hover {
-    transform: translateY(-2px); border-color: var(--accent);
+    border-color: var(--accent);
     background: var(--bg-card-hover);
   }
   .service-card:hover::after { transform: scaleY(1); }
-  .service-card:active { transform: translateY(0); }
   .service-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .service-name {
     color: var(--accent); font-weight: bold; font-size: 1.05rem;
@@ -91,7 +113,7 @@
   .service-path {
     display: inline-block; background: var(--accent-dim); color: var(--accent);
     padding: .15rem .5rem; border-radius: 4px; font-size: .8rem;
-    border: 1px solid transparent; transition: border-color .2s;
+    border: 1px solid transparent; transition: border-color .3s ease;
   }
   .service-card:hover .service-path { border-color: var(--accent); }
   .service-card[hidden] { display: none; }
@@ -117,26 +139,24 @@
   }
   .footer a {
     color: var(--accent); text-decoration: none;
-    border-bottom: 1px dashed var(--accent); transition: border-color .2s;
+    border-bottom: 1px dashed var(--accent); transition: border-bottom-style .3s ease;
   }
   .footer a:hover { border-bottom-style: solid; }
   .instance { margin-top: .5rem; font-size: .75rem; color: var(--fg-dim); word-break: break-all; }
   .toast {
     position: fixed; bottom: 2rem; left: 50%;
     transform: translateX(-50%) translateY(100px);
-    background: var(--accent); color: var(--bg); padding: .7rem 1.4rem;
+    background: var(--accent); color: #fff; padding: .7rem 1.4rem;
     border-radius: 6px; font-weight: bold; font-size: .85rem;
     opacity: 0; transition: transform .3s, opacity .3s;
     pointer-events: none; z-index: 1000;
   }
   .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
   .loading { text-align: center; color: var(--fg-dim); padding: 2rem; }
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
-    }
-  }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 </style>
 </head>
 <body>

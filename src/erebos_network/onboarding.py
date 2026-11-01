@@ -86,7 +86,7 @@ def render_onboard(anon_uuid, address, _page, _escape):
     return _page("Verbinde...", address, terminal_html)
 
 def render_welcome_onboarded(anon_uuid, address, _page, _escape):
-    """Willkommens-Seite: UUID, E-Mail, Forum-Username, Warnung."""
+    """Willkommens-Seite: UUID, E-Mail, Forum-Username, Warnung (modern, rot)."""
     from .forum_db import get_identity, create_identity
     ident = get_identity(anon_uuid)
     if ident is None:
@@ -107,37 +107,65 @@ def render_welcome_onboarded(anon_uuid, address, _page, _escape):
 
     body = (
         '<header style="text-align:center; margin-bottom:2em;">'
-        '<img src="/avatar.jpg" alt="Avatar" class="avatar" style="width:100px; height:100px; border-radius:50%; border:3px solid #00ff88; ">'
-        '<h1 style="font-family:monospace; color:#00ff88; margin-top:1em;">WILLKOMMEN BEI EREBOS</h1>'
+        '<img src="/static/hacker.jpeg" alt="Avatar" '
+        'style="width:100px; height:100px; border-radius:50%; border:3px solid #ff3333; object-fit:cover;">'
+        '<h1 style="color:#ff3333; margin-top:1em; text-shadow:0 0 20px rgba(255,51,51,0.3);">WILLKOMMEN BEI EREBOS</h1>'
         '</header>'
-        '<div style="border:1px solid #00ff88; padding:2em; margin:1.5em 0; background:rgba(0,255,136,0.05); border-radius:12px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.3);">'
-        '<p style="color:#00ff88; font-size:0.9em; letter-spacing:0.15em; margin-bottom:1em;">DEINE IDENTITAET</p>'
-        '<p style="margin:0.8em 0;"><strong>UUID:</strong><br>'
-        '<code style="color:#00ff88; word-break:break-all;">' + _escape(anon_uuid) + '</code></p>'
-        '<p style="margin:0.8em 0;"><strong>E-Mail:</strong><br>'
-        '<code style="color:#00ff88;">' + _escape(email) + '</code></p>'
-        '<p style="margin:0.8em 0;"><strong>Forum:</strong><br>'
-        '<code style="color:#00ff88;">' + _escape(forum_username) + '</code></p>'
+
+        '<div style="background:rgba(255,51,51,0.08); border-left:4px solid #ff3333; '
+        'padding:12px 16px; border-radius:4px; margin-bottom:1.5em; font-size:0.85em; color:#ffcccc; '
+        'display:flex; align-items:center; gap:10px;">'
+        '<span style="font-size:1.2em;">🔒</span>'
+        '<span><strong>Maximale Privatsphaere:</strong> E2E-verschluesselt - Keine Logs - Anonym - Kein Tracking</span>'
         '</div>'
-        '<div style="border:1px solid #ff8800; padding:1.5em; margin:1.5em 0; background:rgba(255,136,0,0.05); border-radius:12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">'
-        '<p style="color:#ff8800; font-size:1em; letter-spacing:0.1em; margin-bottom:0.8em;">WICHTIG - SCHREIB DAS AUF</p>'
-        '<p style="color:#ffcc88; margin:0.5em 0; line-height:1.6;">'
-        'Diese Daten werden <strong>nicht dauerhaft</strong> gespeichert. '
-        'Nach einem Browser-Neustart sind sie <strong>verloren</strong>. '
+
+        '<div style="background:#0d1117; border:1px solid #30363d; border-radius:8px; '
+        'padding:1.5em; margin:1.5em 0;">'
+        '<p style="color:#ff3333; font-size:0.85em; letter-spacing:0.15em; margin-bottom:1em; '
+        'text-transform:uppercase;">DEINE IDENTITAET</p>'
+
+        '<p style="margin:0.8em 0; color:#e6edf3;"><strong>UUID:</strong><br>'
+        '<code style="color:#ff6666; word-break:break-all; font-family:inherit;">' + _escape(anon_uuid) + '</code></p>'
+
+        '<p style="margin:0.8em 0; color:#e6edf3;"><strong>E-Mail:</strong><br>'
+        '<code style="color:#ff6666; font-family:inherit;">' + _escape(email) + '</code></p>'
+
+        '<p style="margin:0.8em 0; color:#e6edf3;"><strong>Forum:</strong><br>'
+        '<code style="color:#ff6666; font-family:inherit;">' + _escape(forum_username) + '</code></p>'
+        '</div>'
+
+        '<div style="background:rgba(255,51,51,0.08); border-left:4px solid #ff3333; '
+        'padding:1.5em; border-radius:8px; margin:1.5em 0;">'
+        '<p style="color:#ff3333; font-size:0.85em; letter-spacing:0.1em; margin-bottom:0.8em; '
+        'text-transform:uppercase;">WICHTIG - SCHREIB DAS AUF</p>'
+        '<p style="color:#ffcccc; margin:0.5em 0; line-height:1.6;">'
+        'Diese Daten werden <strong style="color:#fff;">nicht dauerhaft</strong> gespeichert. '
+        'Nach einem Browser-Neustart sind sie <strong style="color:#fff;">verloren</strong>. '
         'Notiere UUID und E-Mail-Adresse jetzt.'
         '</p>'
         '</div>'
-        '<form method="POST" action="/welcome/ack" style="margin:2em 0;">'
-        '<button type="submit" class="btn" style="background:#00ff88; color:#000; font-weight:bold; padding:1em 2em; border:1px solid #00ff88; border-radius:4px; cursor:pointer; transition: background-color 0.2s, color 0.2s;">'
+
+        '<form method="POST" action="/welcome/ack" style="margin:2em 0; text-align:center;">'
+        '<button type="submit" style="background:#da3633; color:#fff; font-weight:600; '
+        'padding:1em 2em; border:1px solid #ff3333; border-radius:6px; cursor:pointer; '
+        'font-size:1em; font-family:inherit; transition:background-color 0.3s ease, border-color 0.3s ease;">'
         'Ich habe es aufgeschrieben'
         '</button>'
         '</form>'
+
         '<p style="text-align:center; margin-top:1em;">'
-        '<a class="btn" href="/mail" style="color:#00ff88; margin-right:1em; text-decoration:none; border:1px solid #00ff88; padding:0.5em 1em; border-radius:4px; display:inline-block;">-> Zum Postfach</a> '
-        '<a class="btn" href="/forum" style="color:#00ff88;">-> Zum Forum</a>'
+        '<a href="/mail" style="color:#ff3333; margin-right:1em; text-decoration:none; '
+        'border:1px solid #30363d; padding:0.5em 1em; border-radius:6px; display:inline-block; '
+        'background:#21262d; transition:background-color 0.3s ease, border-color 0.3s ease;">'
+        '→ Zum Postfach</a> '
+        '<a href="/forum" style="color:#ff3333; text-decoration:none; '
+        'border:1px solid #30363d; padding:0.5em 1em; border-radius:6px; display:inline-block; '
+        'background:#21262d; transition:background-color 0.3s ease, border-color 0.3s ease;">'
+        '→ Zum Forum</a>'
         '</p>'
     )
     return _page("Willkommen", address, body)
+
 
 
 def render_recover(address, _page, _escape, error=""):
