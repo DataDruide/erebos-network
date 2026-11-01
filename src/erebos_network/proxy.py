@@ -474,6 +474,7 @@ class ErebosSocks5Server:
             _rec = get_recorder()
             _rec.start()
             _rec.mark("SOCKS5-Connect", f"{host}:{port}")
+            socks_reply_sent = False
 
             # Prüfe, ob es eine .erebos-Adresse ist
             if ".erebos" in host:
@@ -530,7 +531,8 @@ class ErebosSocks5Server:
                         )
                 if rendezvous_peer is None:
                     logger.error(f"[{conn_id}] Kein Rendezvous-Peer verfügbar")
-                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     writer.close()
                     return
                 
@@ -549,7 +551,8 @@ class ErebosSocks5Server:
                 
                 if request is None:
                     logger.error(f"[{conn_id}] Rendezvous-Request fehlgeschlagen (kein Descriptor?)")
-                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     writer.close()
                     return
                 
@@ -592,7 +595,8 @@ class ErebosSocks5Server:
 
                 if descriptor is None or not descriptor.intro_points:
                     logger.error(f"[{conn_id}] Kein Intro-Point im Descriptor")
-                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     writer.close()
                     return
 
@@ -726,7 +730,8 @@ class ErebosSocks5Server:
 
                             if not ready_received:
                                 logger.error(f"[{conn_id}] Alle Pfade fehlgeschlagen")
-                                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                                if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                                 writer.close()
                                 return
 
@@ -734,6 +739,7 @@ class ErebosSocks5Server:
                             # SOCKS5-REP_SUCCESS jetzt senden, damit curl den HTTP-Request
                             # schicken kann.
                             await self._send_reply(writer, SOCKS5_REP_SUCCESS)
+                            socks_reply_sent = True
                             logger.info(f"[{conn_id}] SOCKS5-REP_SUCCESS gesendet (Client kann HTTP senden)")
 
                             # B3: E2E-Schluesselaustausch (optional, fallback Klartext)
@@ -898,17 +904,21 @@ class ErebosSocks5Server:
                                     logger.error(f"[{conn_id}] Fehler beim Senden der HTTP-Antwort an Client: {e}")
                             else:
                                 logger.error(f"[{conn_id}] Keine HTTP-Antwort vom Hidden Service")
-                                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                                if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
 
                             await rendezvous_client.close()
                         else:
-                            await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                            if not socks_reply_sent:
+                                await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                     else:
                         logger.error(f"[{conn_id}] Keine Antwort vom Intro-Point")
-                        await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                        if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                 except Exception as e:
                     logger.error(f"[{conn_id}] Fehler bei Rendezvous-Kommunikation: {e}")
-                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
+                    if not socks_reply_sent:
+                                    await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                 finally:
                     await tunnel_client.close()
                 writer.close()
