@@ -13,6 +13,12 @@ services:
     ports:
       - "9999:9999"
       - "10999:10999/udp"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(('127.0.0.1', 9999)) == 0 else 1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   peer2:
     build: .
@@ -28,6 +34,12 @@ services:
     ports:
       - "9998:9998"
       - "10998:10998/udp"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(('127.0.0.1', 9998)) == 0 else 1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   peer3:
     build: .
@@ -43,6 +55,12 @@ services:
     ports:
       - "9997:9997"
       - "10997:10997/udp"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(('127.0.0.1', 9997)) == 0 else 1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   proxy:
     build: .
@@ -85,9 +103,12 @@ services:
       erebos-net:
         ipv4_address: 172.20.0.14
     depends_on:
-      - peer1
-      - peer2
-      - peer3
+      peer1:
+        condition: service_healthy
+      peer2:
+        condition: service_healthy
+      peer3:
+        condition: service_healthy
     restart: on-failure
 
 networks:
