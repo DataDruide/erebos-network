@@ -516,6 +516,24 @@ class HiddenServiceRuntime:
                     elif not path.startswith("/wiki"):
                         path = "/wiki" + path
 
+            # Unbekannte Subdomain → 404 (statt wie Root auf /onboard)
+            _known_subdomains = {"forum", "mail", "chat", "wiki"}
+            if _subdomain and _subdomain not in _known_subdomains:
+                logger.warning(
+                    f"HTTP 404: unbekannte Subdomain '{_subdomain}' "
+                    f"(Host: {_host_full})"
+                )
+                body_404 = (
+                    "<!DOCTYPE html><html><head><title>404</title></head>"
+                    "<body><h1>404 Nicht gefunden</h1>"
+                    "<p>Unbekannte Subdomain.</p>"
+                    "</body></html>"
+                ).encode("utf-8")
+                resp = http_response(404, "text/html; charset=utf-8", body_404)
+                writer.write(resp)
+                await writer.drain()
+                return
+
             if path.startswith("/search"):
                 log_path = "/search (query redacted)"
             logger.info(f"HTTP {method} {log_path} ({len(body)}B body)")
