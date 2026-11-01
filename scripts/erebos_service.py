@@ -476,6 +476,164 @@ def cmd_logs(args) -> int:
     return 0
 
 
+def _port_is_free(port: int) -> bool:
+    """Prueft, ob ein TCP-Port auf 127.0.0.1 frei ist."""
+    import socket as _socket
+    s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _ask(prompt: str, default: str = "", required: bool = True) -> str:
+    """Interaktive Eingabe mit Default und Validierung."""
+    suffix = f" [{default}]" if default else ""
+    while True:
+        try:
+            raw = input(f"{prompt}{suffix}: ").strip()
+        except EOFError:
+            raise SystemExit("\nAbgebrochen.")
+        value = raw or default
+        if value or not required:
+            return value
+        print("  Bitte eine Eingabe machen.")
+
+
+def _ask_yes_no(prompt: str, default: bool = True) -> bool:
+    suffix = " [J/n]" if default else " [j/N]"
+    while True:
+        try:
+            raw = input(f"{prompt}{suffix}: ").strip().lower()
+        except EOFError:
+            raise SystemExit("\nAbgebrochen.")
+        if not raw:
+            return default
+        if raw in ("j", "ja", "y", "yes"):
+            return True
+        if raw in ("n", "nein", "no"):
+            return False
+        print("  Bitte 'j' oder 'n'.")
+
+
+def cmd_wizard(args) -> int:
+    """Interaktiver Einstieg: fragt die create-Felder ab und ruft cmd_create."""
+    print()
+    print("=== Erebos Service Wizard ===")
+    print("Richtet einen eigenen Hidden Service ein.")
+    print()
+
+    registry = _load_registry()
+
+    # 1. Name
+    while True:
+        name = _ask("Service-Name (keine Leerzeichen)")
+        if not name:
+            continue
+        if " " in name:
+            print("  Keine Leerzeichen im Namen.")
+            continue
+        if name in registry:
+            print(f"  '{name}' existiert schon. Bitte anderen Namen waehlen.")
+            continue
+        break
+
+    # 2. Port (Default 8090, bei Belegung hochzaehlen)
+    default_port = 8090
+    for candidate in range(default_port, default_port + 10):
+        if _port_is_free(candidate):
+            default_port = candidate
+            break
+    while True:
+        raw = _ask("Port", str(default_port))
+        try:
+            port = int(raw)
+        except ValueError:
+            print("  Bitte eine Zahl.")
+            continue
+        if not (1 <= port <= 65535):
+            print("  Port muss zwischen 1 und 65535 liegen.")
+            continue
+        if not _port_is_free(port):
+            print(f"  Port {port} ist belegt. Bitte anderen waehlen.")
+            continue
+        break
+
+    # 3. Pages-Verzeichnis
+    default_pages = str(Path.home() / "myservice-pages")
+    while True:
+        pages = Path(_ask("Pages-Verzeichnis", default_pages)).expanduser().resolve()
+        if pages.exists() and not pages.is_dir():
+            print(f"  '{pages}' ist keine Verzeichnis.")
+            continue
+        break
+
+    pages.mkdir(parents=True, exist_ok=True)
+    index = pages / "index.html"
+    if not index.exists():
+        print(f"  Lege Beispiel-index.html an: {index}")
+        index.write_text(
+            "<!DOCTYPE html>\n"
+            "<html><head><title>My Erebos Service</title></head>\n"
+            "<body><h1>Hello from my own Hidden Service</h1></body></html>\n",
+            encoding="utf-8",
+        )
+
+    # 4. Welt
+    print()
+    print("Peers / Intro-Points:")
+    print("  [1] Native Welt (127.0.0.1) — Standard")
+    print("  [2] Benutzerdefiniert")
+    while True:
+        choice = _ask("Auswahl", "1")
+        if choice in ("1", "2"):
+            break
+        print("  Bitte 1 oder 2.")
+    if choice == "1":
+        opts = dict(DEFAULTS)
+    else:
+        opts = {
+            "rendezvous_host": _ask("Rendezvous-Host", DEFAULTS["rendezvous_host"]),
+            "rendezvous_port": int(_ask("Rendezvous-Port", str(DEFAULTS["rendezvous_port"]))),
+            "bind_host": _ask("Bind-Host", DEFAULTS["bind_host"]),
+            "dht_peers": _ask("DHT-Peers", DEFAULTS["dht_peers"]),
+            "intro_points": _ask("Intro-Points", DEFAULTS["intro_points"]),
+            "log_level": _ask("Log-Level", DEFAULTS["log_level"]),
+        }
+
+    # 5. Bestaetigung
+    print()
+    print("Zusammenfassung:")
+    print(f"  Name:    {name}")
+    print(f"  Port:    {port}")
+    print(f"  Pages:   {pages}")
+    print(f"  Welt:    {'native (127.0.0.1)' if choice == '1' else 'benutzerdefiniert'}")
+    if choice != "1":
+        print(f"  Rendezvous: {opts['rendezvous_host']}:{opts['rendezvous_port']}")
+        print(f"  DHT-Peers:  {opts['dht_peers']}")
+    print()
+    if not _ask_yes_no("Service jetzt anlegen und starten?", True):
+        print("Abgebrochen.")
+        return 0
+
+    # 6. cmd_create mit demselben Namespace aufrufen
+    create_args = argparse.Namespace(
+        name=name,
+        port=port,
+        pages=str(pages),
+        rendezvous_host=opts["rendezvous_host"],
+        rendezvous_port=opts["rendezvous_port"],
+        bind_host=opts["bind_host"],
+        dht_peers=opts["dht_peers"],
+        intro_points=opts["intro_points"],
+        log_level=opts["log_level"],
+    )
+    return cmd_create(create_args)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Erebos Service CLI (native Welt)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -522,6 +680,9 @@ def main() -> int:
     p_logs.add_argument("--name", required=True)
     p_logs.add_argument("--lines", type=int, default=50)
     p_logs.set_defaults(func=cmd_logs)
+
+    p_wizard = sub.add_parser("wizard", help="Interaktiver Einstieg (fragt create-Felder ab)")
+    p_wizard.set_defaults(func=cmd_wizard)
 
     args = parser.parse_args()
     return args.func(args)

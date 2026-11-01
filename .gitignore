@@ -57,3 +57,5 @@ full_reset_start.sh
 peers.json
 peers.json.bak
 peers.native.json
+*.bak_keyfile
+*.bak3
