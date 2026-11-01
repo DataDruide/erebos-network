@@ -42,12 +42,13 @@ def render_forum_index(address: str, client_id: str, username: str,
                     )
     return _page(
         "EREBOS COMMUNITY", address,
-        get_forum_css() + forum.render_categories(
+        forum.render_categories(
             client_id=client_id, username=username,
             admin=admin, admin_token="", mod=mod,
             base_address=address,
         ),
         hero_image="community-bg.jpeg",
+        extra_css=get_forum_css(),
     )
 
 
@@ -73,7 +74,7 @@ def render_forum_login(address: str, method: str = "GET", body: bytes = b"",
             "Login", address,
             forum.render_login_form("Login fehlgeschlagen."),
         )
-    return _page("Login", address, forum.render_login_form())
+    return _page("Login", address, forum.render_login_form(), extra_css=get_forum_css())
 
 
 def render_forum_register(address: str, method: str = "GET", body: bytes = b"") -> bytes:
@@ -86,7 +87,7 @@ def render_forum_register(address: str, method: str = "GET", body: bytes = b"") 
         if ok:
             return b"REDIRECT:/forum/login"
         return _page("Registrieren", address, forum.render_register_form(msg))
-    return _page("Registrieren", address, forum.render_register_form())
+    return _page("Registrieren", address, forum.render_register_form(), extra_css=get_forum_css())
 
 
 
@@ -104,7 +105,7 @@ def render_forum_profile(address: str, username: str,
         )
     body = forum.render_profile_view(username, profile=profile)
     return _page(f"Profil: {username}", address,
-                 forum.get_forum_css() + body)
+                 body, extra_css=forum.get_forum_css())
 
 
 def render_forum_profile_edit(address: str, method: str = "GET",
@@ -131,15 +132,15 @@ def render_forum_profile_edit(address: str, method: str = "GET",
             return b"REDIRECT:/forum/profil/" + session_user.encode("utf-8")
         return _page(
             "Profil bearbeiten", address,
-            forum.get_forum_css()
-            + f"<h2>Profil bearbeiten</h2>"
+            f"<h2>Profil bearbeiten</h2>"
             + f"<p style=\"color:#ff3333;\"><strong>Fehler:</strong> {msg}</p>"
             + forum.render_profile_edit(session_user),
         )
     profile = forum.get_user_profile(session_user)
     return _page(
         "Profil bearbeiten", address,
-        forum.get_forum_css() + forum.render_profile_edit(session_user, profile),
+        forum.render_profile_edit(session_user, profile), 
+        extra_css=forum.get_forum_css()
     )
 
 def render_forum_logout(address: str, session_token: str) -> bytes:

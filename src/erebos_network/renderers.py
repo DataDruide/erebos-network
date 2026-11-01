@@ -49,7 +49,7 @@ def _load_bg_image(name: str) -> str:
     return ""
 
 
-def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: str = "") -> bytes:
+def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: str = "", extra_css: str = "") -> bytes:
     """Rendert eine komplette HTML-Seite mit optionalem Hero-Header.
 
     hero_image: Dateiname in assets/ (z.B. "mail-bg.jpeg") oder ""
@@ -195,14 +195,11 @@ def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: st
         "    a {\n"
         "      color: #ff3333;\n"
         "      text-decoration: none;\n"
-        "      border-bottom: 1px dotted #ff3333;\n"
-        "      transition: all 0.2s ease;\n"
+        "      transition: color 0.3s ease;\n"
         "    }\n"
         "    a:hover {\n"
-        "      color: #050508;\n"
-        "      background: #ff3333;\n"
-        "      box-shadow: 0 0 12px rgba(255,51,51,0.8);\n"
-        "      padding: 0 0.2em;\n"
+        "      color: #ff6666;\n"
+        "      text-decoration: underline;\n"
         "    }\n"
         "    code {\n"
         "      background: rgba(10,10,21,0.9);\n"
@@ -382,6 +379,7 @@ def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: st
         "        transform: none !important;\n"
         "    }\n"
         "  </style>\n"
+        f"{extra_css}\n"
         "</head>\n"
 
         "<body>\n"

@@ -904,21 +904,45 @@ button, .btn, .category-card, .thread-card, .post-card, input, textarea, a {
 /* --- Gemeinsame Card-Basis (Kategorie, Thread, Post) --- */
 .category-card, .thread-card, .post-card {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 16px;
-    padding: 1.25em 1.5em; 
-    margin: 0.75em 0;      
+    justify-content: space-between;
+    gap: 20px;
+    padding: 1.5em 2em; 
+    margin: 1em 0;      
     border: 1px solid #30363d;
     border-radius: 8px;
     background: #0d1117;
     color: inherit;
     text-decoration: none;
-    /* Nur Farben animieren, keine Größe */
     transition: border-color .3s ease, background-color .3s ease;
     width: 100%;
-    min-height: 64px;
-    overflow: hidden;
+    box-sizing: border-box;
     transform: none !important;
+}
+
+/* Die linke Seite der Karte (Name, Beschreibung, letzter Thread) */
+.category-info, .thread-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Die rechte Seite der Karte (Threads / Posts) */
+.category-stats {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    color: #8b949e;
+    font-size: .85em;
+    line-height: 1.6;
+    background: transparent;
+    padding: 0;
+    border: none;
 }
 /* Hover: nur Farbe, kein Springen */
 .category-card:hover, .thread-card:hover, .post-card:hover {
@@ -949,16 +973,13 @@ button, .btn, .category-card, .thread-card, .post-card, input, textarea, a {
     line-height: 1.4;
 }
 .category-stats { 
-    color: #7d8590; 
+    color: #8b949e; 
     font-size: .85em; 
     white-space: nowrap; 
     text-align: right; 
-    background: #161b22; 
-    padding: 6px 12px; 
-    border-radius: 6px; 
-    border: 1px solid #21262d;
     flex-shrink: 0;
     align-self: center;
+    margin-left: 20px;
 }
 
 /* --- Post-spezifisch --- */
@@ -1074,6 +1095,216 @@ body {
     background-position: center;
     background-attachment: fixed;
     background-repeat: no-repeat;
+}
+
+/* --- Auth-Seiten (Login / Registrieren) --- */
+.auth-page-wrapper {
+    position: relative;
+    min-height: 70vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background-image: 
+        linear-gradient(rgba(5, 5, 8, 0.85), rgba(5, 5, 8, 0.95)),
+        url('/static/auth.png');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    border-radius: 8px;
+    margin: 1rem 0;
+}
+.auth-container {
+    max-width: 500px;
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 2em;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.auth-form .form-group { margin-bottom: 1.2em; }
+.auth-form label { display: block; margin-bottom: 0.5em; color: #e6edf3; font-weight: 600; }
+.auth-form input {
+    width: 100%; padding: 10px; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; color: #e6edf3; font-family: inherit; font-size: 1em;
+    transition: border-color 0.3s ease;
+}
+.auth-form input:focus { border-color: #ff3333; outline: none; }
+.auth-form .muted { display: block; margin-top: 0.5em; font-size: 0.8em; }
+.btn-primary { background: #da3633; color: #fff; border-color: #ff3333; }
+.btn-primary:hover { background: #ff3333; }
+.btn-secondary { background: transparent; color: #8b949e; border-color: transparent; }
+.btn-secondary:hover { color: #ff3333; background: transparent; text-decoration: underline; }
+.form-error {
+    background: rgba(255, 51, 51, 0.1); border-left: 4px solid #ff3333;
+    color: #ffcccc; padding: 12px; border-radius: 4px; margin-bottom: 1.5em; font-size: 0.9em;
+}
+.security-note {
+    background: rgba(255, 51, 51, 0.05); border: 1px solid rgba(255, 51, 51, 0.2);
+    color: #ffcccc; padding: 12px; border-radius: 6px; margin-bottom: 1.5em; font-size: 0.85em; line-height: 1.5;
+}
+.auth-footer { margin-top: 1.5em; text-align: center; font-size: 0.9em; }
+.auth-footer a { color: #ff3333; text-decoration: none; }
+.auth-footer a:hover { text-decoration: underline; }
+
+/* --- Forum-Layout (Header, Sidebar, Main) --- */
+.forum-header {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    margin-bottom: 1.5em;
+    padding: 1em 1.5em;
+}
+.header-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1em;
+}
+.logo {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: #ff3333;
+    text-decoration: none;
+    letter-spacing: 1px;
+    text-shadow: 0 0 15px rgba(255, 51, 51, 0.3);
+}
+.top-nav {
+    display: flex;
+    gap: 1.5em;
+}
+.top-nav a {
+    color: #8b949e;
+    text-decoration: none;
+    font-size: 0.95em;
+    transition: color .3s ease;
+}
+.top-nav a:hover {
+    color: #ff3333;
+}
+
+.forum-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 2em;
+}
+@media (max-width: 768px) {
+    .forum-layout { grid-template-columns: 1fr; }
+}
+
+.forum-sidebar {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1.5em;
+    align-self: start;
+}
+.forum-sidebar h3 {
+    color: #ff3333;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 1em;
+    border-bottom: 1px solid #21262d;
+    padding-bottom: 0.5em;
+}
+.sidebar-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.sidebar-nav li {
+    margin-bottom: 0.8em;
+    color: #8b949e;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+.sidebar-nav a {
+    color: #e6edf3;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color .3s ease;
+}
+.sidebar-nav a:hover {
+    color: #ff3333;
+}
+
+.forum-main {
+    min-width: 0;
+}
+.forum-main h1 {
+    margin-bottom: 0.5em;
+}
+
+.category-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    margin: 1.5em 0;
+}
+
+.legend {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-left: 3px solid #ff3333;
+    border-radius: 4px;
+    padding: 0.8em 1em;
+    margin: 1em 0;
+    font-size: 0.85em;
+    color: #8b949e;
+}
+.legend strong {
+    color: #e6edf3;
+}
+
+/* --- Sidebar Feinschliff --- */
+.sidebar-nav li {
+    margin-bottom: 1.2em;
+}
+.sidebar-nav li small {
+    display: block;
+    margin-top: 0.2em;
+    color: #8b949e;
+    font-size: 0.75em;
+    line-height: 1.4;
+}
+
+/* --- Legende (ersetzt das alte Inline-Styling) --- */
+.legend {
+    background: rgba(255, 51, 51, 0.05);
+    border: 1px solid rgba(255, 51, 51, 0.2);
+    border-left: 3px solid #ff3333;
+    border-radius: 4px;
+    padding: 1em;
+    margin: 1.5em 0;
+    font-size: 0.85em;
+    color: #8b949e;
+}
+.legend strong { color: #e6edf3; }
+
+/* --- Suchformular --- */
+.forum-search {
+    display: flex;
+    gap: 0.5em;
+    margin: 1.5em 0;
+}
+.forum-search input {
+    flex: 1;
+    padding: 0.8em 1em;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    font-family: inherit;
+    font-size: 1em;
+    transition: border-color 0.3s ease;
+}
+.forum-search input:focus {
+    border-color: #ff3333;
+    outline: none;
 }
 </style>"""
 
@@ -1843,19 +2074,6 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         f"(Fenster: {status['window_seconds'] // 60} Minuten)</small></p>\n"
     )
     rows = ""
-    for c in cats:
-        cid = _escape(c["id"])
-        name = _escape(c["name"])
-        desc = _escape(c["desc"])
-        rows += (
-            f"<li><a href=\"/forum/{cid}\">{name}</a> "
-            f"<small>{c['threads_count']} Thread(s), "
-            f"{c['posts_count']} Post(s) — {desc}</small></li>\n"
-        )
-    if not rows:
-        rows = "<li><em>Noch keine Kategorien.</em></li>"
-
-    # rows_table: Tabelle mit "Letzter Thread"-Spalte
     cards_html = ""
     for c in cats:
         cid = _escape(c["id"])
@@ -1863,34 +2081,37 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         desc = _escape(c["desc"])
         threads = c["threads_count"]
         posts = c["posts_count"]
-        # Letzter Thread als Info
         last_thread = c.get("last_thread")
+        
         if last_thread:
             lt_title = _escape(last_thread.get("title", ""))
             lt_author = _escape(last_thread.get("author", ""))
             lt_time = _escape(last_thread.get("time", ""))
-            last_info = f"<div class=\"category-last\">Letzter: <a href=\"/forum/{cid}/thread/{last_thread.get('id', '')}\">{lt_title}</a> von {lt_author} ({lt_time})</div>"
+            last_info = (
+                f'<div class="category-last">Letzter: '
+                f'<a href="/forum/{cid}/thread/{last_thread.get("id", "")}">{lt_title}</a> '
+                f'von {lt_author} ({lt_time})</div>'
+            )
         else:
-            last_info = "<div class=\"category-last muted\">Kein Thread</div>"
-        
-        cards_html += (
-            f'<a class="category-card" href="/forum/{cid}">'
-            f'  <div class="category-info">'
-            f'    <strong>{name}</strong>'
-            f'    <p class="category-desc">{desc}</p>'
-            f'    {last_info}'
-            f'  </div>'
-            f'  <div class="category-stats">'
-            f'    {threads} Threads<br>{posts} Posts'
-            f'  </div>'
-            f'</a>'
-        )
-
+            last_info = '<div class="category-last muted">Kein Thread</div>'
+            
+        # ALLES (Info + Stats) befindet sich in der Karte!
+        cards_html += f"""
+        <a class="category-card" href="/forum/{cid}">
+            <div class="category-info">
+                <strong>{name}</strong>
+                <div class="category-desc">{desc}</div>
+                {last_info}
+            </div>
+            <div class="category-stats">
+                <span>{threads} Threads</span><br>
+                <span>{posts} Posts</span>
+            </div>
+        </a>
+        """
     # Legende
     legend = (
-        '<div class="legend" style="margin:1em 0; padding:0.8em; '
-        'background:rgba(0,255,136,0.03); border-left:3px solid #ff3333; '
-        'font-size:0.85em;">'
+        '<div class="legend">'
         '<strong>Legende:</strong> '
         '<span style="color:#ffaa33; font-weight:bold;">[ADMIN]</span> volle Rechte · '
         '<span style="color:#ff3333; font-weight:bold;">[MOD]</span> moderiert · '
@@ -1952,7 +2173,7 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
             "</small></p>\n"
         )
 
-    return get_forum_css() + (
+    return (
         # Navbar oben
         '<header class="forum-header">'
         '  <div class="header-inner">'
@@ -1981,9 +2202,8 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         f'    {user_nav}'
         f'    {client_status}'
         # Suchformular
-        '    <form method="get" action="/forum/search" style="margin:1em 0">'
-        '      <input name="q" placeholder="Suche in Titeln und Posts..." '
-        'style="width:70%;padding:0.4em"> '
+        '    <form method="get" action="/forum/search" class="forum-search">'
+        '      <input name="q" placeholder="Suche in Titeln und Posts...">'
         '      <button type="submit" class="btn">Suchen</button>'
         '    </form>'
         # Karten-Liste statt Tabelle
@@ -2105,32 +2325,59 @@ def render_new_thread_form(category_id: str = "allgemein",
 
 
 def render_login_form(error: str = "") -> str:
-    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
-    return (
-        "<h1>Login</h1>\n"
-        f"{err}"
-        "<form method=\"post\" action=\"/forum/login\">\n"
-        "  <p><label>Username:<br><input name=\"username\" required style=\"width:100%\"></label></p>\n"
-        "  <p><label>Passwort:<br><input type=\"password\" name=\"password\" required style=\"width:100%\"></label></p>\n"
-        "  <p><button type=\"submit\" class=\"btn\">Login</button></p>\n"
-        "</form>\n"
-        "<p><a href=\"/forum/register\">Noch kein Account? Registrieren</a></p>\n"
-        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
-    )
-
+    err = f'<div class="form-error">{_escape(error)}</div>' if error else ""
+    return f"""
+    <div class="auth-page-wrapper">
+        <div class="auth-container">
+            {err}
+            <form method="post" action="/forum/login" class="auth-form">
+                <div class="form-group">
+                    <label for="username">Benutzername</label>
+                    <input type="text" id="username" name="username" required autocomplete="username" placeholder="Dein Benutzername">
+                </div>
+                <div class="form-group">
+                    <label for="password">Passwort</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Dein Passwort">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:1em;">Sicher einloggen</button>
+            </form>
+            <div class="auth-footer">
+                <p>Noch kein Account? <a href="/forum/register">Jetzt registrieren</a></p>
+                <a href="/forum" class="btn btn-secondary" style="margin-top:1em;">← Zurück zum Forum</a>
+            </div>
+        </div>
+    </div>
+    """
 
 def render_register_form(error: str = "") -> str:
-    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
-    return (
-        "<h1>Registrieren</h1>\n"
-        f"{err}"
-        "<form method=\"post\" action=\"/forum/register\">\n"
-        "  <p><label>Username:<br><input name=\"username\" required maxlength=\"32\" style=\"width:100%\"></label></p>\n"
-        "  <p><label>Passwort (min. 8 Zeichen):<br><input type=\"password\" name=\"password\" required minlength=\"8\" style=\"width:100%\"></label></p>\n"
-        "  <p><button type=\"submit\" class=\"btn\">Account erstellen</button></p>\n"
-        "</form>\n"
-        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
-    )
+    err = f'<div class="form-error">{_escape(error)}</div>' if error else ""
+    return f"""
+    <div class="auth-page-wrapper">
+        <div class="auth-container">
+            {err}
+            <div class="security-note">
+                <strong>🔒 Maximale Privatsphäre:</strong> Dein Passwort wird lokal gehasht (PBKDF2). Wir speichern keine E-Mail-Adressen oder Tracking-Daten.
+            </div>
+            <form method="post" action="/forum/register" class="auth-form">
+                <div class="form-group">
+                    <label for="username">Benutzername</label>
+                    <input type="text" id="username" name="username" required maxlength="32" autocomplete="username" placeholder="Wähle einen Benutzernamen">
+                    <small class="muted">Maximal 32 Zeichen. Keine Leerzeichen.</small>
+                </div>
+                <div class="form-group">
+                    <label for="password">Passwort</label>
+                    <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen">
+                    <small class="muted">Mindestens 8 Zeichen. Verwende eine Mischung aus Buchstaben, Zahlen und Sonderzeichen.</small>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:1em;">Sicher registrieren</button>
+            </form>
+            <div class="auth-footer">
+                <p>Bereits registriert? <a href="/forum/login">Hier einloggen</a></p>
+                <a href="/forum" class="btn btn-secondary" style="margin-top:1em;">← Zurück zum Forum</a>
+            </div>
+        </div>
+    </div>
+    """
 
 
 def render_my_threads(username: str) -> str:
