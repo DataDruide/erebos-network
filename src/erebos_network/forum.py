@@ -943,6 +943,7 @@ button, .btn, .category-card, .thread-card, .post-card, input, textarea, a {
     background: transparent;
     padding: 0;
     border: none;
+    margin-left: 20px;
 }
 /* Hover: nur Farbe, kein Springen */
 .category-card:hover, .thread-card:hover, .post-card:hover {
@@ -972,15 +973,7 @@ button, .btn, .category-card, .thread-card, .post-card, input, textarea, a {
     margin: 4px 0 0 0; 
     line-height: 1.4;
 }
-.category-stats { 
-    color: #8b949e; 
-    font-size: .85em; 
-    white-space: nowrap; 
-    text-align: right; 
-    flex-shrink: 0;
-    align-self: center;
-    margin-left: 20px;
-}
+
 
 /* --- Post-spezifisch --- */
 .post-head { 
@@ -2082,6 +2075,13 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         threads = c["threads_count"]
         posts = c["posts_count"]
         last_thread = c.get("last_thread")
+        
+        # Sidebar-Eintrag hinzufügen
+        rows += (
+            f"<li><a href=\"/forum/{cid}\">{name}</a> "
+            f"<small>{threads} Thread(s), "
+            f"{posts} Post(s) — {desc}</small></li>\n"
+        )
         
         if last_thread:
             lt_title = _escape(last_thread.get("title", ""))
