@@ -1099,8 +1099,8 @@ body {
     justify-content: center;
     padding: 2rem;
     background-image: 
-        linear-gradient(rgba(5, 5, 8, 0.85), rgba(5, 5, 8, 0.95)),
-        url('/static/auth.png');
+        linear-gradient(rgba(5, 5, 8, 0.50), rgba(5, 5, 8, 0.65)),
+        url('/static/auth.jpeg');
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
