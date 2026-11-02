@@ -8,12 +8,12 @@ def render_rules(address: str) -> bytes:
   <title>Regeln - Erebos</title>
   <style>
     body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 2em; }}
-    h1 {{ color: #00ff41; font-family: monospace; }}
+    h1 {{ color: #ff3333; font-family: monospace; }}
     .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 1.5em; margin-bottom: 2em; }}
     ul {{ list-style: none; padding: 0; }}
     li {{ margin-bottom: 1em; }}
-    strong {{ color: #00ff41; }}
-    a {{ color: #39ff14; text-decoration: none; }}
+    strong {{ color: #ff3333; }}
+    a {{ color: #ff6666; text-decoration: none; }}
   </style>
 </head>
 <body>

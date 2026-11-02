@@ -145,12 +145,12 @@ def render_wiki(address: str) -> bytes:
   <title>Hidden Wiki - Erebos</title>
   <style>
     body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 2em; max-width: 900px; margin: 0 auto; }
-    h1 { color: #00ff41; font-family: monospace; }
-    h2 { color: #39ff14; font-family: monospace; margin-top: 2em; border-bottom: 1px solid #30363d; padding-bottom: 0.5em; }
+    h1 { color: #ff3333; font-family: monospace; }
+    h2 { color: #ff6666; font-family: monospace; margin-top: 2em; border-bottom: 1px solid #30363d; padding-bottom: 0.5em; }
     .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 1.5em; margin-bottom: 2em; }
     ul { list-style: none; padding: 0; }
     li { border-bottom: 1px solid #30363d; padding: 1em 0; }
-    a { color: #39ff14; text-decoration: none; }
+    a { color: #ff6666; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .disclaimer { border: 1px solid #ff8800; background: rgba(255,136,0,0.05); padding: 1.5em; border-radius: 8px; margin-top: 2em; }
     .disclaimer strong { color: #ff8800; }
@@ -169,11 +169,11 @@ def render_wiki(address: str) -> bytes:
   <h2>Verfügbare Dienste</h2>
   <div class="card">
     <ul>
-      <li><strong style="color:#00ff41;">Erebos Search</strong><br><span class="note">Die Suchmaschine für das gesamte Netzwerk.</span><br><a href="/search">/search</a></li>
-      <li><strong style="color:#00ff41;">Erebos Forum</strong><br><span class="note">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
-      <li><strong style="color:#00ff41;">Anonymes Postfach</strong><br><span class="note">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
-      <li><strong style="color:#00ff41;">Erebos Chat</strong><br><span class="note">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>
-      <li><strong style="color:#00ff41;">Regeln &amp; Richtlinien</strong><br><span class="note">Die Regeln des Erebos-Netzwerks.</span><br><a href="/rules">/rules</a></li>
+      <li><strong style="color:#ff3333;">Erebos Search</strong><br><span class="note">Die Suchmaschine für das gesamte Netzwerk.</span><br><a href="/search">/search</a></li>
+      <li><strong style="color:#ff3333;">Erebos Forum</strong><br><span class="note">Threads erstellen und diskutieren.</span><br><a href="/forum">/forum</a></li>
+      <li><strong style="color:#ff3333;">Anonymes Postfach</strong><br><span class="note">Sichere Nachrichten empfangen und senden.</span><br><a href="/mail">/mail</a></li>
+      <li><strong style="color:#ff3333;">Erebos Chat</strong><br><span class="note">Echtzeit-Kommunikation im Darknet.</span><br><a href="/chat">/chat</a></li>
+      <li><strong style="color:#ff3333;">Regeln &amp; Richtlinien</strong><br><span class="note">Die Regeln des Erebos-Netzwerks.</span><br><a href="/rules">/rules</a></li>
     </ul>
   </div>
 
