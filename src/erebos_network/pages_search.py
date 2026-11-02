@@ -58,51 +58,44 @@ def render_search(address: str, query: str) -> bytes:
 <title>Erebos Search</title>
 <style>
   :root {{
-    --bg: #050508;
-    --bg-card: #0d1117;
-    --bg-card-hover: #161b22;
-    --fg: #e6edf3;
-    --fg-dim: #7d8590;
-    --accent: #ff3333;
-    --accent-dim: rgba(255, 51, 51, 0.15);
-    --warn: #fbbf24;
-    --danger: #da3633;
-    --border: #30363d;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --bg: #050508; --bg-card: #0d0d14; --bg-card-hover: #14141f;
+    --fg: #ffcccc; --fg-dim: #ff6666;
+    --accent: #ff3333; --accent-dim: #ff333333;
+    --warn: #fbbf24; --danger: #f87171; --border: #1f2937;
+    --mono: 'Courier New', 'Monaco', monospace;
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   html {{ scroll-behavior: smooth; }}
   body {{
-    background: var(--bg);
-    color: var(--fg);
-    font-family: var(--font);
-    font-size: 15px;
-    line-height: 1.6;
-    min-height: 100vh;
-    padding: 2rem 1rem;
-    background-image:
-      linear-gradient(rgba(5, 5, 8, 0.92), rgba(5, 5, 8, 0.98)),
-      url('/static/hacker.jpeg');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
+    background: var(--bg); color: var(--fg); font-family: var(--mono);
+    font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
+    position: relative;
+  }}
+  .bg {{
+    position: fixed; inset: 0; z-index: -2;
+    background-image: url('{bg_url}');
+    background-size: cover; background-position: center;
     background-repeat: no-repeat;
   }}
-  .container {{ max-width: 900px; margin: 0 auto; }}
+  .bg::after {{
+    content: ''; position: absolute; inset: 0;
+    background: rgba(5, 5, 8, 0.85);
+  }}
+  /* Overlay ist in .bg::after */
+  .container {{ max-width: 960px; margin: 0 auto; position: relative; }}
   header {{ text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }}
-  h1 {{ font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px rgba(255, 51, 51, 0.3); }}
+  h1 {{ font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px var(--accent-dim); }}
   .subtitle {{ color: var(--fg-dim); font-size: .85rem; }}
-  .privacy-banner {{ background: rgba(255, 51, 51, 0.08); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.85em; color: #ffcccc; display: flex; align-items: center; gap: 10px; }}
-  .privacy-banner .icon {{ font-size: 1.2em; }}
   .hero-search {{ margin: 2rem auto 3rem; max-width: 700px; position: relative; }}
   .hero-search input {{
     width: 100%; background: var(--bg-card); border: 2px solid var(--border);
     color: var(--fg); padding: 1rem 1rem 1rem 3rem;
-    font-family: var(--font); font-size: 1.1rem; border-radius: 10px;
-    transition: border-color .3s ease;
+    font-family: var(--mono); font-size: 1.1rem; border-radius: 10px;
+    transition: border-color .2s, box-shadow .2s;
   }}
   .hero-search input:focus {{
     outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-dim);
   }}
   .hero-search::before {{
     content: '\2315'; position: absolute; left: 1.2rem; top: 50%;
@@ -111,18 +104,18 @@ def render_search(address: str, query: str) -> bytes:
   }}
   .hero-search button {{
     position: absolute; right: .4rem; top: 50%; transform: translateY(-50%);
-    background: var(--danger); color: #fff; border: none;
-    padding: .6rem 1.2rem; font-family: var(--font); font-size: .9rem;
-    font-weight: 600; border-radius: 6px; cursor: pointer; transition: background-color .3s ease;
+    background: var(--accent); color: var(--bg); border: none;
+    padding: .6rem 1.2rem; font-family: var(--mono); font-size: .9rem;
+    font-weight: bold; border-radius: 6px; cursor: pointer; transition: all .2s;
   }}
-  .hero-search button:hover {{ background: var(--accent); }}
+  .hero-search button:hover {{ background: #ff3333; }}
   .results {{ max-width: 800px; margin: 0 auto; }}
   .result-card {{
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 8px; padding: 1.5em; margin-bottom: 1rem;
-    transition: border-color .3s ease, background-color .3s ease;
+    border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem;
+    transition: border-color .2s, transform .2s; position: relative;
   }}
-  .result-card:hover {{ border-color: var(--accent); background: var(--bg-card-hover); }}
+  .result-card:hover {{ border-color: var(--accent); transform: translateY(-2px); }}
   .result-type {{
     display: inline-block; background: var(--accent-dim); color: var(--accent);
     padding: .1rem .5rem; border-radius: 4px; font-size: .7rem;
@@ -139,9 +132,9 @@ def render_search(address: str, query: str) -> bytes:
   .copy-btn {{
     background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
     padding: .2rem .6rem; border-radius: 4px; cursor: pointer;
-    font-size: .7rem; font-family: var(--font); transition: background-color .3s, color .3s;
+    font-size: .7rem; font-family: var(--mono); transition: all .2s;
   }}
-  .copy-btn:hover {{ background: var(--accent); color: #fff; }}
+  .copy-btn:hover {{ background: var(--accent); color: var(--bg); }}
   .empty-state {{ text-align: center; padding: 3rem 1rem; color: var(--fg-dim); }}
   .empty-state .icon {{ font-size: 3rem; margin-bottom: 1rem; opacity: .5; }}
   .footer {{
@@ -154,16 +147,15 @@ def render_search(address: str, query: str) -> bytes:
   .toast {{
     position: fixed; bottom: 2rem; left: 50%;
     transform: translateX(-50%) translateY(100px);
-    background: var(--accent); color: #fff; padding: .7rem 1.4rem;
+    background: var(--accent); color: var(--bg); padding: .7rem 1.4rem;
     border-radius: 6px; font-weight: bold; font-size: .85rem;
     opacity: 0; transition: transform .3s, opacity .3s;
     pointer-events: none; z-index: 1000;
   }}
   .toast.show {{ transform: translateX(-50%) translateY(0); opacity: 1; }}
-  ::-webkit-scrollbar {{ width: 8px; }}
-  ::-webkit-scrollbar-track {{ background: var(--bg); }}
-  ::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 4px; }}
-  ::-webkit-scrollbar-thumb:hover {{ background: var(--accent); }}
+  @media (prefers-reduced-motion: reduce) {{
+    *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }}
+  }}
 </style>
 </head>
 <body>

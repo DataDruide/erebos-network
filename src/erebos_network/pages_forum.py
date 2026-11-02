@@ -5,7 +5,6 @@ import logging
 from .renderers import _page
 from .forum_db import get_identity, get_or_create_forum_session
 from . import forum
-from .forum import get_forum_css
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +44,8 @@ def render_forum_index(address: str, client_id: str, username: str,
         forum.render_categories(
             client_id=client_id, username=username,
             admin=admin, admin_token="", mod=mod,
-            base_address=address,
         ),
         hero_image="community-bg.jpeg",
-        extra_css=get_forum_css(),
     )
 
 
@@ -74,7 +71,7 @@ def render_forum_login(address: str, method: str = "GET", body: bytes = b"",
             "Login", address,
             forum.render_login_form("Login fehlgeschlagen."),
         )
-    return _page("Login", address, forum.render_login_form(), extra_css=get_forum_css())
+    return _page("Login", address, forum.render_login_form())
 
 
 def render_forum_register(address: str, method: str = "GET", body: bytes = b"") -> bytes:
@@ -87,61 +84,8 @@ def render_forum_register(address: str, method: str = "GET", body: bytes = b"") 
         if ok:
             return b"REDIRECT:/forum/login"
         return _page("Registrieren", address, forum.render_register_form(msg))
-    return _page("Registrieren", address, forum.render_register_form(), extra_css=get_forum_css())
+    return _page("Registrieren", address, forum.render_register_form())
 
-
-
-
-def render_forum_profile(address: str, username: str,
-                         session_user: str = "") -> bytes:
-    """GET /forum/profil/<username>: öffentliches Profil."""
-    profile = forum.get_user_profile(username)
-    if not profile:
-        return _page(
-            "Profil nicht gefunden", address,
-            f"<h2>Profil nicht gefunden</h2>"
-            f"<p>Der User <strong>{username}</strong> existiert nicht.</p>"
-            f"<p><a href=\"/forum\">← Zurück zum Forum</a></p>",
-        )
-    body = forum.render_profile_view(username, profile=profile)
-    return _page(f"Profil: {username}", address,
-                 body, extra_css=forum.get_forum_css())
-
-
-def render_forum_profile_edit(address: str, method: str = "GET",
-                              body: bytes = b"",
-                              session_user: str = "") -> bytes:
-    """GET/POST /forum/profil/edit: Profil bearbeiten."""
-    if not session_user:
-        return _page(
-            "Nicht eingeloggt", address,
-            f"<h2>Nicht eingeloggt</h2>"
-            f"<p>Bitte <a href=\"/forum/login\">einloggen</a>.</p>",
-        )
-    if method == "POST":
-        form = forum.parse_form_body(body)
-        bio = form.get("bio", "")
-        avatar_b64 = form.get("avatar_b64", "")
-        confirm = form.get("confirm", "") == "1"
-        ok, msg = forum.update_user_profile(
-            session_user, bio,
-            avatar_data_b64=avatar_b64,
-            confirm_no_private_data=confirm,
-        )
-        if ok:
-            return b"REDIRECT:/forum/profil/" + session_user.encode("utf-8")
-        return _page(
-            "Profil bearbeiten", address,
-            f"<h2>Profil bearbeiten</h2>"
-            + f"<p style=\"color:#ff3333;\"><strong>Fehler:</strong> {msg}</p>"
-            + forum.render_profile_edit(session_user),
-        )
-    profile = forum.get_user_profile(session_user)
-    return _page(
-        "Profil bearbeiten", address,
-        forum.render_profile_edit(session_user, profile), 
-        extra_css=forum.get_forum_css()
-    )
 
 def render_forum_logout(address: str, session_token: str) -> bytes:
     """GET /forum/logout: Session loeschen + Redirect."""

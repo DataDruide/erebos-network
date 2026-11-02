@@ -824,627 +824,6 @@ def search_threads(query: str, limit: int = 50) -> list:
     return results[:limit]
 
 
-def _avatar_html(username: str, size: int = 32) -> str:
-    """Initialen-Avatar mit deterministischer Farbe aus dem Username."""
-    import hashlib
-    safe = username or "Anonym"
-    h = int(hashlib.md5(safe.encode()).hexdigest()[:8], 16)
-    hue = h % 360
-    initials = (safe[:2] if len(safe) >= 2 else safe[:1]).upper()
-    return (
-        f'<span class="forum-avatar" style="'
-        f'width:{size}px;height:{size}px;'
-        f'background:hsl({hue},55%,45%);'
-        f'font-size:{max(10, size//2.5)}px;'
-        f'">{_escape(initials)}</span>'
-    )
-
-def get_forum_css() -> str:
-    """Zentrales CSS für das Forum (Avatare, Cards, Layout)."""
-    return """<style>
-/* --- Globale Einstellungen für ruhiges Hovern --- */
-* {
-    box-sizing: border-box;
-}
-button, .btn, .category-card, .thread-card, .post-card, input, textarea, a {
-    -webkit-tap-highlight-color: transparent;
-    outline: none;
-}
-
-/* --- Grundlagen --- */
-.forum-main { max-width: 900px; margin: 0 auto; padding: 1rem; }
-.btn { 
-    display: inline-block; 
-    padding: 8px 16px; 
-    background: #21262d; 
-    color: #c9d1d9; 
-    border-radius: 6px; 
-    text-decoration: none; 
-    font-weight: 600; 
-    transition: background-color .3s ease, border-color .3s ease, color .3s ease; 
-    border: 1px solid #30363d; 
-    cursor: pointer; 
-    font-size: 0.9em; 
-    line-height: 1.4;
-    /* Verhindert, dass der Button beim Klick "eindrückt" */
-    transform: none !important;
-}
-.btn:hover { background: #da3633; border-color: #ff3333; color: #fff; }
-.btn:active { transform: none !important; background: #ff3333; }
-.muted { color: #7d8590; }
-
-/* --- Avatare --- */
-.forum-avatar-img { 
-    display: inline-block; 
-    vertical-align: middle; 
-    border-radius: 50%; 
-    object-fit: cover; 
-    border: 2px solid #ff3333; 
-    flex-shrink: 0;
-    /* Feste Größe, kein Mitschrumpfen */
-    width: var(--avatar-size, 64px);
-    height: var(--avatar-size, 64px);
-}
-.forum-avatar { 
-    display: inline-flex; 
-    align-items: center; 
-    justify-content: center; 
-    border-radius: 50%; 
-    color: #fff; 
-    font-weight: 700; 
-    vertical-align: middle; 
-    margin-right: 12px; 
-    flex-shrink: 0; 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-    text-shadow: 0 1px 2px rgba(0,0,0,.5); 
-    width: var(--avatar-size, 64px);
-    height: var(--avatar-size, 64px);
-}
-
-/* --- Gemeinsame Card-Basis (Kategorie, Thread, Post) --- */
-.category-card, .thread-card, .post-card {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 1.5em 2em; 
-    margin: 1em 0;      
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    background: #0d1117;
-    color: inherit;
-    text-decoration: none;
-    transition: border-color .3s ease, background-color .3s ease;
-    width: 100%;
-    box-sizing: border-box;
-    transform: none !important;
-}
-
-/* Die linke Seite der Karte (Name, Beschreibung, letzter Thread) */
-.category-info, .thread-info {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-/* Die rechte Seite der Karte (Threads / Posts) */
-.category-stats {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    text-align: right;
-    color: #8b949e;
-    font-size: .85em;
-    line-height: 1.6;
-    background: transparent;
-    padding: 0;
-    border: none;
-    margin-left: 20px;
-}
-/* Hover: nur Farbe, kein Springen */
-.category-card:hover, .thread-card:hover, .post-card:hover {
-    border-color: #ff3333;
-    background-color: #1a1010;
-    transform: none !important;
-}
-.category-card:active, .thread-card:active, .post-card:active {
-    transform: none !important;
-}
-
-/* --- Inhalte innerhalb der Cards --- */
-.category-info, .thread-info, .post-body { 
-    flex: 1; 
-    min-width: 0; 
-}
-.category-info strong, .thread-info strong { 
-    display: block; 
-    font-size: 1.1em; 
-    margin-bottom: 4px; 
-    color: #e6edf3; 
-    line-height: 1.3;
-}
-.category-desc, .thread-meta { 
-    color: #7d8590; 
-    font-size: .88em; 
-    margin: 4px 0 0 0; 
-    line-height: 1.4;
-}
-
-
-/* --- Post-spezifisch --- */
-.post-head { 
-    display: flex; 
-    align-items: center; 
-    gap: 8px; 
-    margin-bottom: 12px; 
-    flex-wrap: wrap; 
-    border-bottom: 1px solid #21262d; 
-    padding-bottom: 12px; 
-    min-height: 40px;
-}
-.post-head strong { font-size: 1.05em; color: #e6edf3; }
-.post-head time, .post-head small { color: #7d8590; font-size: .85em; }
-.post-body p { margin: .6em 0; line-height: 1.6; word-wrap: break-word; }
-
-/* --- Profil --- */
-.profile-container { 
-    background: #0d1117; 
-    border: 1px solid #30363d; 
-    border-radius: 8px; 
-    padding: 2em; 
-    margin: 1em 0; 
-}
-.profile-header { 
-    display: flex; 
-    align-items: center; 
-    gap: 20px; 
-    margin-bottom: 2em; 
-    border-bottom: 1px solid #21262d; 
-    padding-bottom: 1.5em; 
-}
-.profile-avatar-large { 
-    width: 100px; 
-    height: 100px; 
-    border-radius: 50%; 
-    object-fit: cover; 
-    border: 2px solid #ff3333; 
-    flex-shrink: 0;
-}
-.form-group { margin-bottom: 1.5em; }
-.form-group label { 
-    display: block; 
-    font-weight: 600; 
-    margin-bottom: .5em; 
-    color: #e6edf3; 
-}
-.form-group input[type="text"], .form-group textarea {
-    width: 100%; 
-    padding: 10px; 
-    background: #161b22; 
-    border: 1px solid #30363d;
-    border-radius: 6px; 
-    color: #c9d1d9; 
-    font-family: inherit; 
-    font-size: 1em;
-    transition: border-color .3s ease;
-    resize: vertical; /* Verhindert, dass Textareas beim Fokus springen */
-}
-.form-group input[type="text"]:focus, .form-group textarea:focus { 
-    border-color: #ff3333; 
-    outline: none; 
-}
-.file-input-btn { 
-    display: inline-block; 
-    padding: 8px 16px; 
-    background: #21262d; 
-    color: #c9d1d9; 
-    border: 1px solid #30363d; 
-    border-radius: 6px; 
-    cursor: pointer; 
-    font-size: 0.9em; 
-    transition: background-color .3s ease, border-color .3s ease; 
-}
-.file-input-btn:hover { background: #30363d; border-color: #ff3333; color: #fff; }
-.privacy-warning { 
-    background: rgba(255, 51, 51, 0.08); 
-    border-left: 4px solid #ff3333; 
-    padding: 16px; 
-    border-radius: 4px; 
-    margin: 1.5em 0; 
-    font-size: 0.9em; 
-    color: #ffcccc; 
-    line-height: 1.5;
-}
-.checkbox-group { 
-    display: flex; 
-    align-items: flex-start; 
-    gap: 10px; 
-    margin: 1.5em 0; 
-    cursor: pointer; 
-}
-.checkbox-group input[type="checkbox"] { 
-    margin-top: 4px; 
-    width: 18px; 
-    height: 18px; 
-    accent-color: #da3633; 
-    flex-shrink: 0;
-}
-
-/* Links */
-a { color: #ff3333; text-decoration: none; transition: color .3s ease; }
-a:hover { color: #ff6666; text-decoration: underline; }
-
-/* Hintergrund */
-body {
-    background-color: #050508;
-    background-image: 
-        linear-gradient(rgba(5, 5, 8, 0.85), rgba(5, 5, 8, 0.95)),
-        url('/static/hacker.jpeg');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-}
-
-/* --- Auth-Seiten (Login / Registrieren) --- */
-.auth-page-wrapper {
-    position: relative;
-    min-height: 70vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    background-image: 
-        linear-gradient(rgba(5, 5, 8, 0.50), rgba(5, 5, 8, 0.65)),
-        url('/static/auth.jpeg');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-    border-radius: 8px;
-    margin: 1rem 0;
-}
-.auth-container {
-    max-width: 500px;
-    width: 100%;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 2em;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-}
-.auth-form .form-group { margin-bottom: 1.2em; }
-.auth-form label { display: block; margin-bottom: 0.5em; color: #e6edf3; font-weight: 600; }
-.auth-form input {
-    width: 100%; padding: 10px; background: #161b22; border: 1px solid #30363d;
-    border-radius: 6px; color: #e6edf3; font-family: inherit; font-size: 1em;
-    transition: border-color 0.3s ease;
-}
-.auth-form input:focus { border-color: #ff3333; outline: none; }
-.auth-form .muted { display: block; margin-top: 0.5em; font-size: 0.8em; }
-.btn-primary { background: #da3633; color: #fff; border-color: #ff3333; }
-.btn-primary:hover { background: #ff3333; }
-.btn-secondary { background: transparent; color: #8b949e; border-color: transparent; }
-.btn-secondary:hover { color: #ff3333; background: transparent; text-decoration: underline; }
-.form-error {
-    background: rgba(255, 51, 51, 0.1); border-left: 4px solid #ff3333;
-    color: #ffcccc; padding: 12px; border-radius: 4px; margin-bottom: 1.5em; font-size: 0.9em;
-}
-.security-note {
-    background: rgba(255, 51, 51, 0.05); border: 1px solid rgba(255, 51, 51, 0.2);
-    color: #ffcccc; padding: 12px; border-radius: 6px; margin-bottom: 1.5em; font-size: 0.85em; line-height: 1.5;
-}
-.auth-footer { margin-top: 1.5em; text-align: center; font-size: 0.9em; }
-.auth-footer a { color: #ff3333; text-decoration: none; }
-.auth-footer a:hover { text-decoration: underline; }
-
-/* --- Forum-Layout (Header, Sidebar, Main) --- */
-.forum-header {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    margin-bottom: 1.5em;
-    padding: 1em 1.5em;
-}
-.header-inner {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1em;
-}
-.logo {
-    font-size: 1.3em;
-    font-weight: 700;
-    color: #ff3333;
-    text-decoration: none;
-    letter-spacing: 1px;
-    text-shadow: 0 0 15px rgba(255, 51, 51, 0.3);
-}
-.top-nav {
-    display: flex;
-    gap: 1.5em;
-}
-.top-nav a {
-    color: #8b949e;
-    text-decoration: none;
-    font-size: 0.95em;
-    transition: color .3s ease;
-}
-.top-nav a:hover {
-    color: #ff3333;
-}
-
-.forum-layout {
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    gap: 2em;
-}
-@media (max-width: 768px) {
-    .forum-layout { grid-template-columns: 1fr; }
-}
-
-.forum-sidebar {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 1.5em;
-    align-self: start;
-}
-.forum-sidebar h3 {
-    color: #ff3333;
-    font-size: 0.9em;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 1em;
-    border-bottom: 1px solid #21262d;
-    padding-bottom: 0.5em;
-}
-.sidebar-nav {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-.sidebar-nav li {
-    margin-bottom: 0.8em;
-    color: #8b949e;
-    font-size: 0.9em;
-    line-height: 1.4;
-}
-.sidebar-nav a {
-    color: #e6edf3;
-    text-decoration: none;
-    font-weight: 600;
-    transition: color .3s ease;
-}
-.sidebar-nav a:hover {
-    color: #ff3333;
-}
-
-.forum-main {
-    min-width: 0;
-}
-.forum-main h1 {
-    margin-bottom: 0.5em;
-}
-
-.category-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5em;
-    margin: 1.5em 0;
-}
-
-.legend {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-left: 3px solid #ff3333;
-    border-radius: 4px;
-    padding: 0.8em 1em;
-    margin: 1em 0;
-    font-size: 0.85em;
-    color: #8b949e;
-}
-.legend strong {
-    color: #e6edf3;
-}
-
-/* --- Sidebar Feinschliff --- */
-.sidebar-nav li {
-    margin-bottom: 1.2em;
-}
-.sidebar-nav li small {
-    display: block;
-    margin-top: 0.2em;
-    color: #8b949e;
-    font-size: 0.75em;
-    line-height: 1.4;
-}
-
-/* --- Legende (ersetzt das alte Inline-Styling) --- */
-.legend {
-    background: rgba(255, 51, 51, 0.05);
-    border: 1px solid rgba(255, 51, 51, 0.2);
-    border-left: 3px solid #ff3333;
-    border-radius: 4px;
-    padding: 1em;
-    margin: 1.5em 0;
-    font-size: 0.85em;
-    color: #8b949e;
-}
-.legend strong { color: #e6edf3; }
-
-/* --- Suchformular --- */
-.forum-search {
-    display: flex;
-    gap: 0.5em;
-    margin: 1.5em 0;
-}
-.forum-search input {
-    flex: 1;
-    padding: 0.8em 1em;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #e6edf3;
-    font-family: inherit;
-    font-size: 1em;
-    transition: border-color 0.3s ease;
-}
-.forum-search input:focus {
-    border-color: #ff3333;
-    outline: none;
-}
-</style>"""
-
-# ============================================================
-# Profil-Funktionen
-# ============================================================
-
-def get_user_profile(username: str) -> dict:
-    """Liefert das Profil eines Users (bio, avatar_path, profile_confirmed)."""
-    from .forum_db import get_db
-    if not username:
-        return {}
-    try:
-        conn = get_db()
-        row = conn.execute(
-            "SELECT username, bio, avatar_path, profile_confirmed, created_at "
-            "FROM users WHERE username = ?", (username,)
-        ).fetchone()
-        if not row:
-            return {}
-        return {
-            "username": row[0],
-            "bio": row[1] or "",
-            "avatar_path": row[2] or "",
-            "profile_confirmed": bool(row[3]),
-            "created_at": row[4],
-        }
-    except Exception as e:
-        logger.warning(f"get_user_profile fehlgeschlagen: {e}")
-        return {}
-
-
-def update_user_profile(username: str, bio: str,
-                        avatar_data_b64: str = "",
-                        confirm_no_private_data: bool = False) -> tuple:
-    """Aktualisiert das Profil. Gibt (ok, msg) zurück.
-
-    avatar_data_b64: Base64-String eines Data-URL (data:image/...;base64,...)
-    """
-    if not username:
-        return (False, "Nicht eingeloggt.")
-    if not confirm_no_private_data:
-        return (False, "Bitte bestätige den Datenschutz-Hinweis.")
-    if len(bio) > 500:
-        return (False, "Bio darf maximal 500 Zeichen lang sein.")
-    from .forum_db import get_db
-    avatar_path = ""
-    if avatar_data_b64:
-        ok, result = _save_avatar(username, avatar_data_b64)
-        if not ok:
-            return (False, result)
-        avatar_path = result
-    try:
-        conn = get_db()
-        if avatar_path:
-            conn.execute(
-                "UPDATE users SET bio = ?, avatar_path = ?, profile_confirmed = 1 "
-                "WHERE username = ?",
-                (bio.strip(), avatar_path, username),
-            )
-        else:
-            conn.execute(
-                "UPDATE users SET bio = ?, profile_confirmed = 1 "
-                "WHERE username = ?",
-                (bio.strip(), username),
-            )
-        conn.commit()
-        return (True, "Profil gespeichert.")
-    except Exception as e:
-        logger.error(f"update_user_profile fehlgeschlagen: {e}")
-        return (False, f"Fehler: {e}")
-
-
-def _save_avatar(username: str, data_b64: str) -> tuple:
-    """Speichert einen Base64-Data-URL als Avatar-Bild.
-
-    Erlaubt: JPEG, PNG, GIF, WebP. Max. 200 KB.
-    Speichert in src/erebos_network/static/avatars/<username>.<ext>.
-    """
-    import base64
-    from pathlib import Path as _P
-    if len(data_b64) > 300_000:  # ~200 KB nach Base64
-        return (False, "Bild zu groß (max. ~200 KB).")
-    if "," in data_b64:
-        meta, b64 = data_b64.split(",", 1)
-    else:
-        return (False, "Ungültiges Bild-Format.")
-    # MIME-Type aus meta lesen: data:image/jpeg;base64
-    mime = "image/jpeg"
-    if "image/" in meta:
-        mime = meta.split(";")[0].replace("data:", "")
-    ext_map = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/gif": "gif",
-        "image/webp": "webp",
-    }
-    if mime not in ext_map:
-        return (False, f"Bild-Typ nicht erlaubt ({mime}). Nur JPEG, PNG, GIF, WebP.")
-    ext = ext_map[mime]
-    try:
-        raw = base64.b64decode(b64)
-    except Exception:
-        return (False, "Base64-Decode fehlgeschlagen.")
-    if len(raw) > 250_000:
-        return (False, "Bild zu groß (max. 250 KB nach Decode).")
-    # Magic-Bytes prüfen
-    magic = raw[:8]
-    if not (
-        magic.startswith(b"\xff\xd8\xff")  # JPEG
-        or magic.startswith(b"\x89PNG")      # PNG
-        or magic.startswith(b"GIF8")           # GIF
-        or (raw[:4] == b"RIFF" and raw[8:12] == b"WEBP")  # WebP
-    ):
-        return (False, "Datei ist kein gültiges Bild.")
-    # Speichern
-    base_dir = _P(__file__).parent / "static" / "avatars"
-    base_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"{username}.{ext}"
-    fpath = base_dir / fname
-    try:
-        fpath.write_bytes(raw)
-    except Exception as e:
-        return (False, f"Speichern fehlgeschlagen: {e}")
-    return (True, f"/static/avatars/{fname}")
-
-
-def _avatar_url(username: str) -> str:
-    """Liefert die Avatar-URL oder '' wenn kein Avatar gesetzt."""
-    prof = get_user_profile(username)
-    return prof.get("avatar_path", "") or ""
-
-
-def _avatar_html_or_initials(username: str, size: int = 32) -> str:
-    """Avatar-Bild falls vorhanden, sonst hacker.jpeg als Standard."""
-    url = _avatar_url(username)
-    if not url:
-        url = "/static/hacker.jpeg"  # Standard-Avatar
-    return (
-        f'<img class="forum-avatar-img" src="{_escape(url)}" '
-        f'alt="{_escape(username)}" '
-        f'style="width:{size}px;height:{size}px;border-radius:50%;'
-        f'object-fit:cover;margin-right:12px;flex-shrink:0;'
-        f'border:2px solid #ff3333;">'
-    )
-
-
 def render_markdown(text: str) -> str:
     """Sicheres Markdown-Mini ohne Regex (ReDoS-Schutz).
 
@@ -1696,7 +1075,7 @@ def render_forum_list(admin: bool = False, client_id: str = "") -> str:
         f"(Fenster: {status['window_seconds'] // 60} Minuten)</small></p>\n"
     )
     return (
-        ""
+        "<h1>Forum</h1>\n"
         "<p>Diskutiere mit anderen im Erebos-Netzwerk.</p>\n"
         f"{client_status}"
         f"<ul>\n{items}\n</ul>\n"
@@ -1761,17 +1140,11 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
                 f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer;font-size:0.85em\">"
                 f"User bannen</button></form>"
             )
-        avatar = _avatar_html_or_initials(p.get("author", "Anonym"), size=40)
         posts_html += (
-            f"<div{last_anchor} class=\"post-card\">\n"
-            f"  {avatar}\n"
-            f"  <div class=\"post-body\">\n"
-            f"    <div class=\"post-head\">\n"
-            f"      <strong>{author}</strong> <small>{created}</small>{edited_marker}\n"
-            f"      <span style=\"margin-left:auto\">{quote_btn}{report_btn}{ban_btn}{admin_btn}</span>\n"
-            f"    </div>\n"
-            f"    <p>{body}</p>\n"
-            f"  </div>\n"
+            f"<div{last_anchor} style=\"border:1px solid #30363d; padding:1.5em; margin:1em 0; border-radius:12px; background:#161b22; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: border-color 0.2s;\" onmouseover=\"this.style.borderColor='#ff3333'\" onmouseout=\"this.style.borderColor='#30363d'\">\n"
+            f"  <p><strong>{author}</strong> <small>{created}</small>{edited_marker}"
+            f"{quote_btn}{report_btn}{ban_btn}{admin_btn}</p>\n"
+            f"  <p>{body}</p>\n"
             f"</div>\n"
         )
     sticky_locked = ""
@@ -1813,114 +1186,17 @@ def render_thread(thread: dict, admin: bool = False, mod: bool = False) -> str:
         )
 
     return (
+        f"<h1>{title}{sticky_locked}</h1>\n"
         f"<p><a href=\"/forum\">← Zurück zum Forum</a></p>\n"
-        f"<p class=\"thread-header-meta\">{sticky_locked}</p>\n"
         f"{last_post_link}"
         f"{posts_html}\n"
         f"{reply_block}"
     )
 
 
-
-
-def render_profile_edit(username: str, profile: dict = None) -> str:
-    """Profil-Bearbeiten-Formular (2026 Design)."""
-    if profile is None:
-        profile = get_user_profile(username) or {}
-    bio = _escape(profile.get("bio", ""))
-    avatar_url = profile.get("avatar_path", "")
-    confirmed = profile.get("profile_confirmed", False)
-    checked_attr = "checked" if confirmed else ""
-    
-    # Avatar-Vorschau
-    if avatar_url:
-        preview_img = f'<img id="avatar-preview" src="{_escape(avatar_url)}" class="profile-avatar-large" alt="Avatar">'
-    else:
-        # Initialen als Fallback
-        fallback = _avatar_html(username, size=100).replace('class="forum-avatar"', 'class="profile-avatar-large"')
-        preview_img = f'<div id="avatar-preview">{fallback}</div>'
-
-    return f"""
-    <div class="profile-container">
-        <h2 style="margin-top:0; border-bottom:1px solid #30363d; padding-bottom:10px;">Profil bearbeiten</h2>
-        <div class="profile-header">
-            <div style="text-align:center;">
-                {preview_img}
-                <div style="margin-top:10px;">
-                    <label for="avatar_file" class="file-input-btn">Bild auswählen</label>
-                    <input type="file" id="avatar_file" name="avatar_file" accept="image/*" 
-                        onchange="var f=this.files[0];if(!f)return;if(f.size>200000){{alert('Bild zu gross (max. 200 KB)');this.value='';return;}}var r=new FileReader();r.onload=function(){{document.getElementById('avatar_b64').value=r.result;document.getElementById('avatar-preview').innerHTML='<img src=\''+r.result+'\' class=\'profile-avatar-large\'>';}};r.readAsDataURL(f);">
-                    <p class="muted" style="font-size:0.75em; margin-top:4px;">Max 200 KB (JPEG/PNG/GIF)</p>
-                </div>
-            </div>
-            <div style="flex:1;">
-                <h3 style="margin:0 0 5px 0;">{_escape(username)}</h3>
-                <p class="muted" style="margin:0;">Dein Profil ist für alle im Erebos-Netzwerk sichtbar.</p>
-            </div>
-        </div>
-
-        <form method="post" action="/forum/profil/edit" enctype="application/x-www-form-urlencoded">
-            <input type="hidden" id="avatar_b64" name="avatar_b64" value="">
-            
-            <div class="form-group">
-                <label>Bio (max. 500 Zeichen)</label>
-                <textarea name="bio" rows="5" maxlength="500" placeholder="Erzähl uns etwas über dich...">{bio}</textarea>
-            </div>
-            
-            <div class="privacy-warning">
-                <strong>⚠️ Datenschutz-Hinweis:</strong><br>
-                Bitte gib <em>keine</em> privaten Daten an (echter Name, Adresse, Telefonnummer). Bio und Avatar sind öffentlich.
-            </div>
-
-            <div class="checkbox-group">
-                <input type="checkbox" id="confirm" name="confirm" value="1" {checked_attr}>
-                <label for="confirm">Ich habe verstanden, dass ich keine privaten Daten angeben soll.</label>
-            </div>
-
-            <div style="display:flex; gap:10px;">
-                <button type="submit" class="btn">Profil speichern</button>
-                <a href="/forum/profil/{_escape(username)}" class="btn" style="background:#21262d; color:#c9d1d9;">Abbrechen</a>
-            </div>
-        </form>
-    </div>
-    """
-
-
-def render_profile_view(username: str, profile: dict = None) -> str:
-    """Profil-Ansicht (öffentlich, 2026 Design)."""
-    if profile is None:
-        profile = get_user_profile(username) or {}
-    bio = _escape(profile.get("bio", "")).replace("\n", "<br>") or "<em>Keine Bio vorhanden.</em>"
-    avatar_url = profile.get("avatar_path", "")
-    
-    if avatar_url:
-        avatar_html = f'<img src="{_escape(avatar_url)}" class="profile-avatar-large" alt="{_escape(username)}">'
-    else:
-        avatar_html = _avatar_html(username, size=100).replace('class="forum-avatar"', 'class="profile-avatar-large"')
-
-    return f"""
-    <div class="profile-container">
-        <div class="profile-header">
-            {avatar_html}
-            <div>
-                <h2 style="margin:0;">{_escape(username)}</h2>
-                <p class="muted" style="margin:5px 0 0 0;">Mitglied seit {_fmt_time(profile.get("created_at", 0))}</p>
-            </div>
-        </div>
-        <div>
-            <h3 style="border-bottom:1px solid #30363d; padding-bottom:8px;">Über mich</h3>
-            <p style="line-height:1.6;">{bio}</p>
-        </div>
-        <div style="margin-top:2em; padding-top:1em; border-top:1px solid #21262d;">
-            <a href="/forum/profil/edit" class="btn">Profil bearbeiten</a>
-            <a href="/forum" class="btn" style="background:#21262d; color:#c9d1d9;">← Zurück zum Forum</a>
-        </div>
-    </div>
-    """
-
-
 def render_not_found() -> str:
     return (
+        "<h1>Thread nicht gefunden</h1>\n"
         "<p>Dieser Thread existiert nicht (mehr).</p>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
     )
@@ -2003,7 +1279,7 @@ def render_admin_authors(admin: bool = False, username: str = "") -> str:
                 f'</form>'
             )
         elif role == "mod":
-            role_badge = ' <span style="color:#ff3333;font-weight:bold">[MOD]</span>'
+            role_badge = ' <span style="color:#00ccff;font-weight:bold">[MOD]</span>'
             promote_btn = (
                 f'<form method="post" action="/forum/admin/promote" style="display:inline">'
                 f'<input type="hidden" name="username" value="{a}">'
@@ -2058,7 +1334,7 @@ def _pagination_html(page: int, pages: int, base_url: str, sort: str) -> str:
 
 
 def render_categories(client_id: str = "", username: str = "", admin: bool = False, mod: bool = False,
-                      admin_token: str = "", base_address: str = "") -> str:
+                      admin_token: str = "") -> str:
     cats = list_categories()
     status = rate_limit_status(client_id)
     client_status = (
@@ -2067,54 +1343,58 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         f"(Fenster: {status['window_seconds'] // 60} Minuten)</small></p>\n"
     )
     rows = ""
-    cards_html = ""
     for c in cats:
         cid = _escape(c["id"])
         name = _escape(c["name"])
         desc = _escape(c["desc"])
-        threads = c["threads_count"]
-        posts = c["posts_count"]
-        last_thread = c.get("last_thread")
-        
-        # Sidebar-Eintrag hinzufügen
         rows += (
             f"<li><a href=\"/forum/{cid}\">{name}</a> "
-            f"<small>{threads} Thread(s), "
-            f"{posts} Post(s) — {desc}</small></li>\n"
+            f"<small>{c['threads_count']} Thread(s), "
+            f"{c['posts_count']} Post(s) — {desc}</small></li>\n"
         )
-        
+    if not rows:
+        rows = "<li><em>Noch keine Kategorien.</em></li>"
+
+    # rows_table: Tabelle mit "Letzter Thread"-Spalte
+    rows_table = ""
+    for c in cats:
+        cid = _escape(c["id"])
+        name = _escape(c["name"])
+        desc = _escape(c["desc"])
+        last_thread = c.get("last_thread")
         if last_thread:
             lt_title = _escape(last_thread.get("title", ""))
-            lt_author = _escape(last_thread.get("author", ""))
             lt_time = _escape(last_thread.get("time", ""))
-            last_info = (
-                f'<div class="category-last">Letzter: '
-                f'<a href="/forum/{cid}/thread/{last_thread.get("id", "")}">{lt_title}</a> '
-                f'von {lt_author} ({lt_time})</div>'
+            lt_author = _escape(last_thread.get("author", ""))
+            lt_link = f"/forum/{cid}/thread/{last_thread.get('id', '')}"
+            last_post_html = (
+                f'<a href="{lt_link}">{lt_title}</a>'
+                f'<span class="last-post-meta">'
+                f'<time>{lt_time}</time> von <strong>{lt_author}</strong>'
+                f'</span>'
             )
         else:
-            last_info = '<div class="category-last muted">Kein Thread</div>'
-            
-        # ALLES (Info + Stats) befindet sich in der Karte!
-        cards_html += f"""
-        <a class="category-card" href="/forum/{cid}">
-            <div class="category-info">
-                <strong>{name}</strong>
-                <div class="category-desc">{desc}</div>
-                {last_info}
-            </div>
-            <div class="category-stats">
-                <span>{threads} Threads</span><br>
-                <span>{posts} Posts</span>
-            </div>
-        </a>
-        """
+            last_post_html = '<span class="last-post-meta">Kein Thread</span>'
+        rows_table += (
+            '<tr>'
+            f'<td class="forum-name">'
+            f'<a href="/forum/{cid}">{name}</a>'
+            f'<p class="forum-desc">{desc}</p>'
+            '</td>'
+            f'<td class="forum-stats">{c["threads_count"]}</td>'
+            f'<td class="forum-stats">{c["posts_count"]}</td>'
+            f'<td class="forum-last-post">{last_post_html}</td>'
+            '</tr>'
+        )
+
     # Legende
     legend = (
-        '<div class="legend">'
+        '<div class="legend" style="margin:1em 0; padding:0.8em; '
+        'background:rgba(0,255,136,0.03); border-left:3px solid #ff3333; '
+        'font-size:0.85em;">'
         '<strong>Legende:</strong> '
         '<span style="color:#ffaa33; font-weight:bold;">[ADMIN]</span> volle Rechte · '
-        '<span style="color:#ff3333; font-weight:bold;">[MOD]</span> moderiert · '
+        '<span style="color:#00ccff; font-weight:bold;">[MOD]</span> moderiert · '
         '<span style="color:#ff3333;">[USER]</span> schreibt · '
         '<span style="color:#888;">[GAST]</span> liest nur'
         '</div>'
@@ -2141,7 +1421,7 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         if role == "admin":
             role_badge = ' <span style="color:#ffaa33; font-weight:bold;">[ADMIN]</span>'
         elif role == "mod":
-            role_badge = ' <span style="color:#ff3333; font-weight:bold;">[MOD]</span>'
+            role_badge = ' <span style="color:#00ccff; font-weight:bold;">[MOD]</span>'
         user_nav = (
             f"<p>Eingeloggt als <strong>{_escape(username)}</strong>{role_badge}{email_part} · "
             f"<a href=\"/forum/my-threads\">Meine Threads</a> · "
@@ -2180,9 +1460,9 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         '    <a href="/forum" class="logo">EREBOS FORUM</a>'
         '    <nav class="top-nav">'
         '      <a href="/forum">Übersicht</a>'
-        f'      <a href="{("http://wiki." + base_address + "/") if base_address else "/wiki"}">Wiki</a>'
-        f'      <a href="{("http://mail." + base_address + "/") if base_address else "/mail"}">Mail</a>'
-        f'      <a href="{("http://chat." + base_address + "/") if base_address else "/chat"}">Chat</a>'
+        '      <a href="/wiki">Wiki</a>'
+        '      <a href="/mail">Mail</a>'
+        '      <a href="/chat">Chat</a>'
         '    </nav>'
         '  </div>'
         '</header>'
@@ -2197,19 +1477,31 @@ def render_categories(client_id: str = "", username: str = "", admin: bool = Fal
         '  </aside>'
         # Hauptinhalt
         '  <main class="forum-main">'
+        '    <h1>Erebos Community</h1>'
         '    <p>Diskutiere mit anderen im Erebos-Netzwerk.</p>'
         f'    {legend}'
         f'    {user_nav}'
         f'    {client_status}'
         # Suchformular
-        '    <form method="get" action="/forum/search" class="forum-search">'
-        '      <input name="q" placeholder="Suche in Titeln und Posts...">'
+        '    <form method="get" action="/forum/search" style="margin:1em 0">'
+        '      <input name="q" placeholder="Suche in Titeln und Posts..." '
+        'style="width:70%;padding:0.4em"> '
         '      <button type="submit" class="btn">Suchen</button>'
         '    </form>'
-        # Karten-Liste statt Tabelle
-        '    <div class="category-list">'
-        f'        {cards_html}'
-        '    </div>'
+        # Tabelle mit "Letzter Thread"-Spalte
+        '    <table class="forum-table">'
+        '      <thead>'
+        '        <tr>'
+        '          <th>Forum</th>'
+        '          <th>Themen</th>'
+        '          <th>Beiträge</th>'
+        '          <th class="col-last-post">Letzter Thread</th>'
+        '        </tr>'
+        '      </thead>'
+        '      <tbody>'
+        f'        {rows_table}'
+        '      </tbody>'
+        '    </table>'
         '    <a class="btn" href="/forum/neu">Neuen Thread erstellen</a>'
         f'    {admin_nav}'
         '    <a class="btn" href="/">← Startseite</a>'
@@ -2248,17 +1540,11 @@ def render_thread_list(category_id: str, page: int = 1,
                     f"padding:0.2em 0.5em;border-radius:3px;cursor:pointer\">"
                     f"Löschen</button></form>"
                 )
-            avatar = _avatar_html_or_initials(t["author"], size=64)
             items += (
-                f"<a class=\"thread-card\" href=\"/forum/{tid}\">\n"
-                f"  {avatar}\n"
-                f"  <div class=\"thread-info\">\n"
-                f"    <strong>{title}</strong>\n"
-                f"    <div class=\"thread-meta\">von {author} · {replies} Antwort(en) · "
-                f"erstellt {created} · zuletzt aktiv {last}</div>\n"
-                f"    {admin_btn}\n"
-                f"  </div>\n"
-                f"</a>\n"
+                f"<li><a href=\"/forum/{tid}\">{title}</a> "
+                f"<small>von {author} · {replies} Antwort(en) · "
+                f"erstellt {created} · zuletzt aktiv {last}</small>"
+                f"{admin_btn}</li>\n"
             )
     sort_links = " · ".join(
         f"<a href=\"/forum/{_escape(category_id)}?sort={s}\""
@@ -2270,10 +1556,11 @@ def render_thread_list(category_id: str, page: int = 1,
         result["page"], result["pages"], f"/forum/{_escape(category_id)}", sort
     )
     return (
+        f"<h1>{_escape(cat['name'])}</h1>\n"
         f"<p>{_escape(cat.get('desc', ''))}</p>\n"
         f"<p><small>Sortieren: {sort_links}</small></p>\n"
         f"<p><small>{result['total']} Thread(s), Seite {result['page']} / {result['pages']}</small></p>\n"
-        f"<div class=\"thread-list\">\n{items}\n</div>\n"
+        f"<ul>\n{items}\n</ul>\n"
         f"{pag_html}"
         f"<a class=\"btn\" href=\"/forum/neu?category={_escape(category_id)}\">"
         f"Neuen Thread in {_escape(cat['name'])}</a>\n"
@@ -2285,6 +1572,7 @@ def render_search_results(query: str, results: list) -> str:
     q = _escape(query)
     if not results:
         return (
+            f"<h1>Suche: {q}</h1>\n"
             "<p>Keine Treffer.</p>\n"
             "<a class=\"btn\" href=\"/forum\">← Zurück</a>\n"
         )
@@ -2296,6 +1584,7 @@ def render_search_results(query: str, results: list) -> str:
         cat = _escape(t.get("category_id", "allgemein"))
         items += f"<li><a href=\"/forum/{tid}\">{title}</a> <small>({cat})</small></li>\n"
     return (
+        f"<h1>Suche: {q}</h1>\n"
         f"<p>{len(results)} Treffer.</p>\n"
         f"<ul>\n{items}\n</ul>\n"
         "<a class=\"btn\" href=\"/forum\">← Zurück</a>\n"
@@ -2325,59 +1614,32 @@ def render_new_thread_form(category_id: str = "allgemein",
 
 
 def render_login_form(error: str = "") -> str:
-    err = f'<div class="form-error">{_escape(error)}</div>' if error else ""
-    return f"""
-    <div class="auth-page-wrapper">
-        <div class="auth-container">
-            {err}
-            <form method="post" action="/forum/login" class="auth-form">
-                <div class="form-group">
-                    <label for="username">Benutzername</label>
-                    <input type="text" id="username" name="username" required autocomplete="username" placeholder="Dein Benutzername">
-                </div>
-                <div class="form-group">
-                    <label for="password">Passwort</label>
-                    <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Dein Passwort">
-                </div>
-                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:1em;">Sicher einloggen</button>
-            </form>
-            <div class="auth-footer">
-                <p>Noch kein Account? <a href="/forum/register">Jetzt registrieren</a></p>
-                <a href="/forum" class="btn btn-secondary" style="margin-top:1em;">← Zurück zum Forum</a>
-            </div>
-        </div>
-    </div>
-    """
+    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
+    return (
+        "<h1>Login</h1>\n"
+        f"{err}"
+        "<form method=\"post\" action=\"/forum/login\">\n"
+        "  <p><label>Username:<br><input name=\"username\" required style=\"width:100%\"></label></p>\n"
+        "  <p><label>Passwort:<br><input type=\"password\" name=\"password\" required style=\"width:100%\"></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Login</button></p>\n"
+        "</form>\n"
+        "<p><a href=\"/forum/register\">Noch kein Account? Registrieren</a></p>\n"
+        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
+
 
 def render_register_form(error: str = "") -> str:
-    err = f'<div class="form-error">{_escape(error)}</div>' if error else ""
-    return f"""
-    <div class="auth-page-wrapper">
-        <div class="auth-container">
-            {err}
-            <div class="security-note">
-                <strong>🔒 Maximale Privatsphäre:</strong> Dein Passwort wird lokal gehasht (PBKDF2). Wir speichern keine E-Mail-Adressen oder Tracking-Daten.
-            </div>
-            <form method="post" action="/forum/register" class="auth-form">
-                <div class="form-group">
-                    <label for="username">Benutzername</label>
-                    <input type="text" id="username" name="username" required maxlength="32" autocomplete="username" placeholder="Wähle einen Benutzernamen">
-                    <small class="muted">Maximal 32 Zeichen. Keine Leerzeichen.</small>
-                </div>
-                <div class="form-group">
-                    <label for="password">Passwort</label>
-                    <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen">
-                    <small class="muted">Mindestens 8 Zeichen. Verwende eine Mischung aus Buchstaben, Zahlen und Sonderzeichen.</small>
-                </div>
-                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:1em;">Sicher registrieren</button>
-            </form>
-            <div class="auth-footer">
-                <p>Bereits registriert? <a href="/forum/login">Hier einloggen</a></p>
-                <a href="/forum" class="btn btn-secondary" style="margin-top:1em;">← Zurück zum Forum</a>
-            </div>
-        </div>
-    </div>
-    """
+    err = f"<p style=\"color:#c0392b\">{_escape(error)}</p>" if error else ""
+    return (
+        "<h1>Registrieren</h1>\n"
+        f"{err}"
+        "<form method=\"post\" action=\"/forum/register\">\n"
+        "  <p><label>Username:<br><input name=\"username\" required maxlength=\"32\" style=\"width:100%\"></label></p>\n"
+        "  <p><label>Passwort (min. 8 Zeichen):<br><input type=\"password\" name=\"password\" required minlength=\"8\" style=\"width:100%\"></label></p>\n"
+        "  <p><button type=\"submit\" class=\"btn\">Account erstellen</button></p>\n"
+        "</form>\n"
+        "<a class=\"btn\" href=\"/forum\">← Zurück zum Forum</a>\n"
+    )
 
 
 def render_my_threads(username: str) -> str:

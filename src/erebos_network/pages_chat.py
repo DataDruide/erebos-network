@@ -17,62 +17,49 @@ from . import chat
 
 _CSS = """
 :root {
-  --bg: #050508;
-  --bg-card: #0d1117;
-  --bg-card-hover: #161b22;
-  --fg: #e6edf3;
-  --fg-dim: #7d8590;
-  --accent: #ff3333;
-  --accent-dim: rgba(255, 51, 51, 0.15);
-  --warn: #fbbf24;
-  --danger: #da3633;
-  --border: #30363d;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --bg: #050508; --bg-card: #0d0d14; --bg-card-hover: #14141f;
+  --fg: #ffcccc; --fg-dim: #ff6666;
+  --accent: #ff3333; --accent-dim: #ff333333;
+  --warn: #fbbf24; --danger: #f87171; --border: #1f2937;
+  --mono: 'Courier New', 'Monaco', monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
 body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font);
-  font-size: 15px;
-  line-height: 1.6;
-  min-height: 100vh;
-  padding: 2rem 1rem;
-  background-image:
-    linear-gradient(rgba(5, 5, 8, 0.92), rgba(5, 5, 8, 0.98)),
-    url('/static/hacker.jpeg');
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
-  background-repeat: no-repeat;
+  background: var(--bg); color: var(--fg); font-family: var(--mono);
+  font-size: 15px; line-height: 1.7; min-height: 100vh; padding: 2rem 1rem;
 }
-.container { max-width: 900px; margin: 0 auto; }
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, #ff333310 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, #ff333308 0%, transparent 50%);
+  pointer-events: none; z-index: -1;
+}
+.container { max-width: 960px; margin: 0 auto; }
 header { text-align: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
-h1 { font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px rgba(255, 51, 51, 0.3); }
+h1 { font-size: 2rem; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-bottom: .5rem; text-shadow: 0 0 20px var(--accent-dim); }
 .subtitle { color: var(--fg-dim); font-size: .85rem; }
-.privacy-banner { background: rgba(255, 51, 51, 0.08); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.85em; color: #ffcccc; display: flex; align-items: center; gap: 10px; }
-.privacy-banner .icon { font-size: 1.2em; }
 .tabs { display: flex; gap: .5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: .5rem; flex-wrap: wrap; }
-.tab { background: transparent; border: 1px solid var(--border); color: var(--fg-dim); padding: .5rem 1rem; font-family: var(--font); font-size: .9rem; cursor: pointer; border-radius: 6px; transition: border-color .3s ease, color .3s ease, background-color .3s ease; }
+.tab { background: transparent; border: 1px solid var(--border); color: var(--fg-dim); padding: .5rem 1rem; font-family: var(--mono); font-size: .9rem; cursor: pointer; border-radius: 6px; transition: all .2s; }
 .tab:hover { border-color: var(--accent); color: var(--fg); }
 .tab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 .panel { display: none; }
-.panel.active { display: block; }
-.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5em; margin-bottom: 1em; transition: border-color .3s ease, background-color .3s ease; }
-.card:hover { border-color: var(--accent); background: var(--bg-card-hover); }
+.panel.active { display: block; animation: fadeIn .3s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem; }
 .card h2 { color: var(--accent); font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px; }
-.card p { color: var(--fg-dim); font-size: .88em; margin-bottom: 1rem; line-height: 1.6; }
-.btn { display: inline-block; padding: .7rem 1.4rem; margin: .3rem .3rem .3rem 0; border: 1px solid var(--border); background: #21262d; color: var(--fg); font-family: var(--font); font-size: .9rem; font-weight: 600; border-radius: 6px; cursor: pointer; text-decoration: none; transition: background-color .3s ease, border-color .3s ease, color .3s ease; }
-.btn:hover { background: var(--danger); border-color: var(--accent); color: #fff; }
+.card p { color: var(--fg-dim); font-size: .85rem; margin-bottom: 1rem; }
+.btn { display: inline-block; padding: .7rem 1.4rem; margin: .3rem .3rem .3rem 0; border: 1px solid var(--accent); background: var(--accent-dim); color: var(--accent); font-family: var(--mono); font-size: .9rem; font-weight: bold; border-radius: 6px; cursor: pointer; text-decoration: none; transition: all .2s; }
+.btn:hover { background: var(--accent); color: var(--bg); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn-secondary { background: transparent; border-color: var(--border); color: var(--fg-dim); }
 .btn-secondary:hover { border-color: var(--accent); color: var(--fg); background: transparent; }
-input[type=text] { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: .7rem 1rem; font-family: var(--font); font-size: .9rem; border-radius: 6px; transition: border-color .3s ease; margin-bottom: .8rem; }
-input[type=text]:focus { outline: none; border-color: var(--accent); }
-.copy-btn { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); padding: .2rem .6rem; margin-left: .5rem; border-radius: 4px; cursor: pointer; font-size: .75rem; font-family: var(--font); transition: background-color .3s, color .3s; }
-.copy-btn:hover { background: var(--accent); color: #fff; }
-.room-id { display: inline-block; background: var(--bg); border: 1px solid var(--accent); color: var(--accent); padding: .3rem .6rem; border-radius: 4px; font-family: var(--font); font-size: .85rem; word-break: break-all; }
+input[type=text] { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: .7rem 1rem; font-family: var(--mono); font-size: .9rem; border-radius: 6px; transition: border-color .2s; margin-bottom: .8rem; }
+input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.copy-btn { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); padding: .2rem .6rem; margin-left: .5rem; border-radius: 4px; cursor: pointer; font-size: .75rem; font-family: var(--mono); transition: all .2s; }
+.copy-btn:hover { background: var(--accent); color: var(--bg); }
+.room-id { display: inline-block; background: var(--bg); border: 1px solid var(--accent); color: var(--accent); padding: .3rem .6rem; border-radius: 4px; font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 .empty-state { text-align: center; padding: 2rem 1rem; color: var(--fg-dim); }
 .empty-state .icon { font-size: 2.5rem; margin-bottom: .5rem; opacity: .5; }
 .key-status { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
@@ -81,13 +68,12 @@ input[type=text]:focus { outline: none; border-color: var(--accent); }
 .footer { text-align: center; padding-top: 2rem; margin-top: 2rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: .8rem; }
 .footer a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--accent); }
 .instance { margin-top: .5rem; font-size: .75rem; word-break: break-all; }
-.toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent); color: #fff; padding: .7rem 1.4rem; border-radius: 6px; font-weight: bold; font-size: .85rem; opacity: 0; transition: transform .3s, opacity .3s; pointer-events: none; z-index: 1000; }
+.toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent); color: var(--bg); padding: .7rem 1.4rem; border-radius: 6px; font-weight: bold; font-size: .85rem; opacity: 0; transition: transform .3s, opacity .3s; pointer-events: none; z-index: 1000; }
 .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 .toast.error { background: var(--danger); color: #fff; }
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 """
 
 
@@ -106,10 +92,6 @@ def _html(title: str, body: str, address: str) -> str:
     <h1>Erebos Chat</h1>
     <p class="subtitle">Sichere Echtzeit-Kommunikation im Erebos-Netzwerk</p>
   </header>
-  <div class="privacy-banner">
-    <span class="icon">🔒</span>
-    <span><strong>Maximale Privatsphaere:</strong> E2E-verschluesselt - Keine Logs - Anonym - Kein Tracking</span>
-  </div>
 {body}
   <footer class="footer">
     <a href="/">← Startseite</a>
@@ -306,7 +288,7 @@ def render_room(room_id: str, address: str, cookie: str) -> str:
 <h1>RAUM {room_id}</h1>
 <div class="box">
   <p style="margin-bottom:1em;">Teile diese URL mit deinem Partner:</p>
-  <code style="word-break:break-all; color:#00ff88;">http://{address}/chat/room/{room_id}</code>
+  <code style="word-break:break-all; color:#ff3333;">http://{address}/chat/room/{room_id}</code>
 </div>
 <div class="box">
   <div class="messages" id="messages"></div>
