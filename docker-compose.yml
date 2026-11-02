@@ -67,6 +67,7 @@ services:
     command: --proxy --proxy-port 4448 -v
     volumes:
       - ./erebos_keys:/app/erebos_keys:ro
+      - ./peers.docker.json:/app/peers.json:ro
     environment:
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
       - EREBOS_PROXY_BIND=0.0.0.0
@@ -83,22 +84,26 @@ services:
       - ./erebos_keys:/app/erebos_keys:ro
       - ./wiki.json:/app/wiki.json:ro
       - ./forum.db:/app/forum.db
+      - ./src/erebos_network/web:/app/web:ro
+      - ./static_empty:/app/static_empty:ro
     environment:
       - EREBOS_FORUM_ADMIN_TOKEN=${EREBOS_FORUM_ADMIN_TOKEN}
       - EREBOS_LAN_WHITELIST=172.20.0.0/24,127.0.0.1/32
       - EREBOS_DB_KEY=${EREBOS_DB_KEY:-}
       - EREBOS_PEER_HOSTS=peer1=172.20.0.10,peer2=172.20.0.11,peer3=172.20.0.12,peer4=167.233.111.144
+      - EREBOS_DEV_MODE=1
     entrypoint: >
-      python -u scripts/create_test_hidden_service.py
+      python -u scripts/create_hidden_service.py
+      --name MyJob
+      --port 8080
+      --pages /app/static_empty
+      --key-file /root/.erebos/hs_key_8080.pem
+      --bind-host 0.0.0.0
+      --log-level INFO
       --rendezvous-host 172.20.0.10
       --rendezvous-port 9999
-      --http-host 127.0.0.1
-      --http-port 8080
-      --bind-host 0.0.0.0
-      --bind-port 8080
-      --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997
-      --intro-points peer1:172.20.0.10:9999,peer2:172.20.0.11:9998,peer3:172.20.0.12:9997
-      --log-level INFO
+      --dht-peers 172.20.0.10:9999,172.20.0.11:9998,172.20.0.12:9997,167.233.111.144:9996
+      --intro-points peer1:172.20.0.10:9999,peer2:172.20.0.11:9998,peer3:172.20.0.12:9997,hetzner:167.233.111.144:9996
     networks:
       erebos-net:
         ipv4_address: 172.20.0.14

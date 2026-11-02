@@ -457,8 +457,11 @@ class HiddenServiceRuntime:
             if _host_full and "." in _host_full:
                 _parts = _host_full.split(".")
                 if len(_parts) >= 3:  # z.B. forum.xyz.erebos (3 Teile)
-                    _subdomain = _parts[0]
-                    logger.info(f"HTTP Host: {_host_full} → Subdomain: {_subdomain}")
+                    _candidate = _parts[0]
+                    # Nur bekannte Subdomains akzeptieren
+                    if _candidate in {"forum", "mail", "chat", "wiki"}:
+                        _subdomain = _candidate
+                        logger.info(f"HTTP Host: {_host_full} → Subdomain: {_subdomain}")
 
             # 2) Body nachlesen, falls Content-Length groesser als bereits
             #    gelesener Body. Kurzer Timeout (1s), damit ein haengender

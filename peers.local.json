@@ -1,0 +1,12 @@
+{
+  "peers": [
+    {
+      "name": "hetzner-bootstrap",
+      "address": "167.233.111.144:9996",
+      "peer_id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "role": "entry",
+      "latency_ms": 50,
+      "enabled": true
+    }
+  ]
+}

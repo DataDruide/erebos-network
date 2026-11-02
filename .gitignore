@@ -59,3 +59,14 @@ peers.json.bak
 peers.native.json
 *.bak_keyfile
 *.bak3
+# Backups und temporäre Dateien
+*.bak
+*.bak2
+*.bak3
+*.bak4
+*.bak5
+*.bak-skeleton
+logs/
+__pycache__/
+*.pyc
+.peers.local.json

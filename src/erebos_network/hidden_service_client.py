@@ -77,7 +77,13 @@ async def connect_to_hidden_service(
         return None
 
     # 2. Intro-Point wählen (erster)
-    intro_point = descriptor.intro_points[0]
+    # Bevorzuge öffentliche Intro-Points (nicht 172.20.0.x / 127.0.0.1)
+    public_intro = None
+    for ip in descriptor.intro_points:
+        if not ip.address.startswith("172.20.") and not ip.address.startswith("127."):
+            public_intro = ip
+            break
+    intro_point = public_intro or descriptor.intro_points[0]
     logger.info(f"Wähle Intro-Point {intro_point.peer_id} ({intro_point.address})")
 
     # 3. Rendezvous-Request bauen

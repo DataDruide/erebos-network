@@ -123,7 +123,7 @@ def main() -> int:
         bind_host=args.bind_host,
         bind_port=args.port,
         key_file=key_file,
-        http_request_handler=handler,
+        http_request_handler=None,
     )
 
     try:

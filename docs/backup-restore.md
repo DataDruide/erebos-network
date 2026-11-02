@@ -24,6 +24,38 @@ Das Backup muss wie ein Passwort behandelt werden:
 | `wiki.json` | `./wiki.json` | `/app/wiki.json` | bedingt - Wiki-Inhalte |
 | Peer-Keys | (ephemer) | - | nein - neu bei Neustart |
 
+## Native Service-Keys (`~/.erebos/services/*.pem`)
+
+<!-- SECTION: br-native-keys -->
+
+### Was ist der Service-Key
+
+<!-- SECTION: br-key-what -->
+
+### Warnung: Key = Identitaet
+
+<!-- SECTION: br-key-warning -->
+
+### Backup
+
+<!-- SECTION: br-key-backup -->
+
+### Restore
+
+<!-- SECTION: br-key-restore -->
+
+### Was noch zum Service gehoert
+
+<!-- SECTION: br-key-extra -->
+
+### Verifikation nach Restore
+
+<!-- SECTION: br-key-verify -->
+
+### Siehe auch
+
+<!-- SECTION: br-key-see-also -->
+
 ## Backup-Prozedur
 
 ### Option A - Skript (empfohlen)
