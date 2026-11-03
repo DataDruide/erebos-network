@@ -1,0 +1,54 @@
+[Unit]
+Description=Erebos Peer 4 (Hetzner Gateway)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/erebos-network
+Environment=EREBOS_PEER_HOST=0.0.0.0
+ExecStart=/root/erebos-network/.venv/bin/python -m erebos_network --peer --peer-port 9996 --ack-cover -v
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/peer-hetzner.log
+StandardError=append:/tmp/peer-hetzner.log
+
+[Install]
+WantedBy=multi-user.target
+---
+[Unit]
+Description=Erebos SOCKS5 Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/erebos-network
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/root/erebos-network/.venv/bin/python -u -m erebos_network --proxy --proxy-port 4448 -v
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/erebos-network/logs/proxy.log
+StandardError=append:/root/erebos-network/logs/proxy.log
+
+[Install]
+WantedBy=multi-user.target
+---
+[Unit]
+Description=Erebos Hidden Service (MyJob)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/erebos-network
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/root/erebos-network/.env
+ExecStart=/root/erebos-network/.venv/bin/python -u /root/erebos-network/start_hs_direct.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/erebos_debug.log
+StandardError=append:/tmp/erebos_debug.log
+
+[Install]
+WantedBy=multi-user.target
