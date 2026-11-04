@@ -17,14 +17,15 @@
 
 ## Screenshots
 
-### Mail-Postfach
-![Mail-Postfach](docs/screenshots/mail.jpeg)
+| Welcome | Wiki | Chat |
+|---------|------|------|
+| ![Welcome](docs/screenshots/06-welcome.png) | ![Wiki](docs/screenshots/07-wiki.png) | ![Chat](docs/screenshots/01-chat.png) |
 
-### Erebos Community (Forum)
-![Community](docs/screenshots/community.jpeg)
+| Mail | Search | Hidden Service Manager |
+|------|--------|------------------------|
+| ![Mail](docs/screenshots/03-mail.png) | ![Search](docs/screenshots/04-search.png) | ![Hidden Service Manager](docs/screenshots/02-hidden-service-manager.png) |
 
-### Onboarding — Deine Identitaet
-![Onboarding](docs/screenshots/onboarding.jpeg)
+➡️ [Vollständige UX-Galerie](docs/UX.md)
 
 ---
 
