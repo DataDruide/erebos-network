@@ -187,7 +187,7 @@ def pack_onion_2hop(
     # Format: [relay_header: type+port][inner_layer]
     outer_header = pack_relay_header(
         next_frame_type=0x14,  # FRAME_RENDEZVOUS_REGISTER (innerer Typ)
-        next_port=9999,  # port von hop2
+        next_port=9996,  # port von hop2 (peer4 / Hetzner)
     )
     outer_plaintext = outer_header + inner_layer
     outer_layer = seal_for(hop1_x25519_pub, outer_plaintext)
@@ -249,7 +249,7 @@ def pack_onion_3hop(
     # Mittlere Schicht: fuer hop2, enthaelt [header=0x14|9999][inner_layer].
     mid_header = pack_relay_header(
         next_frame_type=0x14,  # FRAME_RENDEZVOUS_REGISTER
-        next_port=9999,        # peer1 (hop3)
+        next_port=9996,        # peer1 (hop3)
     )
     mid_plaintext = mid_header + inner_layer
     mid_layer = seal_for(hop2_x25519_pub, mid_plaintext)

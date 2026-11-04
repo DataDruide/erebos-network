@@ -542,7 +542,7 @@ class ErebosSocks5Server:
                     address=host,
                     # dht=dht,  # (nicht mehr benötigt – DHT_GET wird direkt gesendet)
                     rendezvous_peer_id=rendezvous_peer,
-                    rendezvous_address=f"127.0.0.1:{_peer_name_to_port(rendezvous_peer)}",
+                    rendezvous_address="127.0.0.1:9996",  # Hetzner-Bootstrap (peer4)
                     client_ephemeral_key=client_ephemeral,
                     use_network=True,
                 )
@@ -621,25 +621,23 @@ class ErebosSocks5Server:
                         if response_data.get("status") == "ok":
                             # 2-Hop-Onion: peer3 (Intro) -> peer1 (Rendezvous)
                             # Beide Richtungen laufen ueber peer3.
-                            logger.info(f"[{conn_id}] Baue 2-Hop-Onion zu peer3 (Port 9997) -> peer1 (Port 9999)")
+                            logger.info(f"[{conn_id}] Baue Onion zu peer4 (Port 9996)")
                             from .onion import pack_onion_3hop, pack_onion_2hop
                             import json as _json
                             from pathlib import Path
 
                             keys_dir = Path("erebos_keys")
-                            peer2_pub = (keys_dir / "peer2_x25519.pub").read_bytes()
-                            peer3_pub = (keys_dir / "peer3_x25519.pub").read_bytes()
-                            peer1_pub = (keys_dir / "peer1_x25519.pub").read_bytes()
+                            peer4_pub = (keys_dir / "peer4_x25519.pub").read_bytes()
 
                             reg_key = host[:32]
                             reg_payload = _json.dumps({"role": "client", "key": reg_key}).encode("utf-8")
-                            onion = pack_onion_3hop(peer2_pub, peer3_pub, peer1_pub, reg_payload)
+                            onion = pack_onion_2hop(peer4_pub, peer4_pub, reg_payload)
                             logger.info(f"[{conn_id}] [3/4] Onion-Build (3 Hops) ... OK ({len(onion)}B)")
                             _rec.mark("Onion-Build", f"{len(onion)}B")
 
                             from .peers_config import peer_host
-                            _lat = latency_for_peer("peer2")
-                            rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)  # peer2
+                            _lat = latency_for_peer("peer4")
+                            rendezvous_client = ErebosTunnelClient(host=peer_host("peer4"), port=9996)  # peer4 (Hetzner)
                             await rendezvous_client.connect(latency_s=_lat)
                             await rendezvous_client.send_typed(FRAME_RELAY, onion)
                             logger.info(f"[{conn_id}] [3/4] Onion an peer2 gesendet ... OK")
@@ -687,49 +685,7 @@ class ErebosSocks5Server:
                             # Fuer peer3-Ausfall: 2-Hop-Fallback peer2 -> peer1.
                             # -----------------------------------------------------------
                             if not ready_received:
-                                logger.info(f"[{conn_id}] Fallback-Pfad wird versucht")
-                                try:
-                                    await rendezvous_client.close()
-                                except Exception:
-                                    pass
-
-                                # 2-Hop-Onion: peer2 -> peer1 (ohne peer3)
-                                onion_fb = pack_onion_2hop(peer2_pub, peer1_pub, reg_payload)
-                                logger.info(f"[{conn_id}] Fallback-Onion gebaut ({len(onion_fb)}B, 2-Hop)")
-
-                                try:
-                                    _lat = latency_for_peer("peer2")
-                                    rendezvous_client = ErebosTunnelClient(host=peer_host("peer2"), port=9998)
-                                    await asyncio.wait_for(rendezvous_client.connect(latency_s=_lat), timeout=5.0)
-                                    await rendezvous_client.send_typed(FRAME_RELAY, onion_fb)
-                                    logger.info(f"[{conn_id}] 2-Hop-Onion an peer2 gesendet (peer2 -> peer1)")
-                                    # Auf 'ready' warten (kuerzerer Timeout)
-                                    try:
-                                        while True:
-                                            ready_raw = await asyncio.wait_for(rendezvous_client.receive(), timeout=15.0)
-                                            if not ready_raw:
-                                                break
-                                            try:
-                                                ready_data = json.loads(ready_raw.decode("utf-8"))
-                                                logger.info(f"[{conn_id}] Fallback-Nachricht: {ready_data}")
-                                                if ready_data.get("status") == "ready":
-                                                    logger.info(f"[{conn_id}] Rendezvous-Paar vollständig (Fallback)!")
-                                                    ready_received = True
-                                                    break
-                                            except json.JSONDecodeError:
-                                                pass
-                                    except asyncio.TimeoutError:
-                                        logger.warning(f"[{conn_id}] Fallback-Timeout beim Warten auf 'ready'")
-                                    except (asyncio.IncompleteReadError, ConnectionResetError) as e:
-                                        logger.warning(
-                                            f"[{conn_id}] Fallback-Verbindung verloren: "
-                                            f"{type(e).__name__}"
-                                        )
-                                except Exception as e:
-                                    logger.error(f"[{conn_id}] Fallback-Pfad fehlgeschlagen: {e}")
-
-                            if not ready_received:
-                                logger.error(f"[{conn_id}] Alle Pfade fehlgeschlagen")
+                                logger.error(f"[{conn_id}] Rendezvous-Paar nicht zustande gekommen")
                                 if not socks_reply_sent:
                                     await self._send_reply(writer, SOCKS5_REP_GENERAL_FAILURE)
                                 writer.close()
