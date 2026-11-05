@@ -423,6 +423,8 @@ def _migrate_mail_keys(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_MIGRATION_MAIL_KEY_HISTORY_DONE = False
+
 def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
     """Befuellt mail_keys mit key_version=1/valid_from=created_at und
     legt fuer jede vollstaendige Zeile einen History-Eintrag an.
@@ -430,6 +432,10 @@ def _migrate_mail_key_history(conn: sqlite3.Connection) -> None:
     Idempotent: mehrfacher Aufruf aendert nichts.
     Ueberspringt Zeilen ohne ed25519_pub oder mldsa_pub (unvollstaendig).
     """
+    global _MIGRATION_MAIL_KEY_HISTORY_DONE
+    if _MIGRATION_MAIL_KEY_HISTORY_DONE:
+        return
+    _MIGRATION_MAIL_KEY_HISTORY_DONE = True
     # 1) key_version/valid_from/valid_until fuer alle Zeilen setzen, wo NULL
     conn.execute(
         "UPDATE mail_keys SET key_version = 1 WHERE key_version IS NULL"
