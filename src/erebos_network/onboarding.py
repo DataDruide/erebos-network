@@ -27,6 +27,8 @@ def render_onboard(anon_uuid, address, _page, _escape):
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       @keyframes glowPulse { 0%, 100% { box-shadow: 0 0 10px #00ff88, 0 0 20px #00ff88; } 50% { box-shadow: 0 0 20px #00ff88, 0 0 40px #00ff88; } }
       @keyframes particleFloat { 0% { opacity: 1; transform: translate(0, 0) scale(1); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0); } }
+      .skip-button { position: fixed; bottom: 30px; right: 30px; padding: 10px 20px; background: #ff3333; color: #fff; border: none; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.9em; cursor: pointer; z-index: 10000; box-shadow: 0 0 15px rgba(255,51,51,0.5); transition: all 0.3s; text-decoration: none; display: inline-block; }
+      .skip-button:hover { background: #ff6666; box-shadow: 0 0 25px rgba(255,51,51,0.8); }
     </style>
     <canvas id="matrix-canvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.12; pointer-events: none;"></canvas>
     <div class="terminal">
@@ -36,6 +38,7 @@ def render_onboard(anon_uuid, address, _page, _escape):
         <div class="progress-text" id="progress-text">0%</div>
       </div>
     </div>
+    <a href="/welcome" class="skip-button">Überspringen →</a>
     <script>
       (function() {
         const canvas = document.getElementById('matrix-canvas');
