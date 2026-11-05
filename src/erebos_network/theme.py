@@ -79,7 +79,7 @@ def render_theme_head() -> str:
 def render_theme_script() -> str:
     return """
     <script>
-      (function() {
+      (async function() {
         const canvas = document.getElementById('matrix-canvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -104,7 +104,7 @@ def render_theme_script() -> str:
         }
         setInterval(drawMatrix, 50);
       })();
-      (function() {
+      (async function() {
         const peersEl = document.getElementById('erebos-peers');
         if (!peersEl) return;
         async function pollPeers() {
@@ -169,7 +169,7 @@ def render_theme_script() -> str:
       document.addEventListener('click', startAmbient, { once: true });
 
       // Sound-Toggle (an/aus)
-      (function() {
+      (async function() {
         const toggle = document.getElementById('sound-toggle');
         if (!toggle) return;
         let soundOn = localStorage.getItem('erebos_sound') !== 'off';
@@ -189,7 +189,7 @@ def render_theme_script() -> str:
       })();
 
       // Erebos-Zeit (eigene Zeitrechnung)
-      (function() {
+      (async function() {
         const timeEl = document.getElementById('erebos-time');
         if (!timeEl) return;
         function updateTime() {
@@ -208,7 +208,7 @@ def render_theme_script() -> str:
       })();
 
       // Achievements (Toasts)
-      (function() {
+      (async function() {
         const achievements = {
           'first_visit': { title: 'Willkommen in Erebos', desc: 'Du hast die verborgene Welt betreten.', icon: '🌐' },
           'wiki_reader': { title: 'Wissensdurstig', desc: 'Du hast das Hidden Wiki gelesen.', icon: '📖' },
@@ -217,14 +217,20 @@ def render_theme_script() -> str:
           'chat_joiner': { title: 'Gesprächig', desc: 'Du hast den Chat betreten.', icon: '🗣️' }
         };
 
-        function showToast(id) {
+        async function showToast(id) {
           const a = achievements[id];
           if (!a) return;
           // Prüfen, ob schon gezeigt (localStorage)
-          const shown = JSON.parse(localStorage.getItem('erebos_achievements') || '[]');
+          const shown = Array.isArray(achievements) ? achievements : [];
           if (shown.includes(id)) return;
           shown.push(id);
-          localStorage.setItem('erebos_achievements', JSON.stringify(shown));
+          try {
+            await fetch('/api/progress', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({achievements: achievements})
+            });
+          } catch (e) {}
 
           // Toast erstellen
           const toast = document.createElement('div');
@@ -253,7 +259,7 @@ def render_theme_script() -> str:
       })();
 
       // Netzwerk-Karte (Canvas — Peers als leuchtende Punkte)
-      (function() {
+      (async function() {
         const canvas = document.getElementById('network-canvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -347,7 +353,7 @@ def render_theme_script() -> str:
       })();
 
       // Erebos-Level (XP-System)
-      (function() {
+      (async function() {
         const levelEl = document.getElementById('erebos-level');
         if (!levelEl) return;
 
@@ -361,8 +367,20 @@ def render_theme_script() -> str:
           'chat': 10,      // Chat betreten
         };
 
-        // XP aus localStorage laden
-        let xp = parseInt(localStorage.getItem('erebos_xp') || '0', 10);
+        // XP vom Server laden (statt localStorage)
+        let xp = 0;
+        let tokens = 0;
+        let achievements = [];
+        try {
+          const _addr = document.querySelector('.erebos-identity .addr')?.innerText || '';
+          const resp = await fetch('/api/progress?identity_uuid=' + encodeURIComponent(_addr));
+          if (resp.ok) {
+            const data = await resp.json();
+            xp = data.xp || 0;
+            tokens = data.tokens || 0;
+            achievements = data.achievements || [];
+          }
+        } catch (e) {}
         let level = Math.floor(xp / XP_PER_LEVEL) + 1;
         let lastVisit = parseInt(localStorage.getItem('erebos_last_visit') || '0', 10);
         const now = Date.now();
@@ -388,7 +406,17 @@ def render_theme_script() -> str:
         // Level berechnen
         const oldLevel = level;
         level = Math.floor(xp / XP_PER_LEVEL) + 1;
-        localStorage.setItem('erebos_xp', xp.toString());
+        // XP an den Server senden (statt localStorage)
+        try {
+          await fetch('/api/progress', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              identity_uuid: document.querySelector('.erebos-identity .addr')?.innerText || '',
+              xp: xp, tokens: tokens, achievements: achievements
+            })
+          });
+        } catch (e) {}
 
         // Widget aktualisieren
         const xpInLevel = xp % XP_PER_LEVEL;
@@ -408,9 +436,21 @@ def render_theme_script() -> str:
       })();
 
       // Erebos-Token (Waehrung)
-      (function() {
+      (async function() {
         const tokenEl = document.getElementById('erebos-token-amount');
         if (!tokenEl) return;
+        let tokens = 0;
+        let xp = 0;
+        let achievements = [];
+        try {
+          const resp = await fetch('/api/progress');
+          if (resp.ok) {
+            const data = await resp.json();
+            tokens = data.tokens || 0;
+            xp = data.xp || 0;
+            achievements = data.achievements || [];
+          }
+        } catch (e) {}
 
         const TOKEN_ACTIONS = {
           'visit': 1,
@@ -420,7 +460,7 @@ def render_theme_script() -> str:
           'chat': 5,
         };
 
-        let tokens = parseInt(localStorage.getItem('erebos_tokens') || '0', 10);
+        // Token werden bereits oben geladen (aus /api/progress)
         let lastVisit = parseInt(localStorage.getItem('erebos_tokens_last_visit') || '0', 10);
         const now = Date.now();
 
@@ -442,11 +482,18 @@ def render_theme_script() -> str:
           localStorage.setItem(pageKey, now.toString());
         }
 
-        localStorage.setItem('erebos_tokens', tokens.toString());
+        // Token an den Server senden (statt localStorage)
+        try {
+          await fetch('/api/progress', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({xp: xp, tokens: tokens, achievements: achievements})
+          });
+        } catch (e) {}
         tokenEl.innerText = tokens;
       })();
       // Profil-Panel (Slide-in von rechts)
-      (function() {
+      (async function() {
         const panel = document.getElementById('profile-panel');
         const overlay = document.getElementById('profile-overlay');
         const closeBtn = document.getElementById('profile-close');
@@ -480,7 +527,7 @@ def render_theme_script() -> str:
           document.getElementById('profile-addr').innerText = addr;
           document.getElementById('profile-handle').innerText = 'anon-' + addr.substring(0, 8);
           generateAvatar(addr);
-          const xp = localStorage.getItem('erebos_xp') || '0';
+          const xp = document.getElementById('profile-xp')?.innerText || '0';
           const tokens = localStorage.getItem('erebos_tokens') || '0';
           const level = Math.floor(parseInt(xp) / 100) + 1;
           document.getElementById('profile-level').innerText = level;

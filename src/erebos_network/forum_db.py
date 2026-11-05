@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS mail_keys (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_progress (
+    identity_uuid TEXT PRIMARY KEY,
+    xp INTEGER DEFAULT 0,
+    tokens INTEGER DEFAULT 0,
+    achievements TEXT DEFAULT '[]',
+    updated_at REAL
+);
+
 CREATE TABLE IF NOT EXISTS mail_key_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     uuid TEXT NOT NULL,
@@ -1837,3 +1845,44 @@ def _migrate_chat_schema(conn: sqlite3.Connection) -> None:
         ON chat_e2e_messages (room_id, created_at)
     """)
 
+
+
+def get_progress(identity_uuid: str) -> dict:
+    """Gibt den Fortschritt eines Nutzers zurueck (XP, Token, Achievements)."""
+    conn = get_db()
+    cur = conn.execute(
+        "SELECT xp, tokens, achievements FROM user_progress WHERE identity_uuid = ?",
+        (identity_uuid,)
+    )
+    row = cur.fetchone()
+    if row:
+        return {
+            "xp": row[0] or 0,
+            "tokens": row[1] or 0,
+            "achievements": json.loads(row[2] or "[]"),
+        }
+    return {"xp": 0, "tokens": 0, "achievements": []}
+
+
+def update_progress(identity_uuid: str, xp: int = None, tokens: int = None, achievements: list = None) -> dict:
+    """Aktualisiert den Fortschritt eines Nutzers."""
+    conn = get_db()
+    # Pruefen, ob der Nutzer existiert
+    cur = conn.execute("SELECT 1 FROM user_progress WHERE identity_uuid = ?", (identity_uuid,))
+    exists = cur.fetchone() is not None
+
+    if exists:
+        if xp is not None:
+            conn.execute("UPDATE user_progress SET xp = ? WHERE identity_uuid = ?", (xp, identity_uuid))
+        if tokens is not None:
+            conn.execute("UPDATE user_progress SET tokens = ? WHERE identity_uuid = ?", (tokens, identity_uuid))
+        if achievements is not None:
+            conn.execute("UPDATE user_progress SET achievements = ? WHERE identity_uuid = ?", (json.dumps(achievements), identity_uuid))
+        conn.execute("UPDATE user_progress SET updated_at = ? WHERE identity_uuid = ?", (time.time(), identity_uuid))
+    else:
+        conn.execute(
+            "INSERT INTO user_progress (identity_uuid, xp, tokens, achievements, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (identity_uuid, xp or 0, tokens or 0, json.dumps(achievements or []), time.time())
+        )
+    conn.commit()
+    return get_progress(identity_uuid)

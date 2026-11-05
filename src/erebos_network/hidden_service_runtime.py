@@ -844,6 +844,44 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
+            # /api/progress – Fortschritt des Nutzers (XP, Token, Achievements)
+            if path == "/api/progress":
+                import json as _json
+                from .forum_db import get_progress, update_progress
+                if method == "GET":
+                    # identity_uuid aus dem Cookie ODER Query-String
+                    # identity_uuid IMMER aus Query-String lesen (falls vorhanden)
+                    from urllib.parse import parse_qs
+                    _q = parse_qs(query) if query else {}
+                    if not _q and "?" in path:
+                        _q = parse_qs(path.split("?", 1)[1])
+                    _query_uuid = (_q.get("identity_uuid", [""])[0] or "").strip()
+                    _uuid = _query_uuid or identity_uuid or client_id or ""
+                    logger.info(f"[api/progress] GET: query_uuid={_query_uuid!r}, identity_uuid={identity_uuid!r}, final={_uuid!r}")
+                    _progress = get_progress(_uuid)
+                    logger.info(f"[api/progress] GET: progress={_progress}")
+                    body_out = _json.dumps(_progress).encode("utf-8")
+                    resp = http_response(200, "application/json; charset=utf-8", body_out)
+                    writer.write(resp)
+                    await writer.drain()
+                    return
+                elif method == "POST":
+                    import json as _json
+                    _data = _json.loads(body.decode("utf-8"))
+                    # identity_uuid aus dem Body ODER Cookie
+                    _uuid = _data.get("identity_uuid") or identity_uuid or client_id or ""
+                    _progress = update_progress(
+                        _uuid,
+                        xp=_data.get("xp"),
+                        tokens=_data.get("tokens"),
+                        achievements=_data.get("achievements"),
+                    )
+                    body_out = _json.dumps(_progress).encode("utf-8")
+                    resp = http_response(200, "application/json; charset=utf-8", body_out)
+                    writer.write(resp)
+                    await writer.drain()
+                    return
+
             # /wiki-services.json – Dienste-Liste für die Wiki-Seite
             if path == "/wiki-services.json":
                 _svc_path = _static_dir / "wiki-services.json"
