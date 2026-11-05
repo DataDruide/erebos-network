@@ -14,6 +14,18 @@ def render_theme_head() -> str:
       .erebos-identity .peers { color: #ff9999; font-size: 0.7em; display: block; margin-top: 2px; }
       .erebos-identity .pulse { display: inline-block; width: 6px; height: 6px; background: #ff3333; border-radius: 50%; margin-right: 4px; animation: pulse 1.5s infinite; }
       @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 4px #ff3333; } 50% { opacity: 0.3; box-shadow: 0 0 8px #ff3333; } }
+      /* Glitch beim Seitenwechsel */
+      body.glitch { animation: glitchAnim 0.3s; }
+      @keyframes glitchAnim {
+        0% { filter: none; transform: translate(0); }
+        20% { filter: hue-rotate(90deg) saturate(3); transform: translate(-2px, 2px); }
+        40% { filter: hue-rotate(-90deg) saturate(3); transform: translate(2px, -2px); }
+        60% { filter: invert(1); transform: translate(-1px, 1px); }
+        80% { filter: hue-rotate(180deg); transform: translate(1px, -1px); }
+        100% { filter: none; transform: translate(0); }
+      }
+      /* Erebos-Zeit */
+      .erebos-time { position: fixed; bottom: 10px; right: 10px; background: rgba(5,5,8,0.9); border: 1px solid #ff3333; border-radius: 4px; padding: 4px 10px; font-family: 'Courier New', monospace; font-size: 0.7em; color: #ff6666; z-index: 9999; }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -63,6 +75,72 @@ def render_theme_script() -> str:
         pollPeers();
         setInterval(pollPeers, 10000);
       })();
+
+      // Glitch beim Seitenwechsel
+      document.addEventListener('click', function(e) {
+        const a = e.target.closest('a');
+        if (a && a.href && a.href.startsWith(location.origin)) {
+          e.preventDefault();
+          document.body.classList.add('glitch');
+          playClick();
+          setTimeout(() => { window.location.href = a.href; }, 300);
+        }
+      });
+
+      // Sound: Klick + Ambient
+      let ambientCtx = null;
+      let ambientOsc = null;
+      function playClick() {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 1200;
+          osc.type = 'square';
+          gain.gain.setValueAtTime(0.05, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.05);
+        } catch (e) {}
+      }
+
+      // Ambient-Sound (leises Rauschen) — startet beim ersten Klick
+      function startAmbient() {
+        if (ambientCtx) return;
+        try {
+          ambientCtx = new (window.AudioContext || window.webkitAudioContext)();
+          ambientOsc = ambientCtx.createOscillator();
+          const gain = ambientCtx.createGain();
+          ambientOsc.connect(gain);
+          gain.connect(ambientCtx.destination);
+          ambientOsc.frequency.value = 60;
+          ambientOsc.type = 'sine';
+          gain.gain.value = 0.005;
+          ambientOsc.start();
+        } catch (e) {}
+      }
+      document.addEventListener('click', startAmbient, { once: true });
+
+      // Erebos-Zeit (eigene Zeitrechnung)
+      (function() {
+        const timeEl = document.getElementById('erebos-time');
+        if (!timeEl) return;
+        function updateTime() {
+          const now = new Date();
+          // Erebos-Zeit: Start bei 2024-01-01, 1 Tick = 1 Sekunde
+          const start = new Date('2024-01-01T00:00:00Z').getTime();
+          const diff = Math.floor((now.getTime() - start) / 1000);
+          const days = Math.floor(diff / 86400);
+          const hours = Math.floor((diff % 86400) / 3600);
+          const mins = Math.floor((diff % 3600) / 60);
+          const secs = diff % 60;
+          timeEl.innerText = 'Erebos-Zeit: Tag ' + days + ', ' + String(hours).padStart(2,'0') + ':' + String(mins).padStart(2,'0') + ':' + String(secs).padStart(2,'0');
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+      })();
     </script>
     """
 
@@ -75,6 +153,7 @@ def render_identity_widget(address: str) -> str:
       <div class="addr">{address}</div>
       <div class="peers" id="erebos-peers">verbinde...</div>
     </div>
+    <div class="erebos-time" id="erebos-time">Erebos-Zeit: ...</div>
     """
 
 
