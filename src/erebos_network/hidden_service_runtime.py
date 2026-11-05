@@ -36,6 +36,7 @@ from .hidden_service import (
     sign_descriptor,
 )
 from .landing_pages import render_page
+from .theme import decorate_page
 from .http_utils import http_response, parse_http_request
 from .forum import (get_or_create_client_id, get_session_user,
                    CLIENT_COOKIE, SESSION_COOKIE, ADMIN_COOKIE,
@@ -901,6 +902,8 @@ class HiddenServiceRuntime:
                     body_out = _wiki_path.read_bytes()
                 else:
                     body_out = b"<h1>404 - Hidden Wiki nicht gefunden</h1>"
+                # Erebos-Theme dekorieren
+                body_out = decorate_page(body_out, self.address)
                 resp = http_response(
                     200, "text/html; charset=utf-8", body_out
                 )
@@ -1009,7 +1012,8 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
-            # 3b) Normale Seite
+            # 3b) Normale Seite — Erebos-Theme dekorieren
+            body_out = decorate_page(body_out, self.address)
             resp = http_response(
                 200, "text/html; charset=utf-8", body_out,
                 set_cookie=(CLIENT_COOKIE + "=" + client_id + "; Path=/; HttpOnly; SameSite=Lax") if is_new_client else "",
