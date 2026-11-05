@@ -37,6 +37,12 @@ def render_theme_head() -> str:
       .network-map:hover { width: 300px; height: 220px; box-shadow: 0 0 25px rgba(255,51,51,0.6); }
       .network-map canvas { width: 100%; height: 100%; display: block; }
       .network-map .label { position: absolute; top: 4px; left: 8px; font-family: 'Courier New', monospace; font-size: 0.65em; color: #ff6666; text-shadow: 0 0 5px rgba(255,51,51,0.5); }
+      /* Erebos-Level (oben rechts, unter der Identität) */
+      .erebos-level { position: fixed; top: 90px; right: 10px; background: rgba(5,5,8,0.9); border: 1px solid #ff3333; border-radius: 4px; padding: 6px 12px; font-family: 'Courier New', monospace; font-size: 0.75em; color: #ff3333; z-index: 9999; text-shadow: 0 0 5px rgba(255,51,51,0.5); box-shadow: 0 0 10px rgba(255,51,51,0.2); min-width: 120px; }
+      .erebos-level .level-num { color: #ffcccc; font-weight: bold; font-size: 1.1em; }
+      .erebos-level .xp-bar { width: 100%; height: 4px; background: #111; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+      .erebos-level .xp-fill { height: 100%; background: linear-gradient(90deg, #ff3333, #ff6666); transition: width 0.5s ease; box-shadow: 0 0 5px #ff3333; }
+      .erebos-level .xp-text { font-size: 0.65em; color: #ff9999; margin-top: 2px; }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -291,6 +297,67 @@ def render_theme_script() -> str:
         }
         drawNetwork();
       })();
+
+      // Erebos-Level (XP-System)
+      (function() {
+        const levelEl = document.getElementById('erebos-level');
+        if (!levelEl) return;
+
+        // XP-Konfiguration
+        const XP_PER_LEVEL = 100;
+        const XP_ACTIONS = {
+          'visit': 5,      // Seitenbesuch
+          'wiki': 10,      // Wiki gelesen
+          'forum': 10,     // Forum betreten
+          'mail': 5,       // Mail geöffnet
+          'chat': 10,      // Chat betreten
+        };
+
+        // XP aus localStorage laden
+        let xp = parseInt(localStorage.getItem('erebos_xp') || '0', 10);
+        let level = Math.floor(xp / XP_PER_LEVEL) + 1;
+        let lastVisit = parseInt(localStorage.getItem('erebos_last_visit') || '0', 10);
+        const now = Date.now();
+
+        // XP für Besuch (max. 1x pro Stunde)
+        if (now - lastVisit > 3600000) {
+          xp += XP_ACTIONS.visit;
+          localStorage.setItem('erebos_last_visit', now.toString());
+        }
+
+        // XP für Seiten-spezifische Aktionen (max. 1x pro Seite pro Stunde)
+        const path = location.pathname;
+        const pageKey = 'erebos_xp_' + path;
+        const lastPageVisit = parseInt(localStorage.getItem(pageKey) || '0', 10);
+        if (now - lastPageVisit > 3600000) {
+          if (path.includes('/wiki')) xp += XP_ACTIONS.wiki;
+          else if (path.includes('/forum')) xp += XP_ACTIONS.forum;
+          else if (path.includes('/mail')) xp += XP_ACTIONS.mail;
+          else if (path.includes('/chat')) xp += XP_ACTIONS.chat;
+          localStorage.setItem(pageKey, now.toString());
+        }
+
+        // Level berechnen
+        const oldLevel = level;
+        level = Math.floor(xp / XP_PER_LEVEL) + 1;
+        localStorage.setItem('erebos_xp', xp.toString());
+
+        // Widget aktualisieren
+        const xpInLevel = xp % XP_PER_LEVEL;
+        const xpPercent = Math.round((xpInLevel / XP_PER_LEVEL) * 100);
+        levelEl.innerHTML = '<div>Level <span class="level-num">' + level + '</span></div>' +
+          '<div class="xp-bar"><div class="xp-fill" style="width:' + xpPercent + '%"></div></div>' +
+          '<div class="xp-text">' + xpInLevel + ' / ' + XP_PER_LEVEL + ' XP (' + xp + ' gesamt)</div>';
+
+        // Level-Up-Toast
+        if (level > oldLevel) {
+          const toast = document.createElement('div');
+          toast.className = 'achievement-toast show';
+          toast.innerHTML = '<div class="title"><span class="icon">⭐</span>Level-Up!</div><div class="desc">Du bist jetzt Level ' + level + '!</div>';
+          document.body.appendChild(toast);
+          setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 600); }, 5000);
+        }
+      })();
     </script>
     """
 
@@ -307,6 +374,11 @@ def render_identity_widget(address: str) -> str:
     <div class="network-map">
       <div class="label">NETZWERK</div>
       <canvas id="network-canvas"></canvas>
+    </div>
+    <div class="erebos-level" id="erebos-level">
+      <div>Level <span class="level-num">1</span></div>
+      <div class="xp-bar"><div class="xp-fill" style="width:0%"></div></div>
+      <div class="xp-text">0 / 100 XP</div>
     </div>
     """
 
