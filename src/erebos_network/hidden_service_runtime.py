@@ -773,6 +773,76 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
+            # /api/self-test – fuehrt einen vollstaendigen System-Selbsttest durch
+            if path == "/api/self-test":
+                import json as _json
+                import time as _time
+                import asyncio as _asyncio
+
+                _results = {
+                    "timestamp": _time.time(),
+                    "tests": {},
+                    "summary": {"passed": 0, "failed": 0, "total": 0},
+                }
+
+                # 1) E2E-Verschluesselung testen (X25519 + ML-KEM-1024)
+                try:
+                    from .e2e import E2EClient, E2EServer
+                    _client = E2EClient()
+                    _server = E2EServer()
+                    _init = _client.build_key_init()
+                    _resp = _server.process_key_init(_init)
+                    _client.process_key_response(_resp)
+                    _probe = b"Erebos-Self-Test: " + str(_time.time()).encode()
+                    _encrypted = _client.encrypt(_probe)
+                    _decrypted = _server.decrypt(_encrypted)
+                    if _decrypted == _probe:
+                        _results["tests"]["e2e"] = {"ok": True, "detail": str(len(_probe)) + "B ver-/entschluesselt"}
+                    else:
+                        _results["tests"]["e2e"] = {"ok": False, "detail": "Entschluesselung fehlgeschlagen"}
+                except Exception as _e:
+                    _results["tests"]["e2e"] = {"ok": False, "detail": type(_e).__name__ + ": " + str(_e)}
+
+                # 2) Alle Seiten pruefen
+                _pages = ["/onboard", "/wiki", "/forum", "/mail", "/chat", "/rules", "/search"]
+                for _p in _pages:
+                    try:
+                        _reader, _writer = await _asyncio.open_connection("127.0.0.1", 8080)
+                        _req = (
+                            "HEAD " + _p + " HTTP/1.1\r\n"
+                            "Host: 127.0.0.1:8080\r\n"
+                            "Connection: close\r\n\r\n"
+                        ).encode()
+                        _writer.write(_req)
+                        await _writer.drain()
+                        _line = await _asyncio.wait_for(_reader.readline(), timeout=2.0)
+                        _parts = _line.split()
+                        _code = int(_parts[1]) if len(_parts) > 1 else 0
+                        _ok = 200 <= _code < 400
+                        _results["tests"][_p] = {"ok": _ok, "code": _code}
+                        _writer.close()
+                        try:
+                            await _writer.wait_closed()
+                        except Exception:
+                            pass
+                    except Exception as _e:
+                        _results["tests"][_p] = {"ok": False, "code": 0, "error": str(_e)}
+
+                # 3) Zusammenfassung
+                for _name, _r in _results["tests"].items():
+                    _results["summary"]["total"] += 1
+                    if _r.get("ok"):
+                        _results["summary"]["passed"] += 1
+                    else:
+                        _results["summary"]["failed"] += 1
+                _results["summary"]["all_ok"] = _results["summary"]["failed"] == 0
+
+                body_out = _json.dumps(_results, ensure_ascii=False, indent=2).encode("utf-8")
+                resp = http_response(200, "application/json; charset=utf-8", body_out)
+                writer.write(resp)
+                await writer.drain()
+                return
+
             # /wiki-services.json – Dienste-Liste für die Wiki-Seite
             if path == "/wiki-services.json":
                 _svc_path = _static_dir / "wiki-services.json"
