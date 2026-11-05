@@ -8,7 +8,7 @@ from typing import Optional
 from . import forum
 from .onboarding import render_onboard, render_welcome_onboarded, render_recover
 from .pages_onboarding import render_welcome, render_landing, render_wiki
-from .pages_services import render_services_list, render_service_error, render_upload_form
+from .pages_services import render_services_list, render_service_error, render_upload_form, render_service_logs, render_service_health
 from . import service_manager as _services
 from .renderers import _page, _escape, _format_timestamp, _render_identity_box
 from .http_utils import http_response, parse_http_request
@@ -211,6 +211,30 @@ def render_page(path: str, address: str, request_line: str, method: str = "GET",
         if not result["ok"]:
             return render_service_error(address, result["message"])
         return b"REDIRECT:/service"
+
+    if path.startswith("/service/") and path.endswith("/start") and method == "POST":
+        name = path[len("/service/"):-len("/start")]
+        result = _services.start_service(name)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
+
+    if path.startswith("/service/") and path.endswith("/restart") and method == "POST":
+        name = path[len("/service/"):-len("/restart")]
+        result = _services.restart_service(name)
+        if not result["ok"]:
+            return render_service_error(address, result["message"])
+        return b"REDIRECT:/service"
+
+    if path.startswith("/service/") and path.endswith("/logs") and method == "GET":
+        name = path[len("/service/"):-len("/logs")]
+        logs = _services.get_logs(name, lines=50)
+        return render_service_logs(address, name, logs)
+
+    if path.startswith("/service/") and path.endswith("/health") and method == "GET":
+        name = path[len("/service/"):-len("/health")]
+        health = _services.get_health(name)
+        return render_service_health(address, name, health)
 
     if path.startswith("/service/") and path.endswith("/stop") and method == "POST":
         name = path[len("/service/"):-len("/stop")]

@@ -14,12 +14,20 @@ def render_services_list(address: str, services: list[dict]) -> bytes:
           <td><span class="{'ok' if s['status'] == 'läuft' else 'dim'}">● {s['status']}</span></td>
           <td><code>{_escape(s['address'])}</code></td>
           <td>
+            <form method="POST" action="/service/{_escape(s['name'])}/start" style="display:inline;">
+              <button type="submit" class="btn-small">Start</button>
+            </form>
+            <form method="POST" action="/service/{_escape(s['name'])}/restart" style="display:inline;">
+              <button type="submit" class="btn-small">Restart</button>
+            </form>
             <form method="POST" action="/service/{_escape(s['name'])}/stop" style="display:inline;">
               <button type="submit" class="btn-small">Stop</button>
             </form>
             <form method="POST" action="/service/{_escape(s['name'])}/delete" style="display:inline;">
               <button type="submit" class="btn-small" onclick="return confirm('Service löschen?')">Löschen</button>
             </form>
+            <a href="/service/{_escape(s['name'])}/logs" class="btn-small" style="display:inline-block; text-decoration:none;">Logs</a>
+            <a href="/service/{_escape(s['name'])}/health" class="btn-small" style="display:inline-block; text-decoration:none;">Health</a>
           </td>
         </tr>"""
 
@@ -135,3 +143,48 @@ def render_upload_form(address: str, name: str, files: list[str]) -> bytes:
 """
     return _page("UPLOAD", address, body, hero_image="")
 
+
+
+def render_service_logs(address: str, name: str, logs: list[str]) -> bytes:
+    """Zeigt die Logs eines Service an."""
+    log_lines = "\n".join(logs) if logs else "Keine Logs vorhanden."
+    body = f"""
+<div class="wrap">
+  <header class="hero">
+    <div class="brand"><span class="dot"></span> EREBOS NETWORK</div>
+    <div class="badge">LOGS</div>
+  </header>
+  <h1 class="title">LOGS: {_escape(name)}</h1>
+  <p class="subtitle"><a href="/service">← Zurück zur Service-Liste</a></p>
+  <section class="card">
+    <div class="card-label">LETZTE 50 ZEILEN</div>
+    <pre style="background:#050508; color:#ff6666; padding:1em; border-radius:4px; overflow-x:auto; font-size:0.8em; max-height:500px; overflow-y:auto;">{_escape(log_lines)}</pre>
+  </section>
+</div>"""
+    return _page(f"Logs: {name}", address, body)
+
+
+def render_service_health(address: str, name: str, health: dict) -> bytes:
+    """Zeigt den Health-Check eines Service an."""
+    status = "OK" if health.get("ok") else "FEHLER"
+    color = "#00ff88" if health.get("ok") else "#ff3333"
+    details = ""
+    if health.get("ok"):
+        details = f"<p>Port: {health.get('port', '?')}</p><p>HTTP-Status: {health.get('status', '?')}</p>"
+    else:
+        details = f"<p style=\"color:#ff3333;\">Fehler: {_escape(health.get('message', '?'))}</p>"
+    body = f"""
+<div class="wrap">
+  <header class="hero">
+    <div class="brand"><span class="dot"></span> EREBOS NETWORK</div>
+    <div class="badge">HEALTH</div>
+  </header>
+  <h1 class="title">HEALTH: {_escape(name)}</h1>
+  <p class="subtitle"><a href="/service">← Zurück zur Service-Liste</a></p>
+  <section class="card">
+    <div class="card-label">STATUS</div>
+    <p style="font-size:1.5em; color:{color}; font-weight:bold;">● {status}</p>
+    {details}
+  </section>
+</div>"""
+    return _page(f"Health: {name}", address, body)

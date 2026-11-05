@@ -190,3 +190,72 @@ def upload_file(name: str, filename: str, content: bytes) -> dict:
     target.write_bytes(content)
     return {"ok": True, "message": f"Datei '{safe_name}' hochgeladen", "path": str(target)}
 
+
+
+def start_service(name: str) -> dict:
+    """Startet einen Service aus der Registry."""
+    registry = load_registry()
+    if name not in registry:
+        return {"ok": False, "message": f"Service '{name}' nicht gefunden"}
+    info = registry[name]
+    if is_running(info["pid"]):
+        return {"ok": True, "message": f"Service '{name}' läuft bereits"}
+    # Service neu starten (create_hidden_service.py)
+    script = Path(__file__).parent.parent.parent / "scripts" / "create_hidden_service.py"
+    log_file = LOGS_DIR / f"{name}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable, "-u", str(script),
+        "--name", name,
+        "--port", str(info["port"]),
+        "--pages", str(info["pages"]),
+        "--key-file", str(info.get("key_file", "")),
+        "--bind-host", "0.0.0.0",
+        "--log-level", info.get("log_level", "INFO"),
+    ]
+    log_handle = open(log_file, "a")
+    proc = subprocess.Popen(cmd, stdout=log_handle, stderr=log_handle, start_new_session=True)
+    time.sleep(2)
+    if is_running(proc.pid):
+        info["pid"] = proc.pid
+        save_registry(registry)
+        return {"ok": True, "message": f"Service '{name}' gestartet (PID {proc.pid})"}
+    return {"ok": False, "message": f"Service '{name}' konnte nicht gestartet werden"}
+
+
+def restart_service(name: str) -> dict:
+    """Stoppt und startet einen Service neu."""
+    stop_result = stop_service(name)
+    time.sleep(1)
+    return start_service(name)
+
+
+def get_logs(name: str, lines: int = 50) -> list[str]:
+    """Gibt die letzten N Zeilen des Service-Logs zurück."""
+    log_file = LOGS_DIR / f"{name}.log"
+    if not log_file.exists():
+        return [f"Log-Datei '{log_file}' existiert nicht"]
+    try:
+        with open(log_file) as f:
+            all_lines = f.readlines()
+        return [line.rstrip() for line in all_lines[-lines:]]
+    except Exception as e:
+        return [f"Fehler: {e}"]
+
+
+def get_health(name: str) -> dict:
+    """Prüft die Erreichbarkeit eines Service."""
+    registry = load_registry()
+    if name not in registry:
+        return {"ok": False, "message": f"Service '{name}' nicht gefunden"}
+    info = registry[name]
+    port = info["port"]
+    import urllib.request
+    try:
+        url = f"http://127.0.0.1:{port}/"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return {"ok": True, "status": resp.status, "port": port}
+    except urllib.error.HTTPError as e:
+        return {"ok": True, "status": e.code, "port": port}
+    except Exception as e:
+        return {"ok": False, "message": str(e), "port": port}

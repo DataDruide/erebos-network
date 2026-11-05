@@ -376,6 +376,9 @@ def _page(title: str, address: str, body: str, hero_image: str = "", body_bg: st
         "    .foot { margin-top: 3em; padding-top: 2em; border-top: 1px solid #1a0a0a; }\n"
         "    .foot-nav { display: flex; gap: 1.5em; flex-wrap: wrap; }\n"
         "    .foot-nav a { color: #998888; text-decoration: none; }\n"
+        "  .btn-small { display: inline-block; padding: 0.4em 0.8em; font-size: 0.75em; background: #ff3333; color: #fff !important; border: 1px solid #ff3333; border-radius: 3px; cursor: pointer; margin: 2px; text-decoration: none; font-weight: bold; }\n"
+        "  .btn-small:hover { background: #ff6666; border-color: #ff6666; }\n"
+        "  .btn-small:active { background: #cc0000; }\n"
         "  </style>\n"
         "</head>\n"
 
