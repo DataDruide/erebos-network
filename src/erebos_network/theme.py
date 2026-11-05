@@ -43,6 +43,10 @@ def render_theme_head() -> str:
       .erebos-level .xp-bar { width: 100%; height: 4px; background: #111; border-radius: 2px; margin-top: 4px; overflow: hidden; }
       .erebos-level .xp-fill { height: 100%; background: linear-gradient(90deg, #ff3333, #ff6666); transition: width 0.5s ease; box-shadow: 0 0 5px #ff3333; }
       .erebos-level .xp-text { font-size: 0.65em; color: #ff9999; margin-top: 2px; }
+      /* Erebos-Token (im Identity-Widget) */
+      .erebos-token { display: flex; align-items: center; gap: 4px; color: #ffcc00; font-weight: bold; text-shadow: 0 0 5px rgba(255,204,0,0.5); margin-top: 4px; }
+      .erebos-token .token-icon { font-size: 1.1em; }
+      .erebos-token .token-amount { color: #ffee99; }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -358,6 +362,45 @@ def render_theme_script() -> str:
           setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 600); }, 5000);
         }
       })();
+
+      // Erebos-Token (Waehrung)
+      (function() {
+        const tokenEl = document.getElementById('erebos-token-amount');
+        if (!tokenEl) return;
+
+        const TOKEN_ACTIONS = {
+          'visit': 1,
+          'wiki': 5,
+          'forum': 5,
+          'mail': 2,
+          'chat': 5,
+        };
+
+        let tokens = parseInt(localStorage.getItem('erebos_tokens') || '0', 10);
+        let lastVisit = parseInt(localStorage.getItem('erebos_tokens_last_visit') || '0', 10);
+        const now = Date.now();
+
+        // Token fuer Besuch (max. 1x pro Stunde)
+        if (now - lastVisit > 3600000) {
+          tokens += TOKEN_ACTIONS.visit;
+          localStorage.setItem('erebos_tokens_last_visit', now.toString());
+        }
+
+        // Token fuer Seiten-spezifische Aktionen (max. 1x pro Seite pro Stunde)
+        const path = location.pathname;
+        const pageKey = 'erebos_tokens_' + path;
+        const lastPageVisit = parseInt(localStorage.getItem(pageKey) || '0', 10);
+        if (now - lastPageVisit > 3600000) {
+          if (path.includes('/wiki')) tokens += TOKEN_ACTIONS.wiki;
+          else if (path.includes('/forum')) tokens += TOKEN_ACTIONS.forum;
+          else if (path.includes('/mail')) tokens += TOKEN_ACTIONS.mail;
+          else if (path.includes('/chat')) tokens += TOKEN_ACTIONS.chat;
+          localStorage.setItem(pageKey, now.toString());
+        }
+
+        localStorage.setItem('erebos_tokens', tokens.toString());
+        tokenEl.innerText = tokens;
+      })();
     </script>
     """
 
@@ -369,6 +412,7 @@ def render_identity_widget(address: str) -> str:
       <div><span class="pulse"></span><span class="handle">{handle}</span></div>
       <div class="addr">{address}</div>
       <div class="peers" id="erebos-peers">verbinde...</div>
+      <div class="erebos-token"><span class="token-icon">🪙</span><span class="token-amount" id="erebos-token-amount">0</span> Token</div>
     </div>
     <div class="erebos-time" id="erebos-time">Erebos-Zeit: ...</div>
     <div class="network-map">
