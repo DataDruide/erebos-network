@@ -47,6 +47,30 @@ def render_theme_head() -> str:
       .erebos-token { display: flex; align-items: center; gap: 4px; color: #ffcc00; font-weight: bold; text-shadow: 0 0 5px rgba(255,204,0,0.5); margin-top: 4px; }
       .erebos-token .token-icon { font-size: 1.1em; }
       .erebos-token .token-amount { color: #ffee99; }
+      .erebos-identity .links { margin-top: 6px; display: flex; gap: 8px; font-size: 0.7em; }
+      .erebos-identity .links a { color: #ff9999; text-decoration: none; }
+      .erebos-identity .links a:hover { color: #ffcccc; text-decoration: underline; }
+      .erebos-identity .sound-toggle { cursor: pointer; user-select: none; }
+      .erebos-identity .sound-toggle:hover { color: #ffcccc; }
+      /* Profil-Panel (Slide-in von rechts) */
+      .profile-panel { position: fixed; top: 0; right: -400px; width: 400px; height: 100vh; background: rgba(5,5,8,0.98); border-left: 2px solid #ff3333; z-index: 10001; transition: right 0.3s ease; overflow-y: auto; padding: 2em; box-shadow: -5px 0 30px rgba(255,51,51,0.3); font-family: 'Courier New', monospace; }
+      .profile-panel.open { right: 0; }
+      .profile-panel .close-btn { position: absolute; top: 1em; right: 1em; color: #ff3333; cursor: pointer; font-size: 1.5em; background: none; border: none; }
+      .profile-panel .close-btn:hover { color: #ff6666; }
+      .profile-panel .avatar { width: 100px; height: 100px; border-radius: 50%; border: 3px solid #ff3333; margin: 0 auto 1em; display: block; background: #1a0a0a; }
+      .profile-panel h2 { color: #ff3333; text-align: center; margin-bottom: 0.5em; }
+      .profile-panel .addr-full { color: #ff6666; font-size: 0.7em; word-break: break-all; text-align: center; margin-bottom: 1.5em; }
+      .profile-panel .stat-row { display: flex; justify-content: space-between; padding: 0.5em 0; border-bottom: 1px solid #1a0a0a; }
+      .profile-panel .stat-row .label { color: #ff9999; }
+      .profile-panel .stat-row .value { color: #ffcccc; font-weight: bold; }
+      .profile-panel .achievements-list { margin-top: 1em; }
+      .profile-panel .achievement-item { padding: 0.5em; border-left: 2px solid #ff3333; margin-bottom: 0.5em; background: rgba(255,51,51,0.05); }
+      .profile-panel .achievement-item .title { color: #ff3333; font-weight: bold; }
+      .profile-panel .achievement-item .desc { color: #ff9999; font-size: 0.8em; }
+      .profile-panel .panel-link { display: block; padding: 0.8em; margin: 0.5em 0; background: rgba(255,51,51,0.1); border: 1px solid #ff3333; border-radius: 4px; color: #ffcccc; text-decoration: none; text-align: center; }
+      .profile-panel .panel-link:hover { background: rgba(255,51,51,0.2); }
+      .profile-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+      .profile-overlay.open { opacity: 1; pointer-events: auto; }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -143,6 +167,26 @@ def render_theme_script() -> str:
         } catch (e) {}
       }
       document.addEventListener('click', startAmbient, { once: true });
+
+      // Sound-Toggle (an/aus)
+      (function() {
+        const toggle = document.getElementById('sound-toggle');
+        if (!toggle) return;
+        let soundOn = localStorage.getItem('erebos_sound') !== 'off';
+        toggle.innerText = soundOn ? '🔊' : '🔇';
+        toggle.addEventListener('click', function(e) {
+          e.stopPropagation();
+          soundOn = !soundOn;
+          localStorage.setItem('erebos_sound', soundOn ? 'on' : 'off');
+          toggle.innerText = soundOn ? '🔊' : '🔇';
+          if (!soundOn && ambientOsc) {
+            try { ambientOsc.stop(); } catch(e) {}
+            ambientOsc = null;
+            ambientCtx = null;
+          }
+          if (soundOn) startAmbient();
+        });
+      })();
 
       // Erebos-Zeit (eigene Zeitrechnung)
       (function() {
@@ -401,6 +445,78 @@ def render_theme_script() -> str:
         localStorage.setItem('erebos_tokens', tokens.toString());
         tokenEl.innerText = tokens;
       })();
+      // Profil-Panel (Slide-in von rechts)
+      (function() {
+        const panel = document.getElementById('profile-panel');
+        const overlay = document.getElementById('profile-overlay');
+        const closeBtn = document.getElementById('profile-close');
+        if (!panel) return;
+
+        function generateAvatar(addr) {
+          const canvas = document.getElementById('profile-avatar');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          const hash = addr.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+          ctx.fillStyle = '#1a0a0a';
+          ctx.fillRect(0, 0, 100, 100);
+          for (let i = 0; i < 16; i++) {
+            const x = (hash * (i + 1) * 7) % 100;
+            const y = (hash * (i + 1) * 13) % 100;
+            const size = 8 + ((hash * (i + 1)) % 12);
+            ctx.fillStyle = i % 2 === 0 ? '#ff3333' : '#ff6666';
+            ctx.fillRect(x, y, size, size);
+          }
+          ctx.strokeStyle = '#ff3333';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(50, 50, 48, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        function openPanel() {
+          panel.classList.add('open');
+          overlay.classList.add('open');
+          const addr = document.querySelector('.erebos-identity .addr')?.innerText || '';
+          document.getElementById('profile-addr').innerText = addr;
+          document.getElementById('profile-handle').innerText = 'anon-' + addr.substring(0, 8);
+          generateAvatar(addr);
+          const xp = localStorage.getItem('erebos_xp') || '0';
+          const tokens = localStorage.getItem('erebos_tokens') || '0';
+          const level = Math.floor(parseInt(xp) / 100) + 1;
+          document.getElementById('profile-level').innerText = level;
+          document.getElementById('profile-xp').innerText = xp;
+          document.getElementById('profile-tokens').innerText = tokens;
+          const achievements = JSON.parse(localStorage.getItem('erebos_achievements') || '[]');
+          const achList = document.getElementById('profile-achievements');
+          if (achievements.length > 0) {
+            const names = {
+              'first_visit': '🌐 Willkommen in Erebos',
+              'wiki_reader': '📖 Wissensdurstig',
+              'forum_visitor': '💬 Teil der Community',
+              'mail_checker': '📬 Postbote',
+              'chat_joiner': '🗣️ Gesprächig'
+            };
+            achList.innerHTML = '<h3 style="color:#ff3333; margin-top:1em;">Erfolge</h3>' +
+              achievements.map(a => '<div class="achievement-item"><div class="title">' + (names[a] || a) + '</div></div>').join('');
+          }
+        }
+
+        function closePanel() {
+          panel.classList.remove('open');
+          overlay.classList.remove('open');
+        }
+
+        const identity = document.querySelector('.erebos-identity');
+        if (identity) {
+          identity.style.cursor = 'pointer';
+          identity.addEventListener('click', function(e) {
+            if (e.target.tagName === 'A' || e.target.classList.contains('sound-toggle')) return;
+            openPanel();
+          });
+        }
+        if (closeBtn) closeBtn.addEventListener('click', closePanel);
+        if (overlay) overlay.addEventListener('click', closePanel);
+      })();
     </script>
     """
 
@@ -413,6 +529,10 @@ def render_identity_widget(address: str) -> str:
       <div class="addr">{address}</div>
       <div class="peers" id="erebos-peers">verbinde...</div>
       <div class="erebos-token"><span class="token-icon">🪙</span><span class="token-amount" id="erebos-token-amount">0</span> Token</div>
+      <div class="links">
+        <a href="/service">🛠️ Meine Services</a>
+        <span class="sound-toggle" id="sound-toggle" title="Sound an/aus">🔊</span>
+      </div>
     </div>
     <div class="erebos-time" id="erebos-time">Erebos-Zeit: ...</div>
     <div class="network-map">
@@ -423,6 +543,22 @@ def render_identity_widget(address: str) -> str:
       <div>Level <span class="level-num">1</span></div>
       <div class="xp-bar"><div class="xp-fill" style="width:0%"></div></div>
       <div class="xp-text">0 / 100 XP</div>
+    </div>
+    <div class="profile-overlay" id="profile-overlay"></div>
+    <div class="profile-panel" id="profile-panel">
+      <button class="close-btn" id="profile-close">✕</button>
+      <canvas class="avatar" id="profile-avatar" width="100" height="100"></canvas>
+      <h2 id="profile-handle">anon-????</h2>
+      <div class="addr-full" id="profile-addr"></div>
+      <div class="stat-row"><span class="label">Level</span><span class="value" id="profile-level">1</span></div>
+      <div class="stat-row"><span class="label">XP</span><span class="value" id="profile-xp">0</span></div>
+      <div class="stat-row"><span class="label">Token</span><span class="value" id="profile-tokens">0</span></div>
+      <div class="achievements-list" id="profile-achievements">
+        <h3 style="color:#ff3333; margin-top:1em;">Erfolge</h3>
+        <div style="color:#ff9999; font-size:0.8em;">Noch keine Erfolge.</div>
+      </div>
+      <a href="/service" class="panel-link">🛠️ Meine Services</a>
+      <a href="/welcome" class="panel-link">🏠 Startseite</a>
     </div>
     """
 
