@@ -32,6 +32,11 @@ def render_theme_head() -> str:
       .achievement-toast .title { color: #ff3333; font-weight: bold; font-size: 0.9em; margin-bottom: 4px; }
       .achievement-toast .desc { color: #ff9999; font-size: 0.8em; }
       .achievement-toast .icon { font-size: 1.5em; margin-right: 10px; }
+      /* Netzwerk-Karte (unten links) */
+      .network-map { position: fixed; bottom: 100px; left: 20px; width: 200px; height: 150px; background: rgba(5,5,8,0.9); border: 1px solid #ff3333; border-radius: 6px; z-index: 9998; box-shadow: 0 0 15px rgba(255,51,51,0.3); overflow: hidden; cursor: pointer; transition: all 0.3s; }
+      .network-map:hover { width: 300px; height: 220px; box-shadow: 0 0 25px rgba(255,51,51,0.6); }
+      .network-map canvas { width: 100%; height: 100%; display: block; }
+      .network-map .label { position: absolute; top: 4px; left: 8px; font-family: 'Courier New', monospace; font-size: 0.65em; color: #ff6666; text-shadow: 0 0 5px rgba(255,51,51,0.5); }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -192,6 +197,100 @@ def render_theme_script() -> str:
         if (path.includes('/mail')) showToast('mail_checker');
         if (path.includes('/chat')) showToast('chat_joiner');
       })();
+
+      // Netzwerk-Karte (Canvas — Peers als leuchtende Punkte)
+      (function() {
+        const canvas = document.getElementById('network-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        function resize() {
+          const rect = canvas.parentElement.getBoundingClientRect();
+          canvas.width = rect.width;
+          canvas.height = rect.height;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Simulierte Peers (Positionen relativ zur Karte)
+        const peers = [
+          { x: 0.15, y: 0.3, name: 'peer1', active: true },
+          { x: 0.5, y: 0.15, name: 'peer2', active: true },
+          { x: 0.85, y: 0.35, name: 'peer3', active: true },
+          { x: 0.7, y: 0.7, name: 'peer4', active: true },
+          { x: 0.3, y: 0.8, name: 'peer5', active: false },
+          { x: 0.5, y: 0.5, name: 'self', active: true, isSelf: true },
+        ];
+
+        let particles = [];
+        function drawNetwork() {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.fillStyle = 'rgba(5,5,8,0.15)';
+          ctx.fillRect(0, 0, w, h);
+
+          // Linien zwischen Peers (vom self zu den anderen)
+          const self = peers.find(p => p.isSelf);
+          if (self) {
+            ctx.strokeStyle = 'rgba(255,51,51,0.3)';
+            ctx.lineWidth = 1;
+            for (const p of peers) {
+              if (p.isSelf) continue;
+              ctx.beginPath();
+              ctx.moveTo(self.x * w, self.y * h);
+              ctx.lineTo(p.x * w, p.y * h);
+              ctx.stroke();
+            }
+          }
+
+          // Peers als leuchtende Punkte
+          for (const p of peers) {
+            const px = p.x * w;
+            const py = p.y * h;
+            const radius = p.isSelf ? 6 : 4;
+            const color = p.isSelf ? '#ff3333' : (p.active ? '#00ff88' : '#666');
+            // Glow
+            const grad = ctx.createRadialGradient(px, py, 0, px, py, radius * 3);
+            grad.addColorStop(0, color);
+            grad.addColorStop(1, 'transparent');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(px, py, radius * 3, 0, Math.PI * 2);
+            ctx.fill();
+            // Kern
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(px, py, radius, 0, Math.PI * 2);
+            ctx.fill();
+            // Label
+            ctx.fillStyle = '#ff9999';
+            ctx.font = '8px monospace';
+            ctx.fillText(p.name, px + 6, py + 3);
+          }
+
+          // Partikel (Datenfluss)
+          if (Math.random() < 0.1) {
+            const self = peers.find(p => p.isSelf);
+            const other = peers.filter(p => !p.isSelf && p.active);
+            if (self && other.length > 0) {
+              const target = other[Math.floor(Math.random() * other.length)];
+              particles.push({ sx: self.x, sy: self.y, tx: target.x, ty: target.y, t: 0 });
+            }
+          }
+          particles = particles.filter(p => p.t < 1);
+          for (const p of particles) {
+            p.t += 0.02;
+            const x = (p.sx + (p.tx - p.sx) * p.t) * w;
+            const y = (p.sy + (p.ty - p.sy) * p.t) * h;
+            ctx.fillStyle = 'rgba(255,51,51,' + (1 - p.t) + ')';
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          requestAnimationFrame(drawNetwork);
+        }
+        drawNetwork();
+      })();
     </script>
     """
 
@@ -205,6 +304,10 @@ def render_identity_widget(address: str) -> str:
       <div class="peers" id="erebos-peers">verbinde...</div>
     </div>
     <div class="erebos-time" id="erebos-time">Erebos-Zeit: ...</div>
+    <div class="network-map">
+      <div class="label">NETZWERK</div>
+      <canvas id="network-canvas"></canvas>
+    </div>
     """
 
 
