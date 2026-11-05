@@ -838,14 +838,9 @@ class HiddenServiceRuntime:
                 await writer.drain()
                 return
 
-            # /onboarding — Onboarding-Seite für neue Nutzer
+            # /onboarding → Redirect auf /onboard (veraltet)
             if path in ("/onboarding", "/onboarding.html"):
-                _onb_path = _static_dir / "onboarding.html"
-                if _onb_path.exists():
-                    body_out = _onb_path.read_bytes()
-                else:
-                    body_out = b"<h1>404 - Onboarding nicht gefunden</h1>"
-                resp = http_response(200, "text/html; charset=utf-8", body_out)
+                resp = http_response(302, "text/plain", b"", location="/onboard")
                 writer.write(resp)
                 await writer.drain()
                 return
@@ -1076,27 +1071,43 @@ class HiddenServiceRuntime:
                     f"HTTP-Anfrage empfangen (stream={stream_id}, {len(payload_data)}B)"
                 )
                 try:
-                    http_reader, http_writer = await asyncio.open_connection(
-                        self.http_backend_host, self.http_backend_port
-                    )
-                    http_writer.write(payload_data)
-                    await http_writer.drain()
-                    # Antwort vollstaendig lesen (bis EOF, max. 256 KB)
-                    chunks = []
-                    total = 0
-                    while total < 262144:  # 256 KB Limit
-                        chunk = await asyncio.wait_for(
-                            http_reader.read(65536), timeout=5.0
-                        )
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        total += len(chunk)
-                    http_response = b"".join(chunks)
-                    http_writer.close()
+                    # Direkter Aufruf des HTTP-Handlers (kein TCP-Selbstaufruf)
+                    _http_reader = asyncio.StreamReader()
+                    _http_reader.feed_data(payload_data)
+                    _http_reader.feed_eof()
+
+                    class _InMemoryWriter:
+                        def __init__(self):
+                            self._buf = bytearray()
+                        def write(self, data):
+                            self._buf.extend(data)
+                        async def drain(self):
+                            pass
+                        def close(self):
+                            pass
+                        def get_extra_info(self, name, default=None):
+                            return default
+                        def getvalue(self):
+                            return bytes(self._buf)
+
+                    _http_writer = _InMemoryWriter()
+                    await self._default_http_handler(_http_reader, _http_writer)
+                    http_response = _http_writer.getvalue()
                 except Exception as e:
                     logger.error(f"HTTP-Backend-Fehler: {e}")
-                    continue
+                    # Fehlerseite an den Client senden (statt continue)
+                    try:
+                        body_504 = (
+                            "<!DOCTYPE html><html><head><title>504 Gateway Timeout</title></head>"
+                            "<body><h1>504 Gateway Timeout</h1>"
+                            "<p>Der Erebos-Hidden-Service konnte die Anfrage nicht verarbeiten.</p>"
+                            "<p>Bitte versuche es spaeter erneut.</p>"
+                            "</body></html>"
+                        ).encode("utf-8")
+                        http_response_bytes = http_response(504, "text/html; charset=utf-8", body_504)
+                    except Exception:
+                        http_response_bytes = b"HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n"
+                    http_response = http_response_bytes
 
                 # Antwort verschluesseln, falls E2E-Schluessel vorhanden
                 e2e_server = e2e_servers.get(stream_id)
