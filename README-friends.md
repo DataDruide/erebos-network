@@ -12,6 +12,12 @@ Willkommen bei Erebos! Diese Anleitung führt dich Schritt für Schritt durch di
 - Den Erebos-Browser mit integriertem SOCKS5-Proxy
 - Zugang zum Erebos-Netzwerk über den Hetzner-Bootstrap-Peer
 - `.erebos`-Adressen (Wiki, Chat, Mail, Search, Hidden Services)
+- **Erebos-Theme** (Matrix-Regen, Scanlines, Vignette, Custom Cursor)
+- **Profil-Panel** (Avatar, XP, Token, Achievements)
+- **Netzwerk-Karte** (echte Peers, Datenfluss)
+- **Erebos-Zeit** (eigene Zeitrechnung)
+- **Achievements** (Toasts für erste Besuche)
+- **Sound-Design** (Klick-Sounds, Ambient)
 
 ---
 
