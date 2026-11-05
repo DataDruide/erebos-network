@@ -271,15 +271,34 @@ def render_theme_script() -> str:
         resize();
         window.addEventListener('resize', resize);
 
-        // Simulierte Peers (Positionen relativ zur Karte)
-        const peers = [
-          { x: 0.15, y: 0.3, name: 'peer1', active: true },
-          { x: 0.5, y: 0.15, name: 'peer2', active: true },
-          { x: 0.85, y: 0.35, name: 'peer3', active: true },
-          { x: 0.7, y: 0.7, name: 'peer4', active: true },
-          { x: 0.3, y: 0.8, name: 'peer5', active: false },
-          { x: 0.5, y: 0.5, name: 'self', active: true, isSelf: true },
-        ];
+        // Echte Peers (aus /api/peers)
+        let peers = [];
+        const selfPeer = { x: 0.5, y: 0.5, name: 'self', active: true, isSelf: true };
+        async function loadPeers() {
+          try {
+            const resp = await fetch('/api/peers');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const list = data.peers || [];
+            const n = list.length;
+            peers = list.map((p, i) => {
+              const angle = (2 * Math.PI * i) / Math.max(n, 1) - Math.PI / 2;
+              return {
+                x: 0.5 + 0.35 * Math.cos(angle),
+                y: 0.5 + 0.35 * Math.sin(angle),
+                name: p.name || '?',
+                active: p.enabled !== false,
+                isSelf: false,
+              };
+            });
+            peers.push(selfPeer);
+          } catch (e) {
+            peers = [selfPeer];
+          }
+        }
+        loadPeers();
+        // Peers alle 30s neu laden
+        setInterval(loadPeers, 30000);
 
         let particles = [];
         function drawNetwork() {
