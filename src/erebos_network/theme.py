@@ -26,6 +26,12 @@ def render_theme_head() -> str:
       }
       /* Erebos-Zeit */
       .erebos-time { position: fixed; bottom: 10px; right: 10px; background: rgba(5,5,8,0.9); border: 1px solid #ff3333; border-radius: 4px; padding: 4px 10px; font-family: 'Courier New', monospace; font-size: 0.7em; color: #ff6666; z-index: 9999; }
+      /* Achievements (Toasts) */
+      .achievement-toast { position: fixed; bottom: 60px; left: 20px; background: rgba(5,5,8,0.95); border: 1px solid #ff3333; border-radius: 6px; padding: 12px 20px; font-family: 'Courier New', monospace; font-size: 0.85em; color: #ffcccc; z-index: 10000; box-shadow: 0 0 20px rgba(255,51,51,0.5); transform: translateX(-120%); transition: transform 0.5s ease; max-width: 300px; }
+      .achievement-toast.show { transform: translateX(0); }
+      .achievement-toast .title { color: #ff3333; font-weight: bold; font-size: 0.9em; margin-bottom: 4px; }
+      .achievement-toast .desc { color: #ff9999; font-size: 0.8em; }
+      .achievement-toast .icon { font-size: 1.5em; margin-right: 10px; }
     </style>
     <canvas id="matrix-canvas"></canvas>
     """
@@ -140,6 +146,51 @@ def render_theme_script() -> str:
         }
         updateTime();
         setInterval(updateTime, 1000);
+      })();
+
+      // Achievements (Toasts)
+      (function() {
+        const achievements = {
+          'first_visit': { title: 'Willkommen in Erebos', desc: 'Du hast die verborgene Welt betreten.', icon: '🌐' },
+          'wiki_reader': { title: 'Wissensdurstig', desc: 'Du hast das Hidden Wiki gelesen.', icon: '📖' },
+          'forum_visitor': { title: 'Teil der Community', desc: 'Du hast das Forum betreten.', icon: '💬' },
+          'mail_checker': { title: 'Postbote', desc: 'Du hast dein Postfach geöffnet.', icon: '📬' },
+          'chat_joiner': { title: 'Gesprächig', desc: 'Du hast den Chat betreten.', icon: '🗣️' }
+        };
+
+        function showToast(id) {
+          const a = achievements[id];
+          if (!a) return;
+          // Prüfen, ob schon gezeigt (localStorage)
+          const shown = JSON.parse(localStorage.getItem('erebos_achievements') || '[]');
+          if (shown.includes(id)) return;
+          shown.push(id);
+          localStorage.setItem('erebos_achievements', JSON.stringify(shown));
+
+          // Toast erstellen
+          const toast = document.createElement('div');
+          toast.className = 'achievement-toast';
+          toast.innerHTML = '<div class="title"><span class="icon">' + a.icon + '</span>' + a.title + '</div><div class="desc">' + a.desc + '</div>';
+          document.body.appendChild(toast);
+
+          // Einblenden
+          setTimeout(() => toast.classList.add('show'), 100);
+          // Ausblenden nach 5s
+          setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 600);
+          }, 5000);
+        }
+
+        // Erstbesuch
+        showToast('first_visit');
+
+        // Seiten-spezifische Achievements
+        const path = location.pathname;
+        if (path.includes('/wiki')) showToast('wiki_reader');
+        if (path.includes('/forum')) showToast('forum_visitor');
+        if (path.includes('/mail')) showToast('mail_checker');
+        if (path.includes('/chat')) showToast('chat_joiner');
       })();
     </script>
     """
